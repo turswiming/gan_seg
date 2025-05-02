@@ -8,7 +8,7 @@ class MaskPredictor(nn.Module):
         self.slot_num = slot_num
         self.point_length = point_length
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        tensor = torch.randn((slot_num, point_length))
+        tensor = torch.randn((slot_num, point_length),dtype=torch.float64, device=self.device)
         softmaxed_tensor = F.softmax(tensor, dim=0)
         self.tensor3d = torch.nn.Parameter(softmaxed_tensor, requires_grad=True)
     

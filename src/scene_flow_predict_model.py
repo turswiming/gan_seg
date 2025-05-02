@@ -35,3 +35,50 @@ class SceneFlowPredictor(nn.Module):
         point_cloud = point_cloud.view(-1, self.output_dim)
         flow = point_cloud
         return flow
+    
+    
+class Neural_Prior(torch.nn.Module):
+    def __init__(self, dim_x=3, filter_size=128, act_fn='relu', layer_size=8):
+        super().__init__()
+        self.layer_size = layer_size
+        
+        self.nn_layers = torch.nn.ModuleList([])
+        # input layer (default: xyz -> 128)
+        if layer_size >= 1:
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, filter_size,dtype=torch.float64)))
+            if act_fn == 'relu':
+                self.nn_layers.append(torch.nn.ReLU())
+            elif act_fn == 'sigmoid':
+                self.nn_layers.append(torch.nn.Sigmoid())
+            for _ in range(layer_size-1):
+                self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(filter_size, filter_size,dtype=torch.float64)))
+                if act_fn == 'relu':
+                    self.nn_layers.append(torch.nn.ReLU())
+                elif act_fn == 'sigmoid':
+                    self.nn_layers.append(torch.nn.Sigmoid())
+            self.nn_layers.append(torch.nn.Linear(filter_size, dim_x,dtype=torch.float64))
+        else:
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, dim_x,dtype=torch.float64)))
+
+    def forward(self, x):
+        """ points -> features
+            [B, N, 3] -> [B, K]
+        """
+        for layer in self.nn_layers:
+            x = layer(x)
+                
+        return x
+    
+class FLowPredictor(torch.nn.Module):
+    def __init__(self, dim=3, pointSize=128):
+        super().__init__()
+        self.pointSize = pointSize
+        self.dim = dim
+        init_noise = torch.randn((pointSize, dim), dtype=torch.float64)
+        self.init_noise = torch.nn.Parameter(init_noise, requires_grad=True)
+    
+    def forward(self, x):
+        """ points -> features
+            [B, N, 3] -> [B, K]
+        """
+        return self.init_noise
