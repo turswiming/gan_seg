@@ -155,7 +155,7 @@ for sample in infinite_loader:
     #     mask_predictor.train()
     pred_flow = scene_flow_predictor(sample["point_cloud_first"].to(device))
     pred_flow = pred_flow.view(-1, 3)
-    gt_flow = sample["point_cloud_second"] - sample["point_cloud_first"]
+    gt_flow = torch.tensor(sample["flow"])
     gt_flow = gt_flow.to(pred_flow.device)
     pred_mask = mask_predictor(sample)
     loss, reconstructed_points = criterion(sample, pred_mask, pred_flow)
@@ -207,8 +207,8 @@ for sample in infinite_loader:
     reconstructed_pcd.paint_uniform_color([0, 0, 1])
     if first_iteration:
         # vis.add_geometry(pcd)
-        # vis.add_geometry(gt_pcd)
-        # vis.add_geometry(reconstructed_pcd)
+        vis.add_geometry(gt_pcd)
+        vis.add_geometry(reconstructed_pcd)
         vis , lineset = visualize_vectors(
             sample["point_cloud_first"].reshape(-1, 3),
             pred_flow.cpu().detach().numpy().reshape(-1, 3),
@@ -226,8 +226,8 @@ for sample in infinite_loader:
             
         )
         vis.update_geometry(lineset)
-        # vis.update_geometry(gt_pcd)
-        # vis.update_geometry(reconstructed_pcd)
+        vis.update_geometry(gt_pcd)
+        vis.update_geometry(reconstructed_pcd)
     vis.poll_events()
     vis.update_renderer()
 
