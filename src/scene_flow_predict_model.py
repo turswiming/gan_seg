@@ -74,7 +74,7 @@ class FLowPredictor(torch.nn.Module):
         super().__init__()
         self.pointSize = pointSize
         self.dim = dim
-        init_noise = torch.randn((pointSize, dim), dtype=torch.float64)
+        init_noise = torch.randn((pointSize, dim), dtype=torch.float64)*0.1
         self.init_noise = torch.nn.Parameter(init_noise, requires_grad=True)
     
     def forward(self, x):

@@ -201,7 +201,7 @@ class Loss_version2:
         point_cloud_second = inputs["point_cloud_second"].to(self.device)
         pred_mask = pred_mask.to(self.device)
         pred_flow = pred_flow.to(self.device)
-        pred_mask = F.softmax(pred_mask*0.1, dim=0)
+        pred_mask = F.softmax(pred_mask, dim=0)
         '''
         loss2
         point_cloud_first torch.Size([1, 4121, 3])
@@ -224,7 +224,7 @@ class Loss_version2:
             # Now the broadcasting will work correctly
             masked_scene_flow = (transformed_point - point_cloud_first) * mask_expanded
             scene_flow_rec += masked_scene_flow
-        loss = self.chamfer_distance_memory_efficient(scene_flow_rec+point_cloud_first, point_cloud_second, bidirectional=True, reduction='mean', chunk_size=1024)
-        loss2 = self.chamfer_distance_memory_efficient(pred_flow+point_cloud_first, point_cloud_second, bidirectional=True, reduction='mean', chunk_size=1024)
-        return loss*1+loss2*1, scene_flow_rec+point_cloud_first
+        loss = self.chamfer_distance_memory_efficient(scene_flow_rec+point_cloud_first, point_cloud_second, bidirectional=False, reduction='mean', chunk_size=1024)
+        loss2 = self.chamfer_distance_memory_efficient(pred_flow+point_cloud_first, point_cloud_second, bidirectional=False, reduction='mean', chunk_size=1024)
+        return loss*0.1 + loss2*1, scene_flow_rec+point_cloud_first
         pass

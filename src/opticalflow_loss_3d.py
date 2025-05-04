@@ -6,6 +6,26 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+class ScaleGradient(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, scale):
+        ctx.scale = scale
+        return input  # 前向传播返回原始值
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # 反向传播时调整梯度幅度
+        return grad_output * ctx.scale, None  # 第二个 None 是因为 scale 不需要梯度
+
+def normalize_global(x):
+    with torch.no_grad():
+        std = x.clone().reshape(-1).std(dim=0)
+        print(f"std  {std}")
+        if std.max() <= 1e-6:
+            std = torch.ones_like(std)
+    x = x/std # (HW, 2)
+    return x
+
 def normalize_global(x):
     with torch.no_grad():
         std = x.clone().reshape(-1).std(dim=0)
@@ -35,6 +55,7 @@ class OpticalFlowLoss_3d:
     def loss(self, sample, mask, flow):
         B = 1
         K = mask.shape[0]
+        mask = ScaleGradient.apply(mask, 10.0)
         point_position = sample["point_cloud_first"].to(self.device)
         scene_flows = flow
         
@@ -45,9 +66,10 @@ class OpticalFlowLoss_3d:
         for b in range(B):
             coords = self.construct_embedding(point_position)  # (L, 4)
             scene_flow_b = normalize_global(scene_flows)  # (L, 3)
-            scene_flow_b = scene_flow_b*0.3
-            mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
-            
+            scene_flow_b = scene_flow_b*0.2
+            with torch.no_grad():
+                mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
+            flow_reconstruction = torch.zeros_like(scene_flow_b)  # (L, 3)
             reconstruction_loss = 0
             for k in range(K):
                 mk = mask_binary_b[k].unsqueeze(-1)  # (L,1)
@@ -61,7 +83,8 @@ class OpticalFlowLoss_3d:
                 
                 # 重建误差
                 Fk_hat = coords @ theta_k
-                reconstruction_loss += (Fk_hat - scene_flow_b).pow(2).sum()
+                flow_reconstruction += Fk_hat * mk  # (L, 3)
+            reconstruction_loss += self.criterion(flow_reconstruction, scene_flow_b)
             
             # 组合损失：重建项 + 幅度约束项
             total_loss += reconstruction_loss
@@ -79,5 +102,5 @@ class OpticalFlowLoss_3d:
         y = point_position[...,1].view(-1)
         z = point_position[...,2].view(-1)
         # shape (L, 4)
-        emb = torch.stack([x, y, z, torch.ones_like(x)], dim=1)
+        emb = torch.stack([x, y, z, torch.ones_like(x),torch.ones_like(x)], dim=1)
         return emb

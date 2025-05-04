@@ -8,6 +8,7 @@ from mask_predict_model import MaskPredictor
 from gan_loss import GanLoss
 from loss2 import Loss_version2
 from opticalflow_loss_3d import OpticalFlowLoss_3d
+from objectsmooth import SmoothLoss
 dataset = PerSceneDataset()
 
 def pca(pred_mask, num_components=3):
@@ -127,6 +128,8 @@ optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.1, weight_
 optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=1, weight_decay=0.01)
 criterion = Loss_version2(device=device)
 criterion2 = OpticalFlowLoss_3d(device=device)
+smooth_loss = SmoothLoss()
+
 mse = nn.MSELoss()
 vis = o3d.visualization.Visualizer()
 vis.create_window()
@@ -160,17 +163,20 @@ for sample in infinite_loader:
     mse_loss = mse(pred_flow+sample["point_cloud_first"].to(device), reconstructed_points)
     loss = loss *1
 
-    loss2 = loss2 *  0.0001
+    loss2 = loss2 * 10
 
-    mse_loss = mse_loss * 1
+    mse_loss = mse_loss * 0.001
+    smooth_loss_value = smooth_loss(sample["point_cloud_first"].to(device).to(torch.float), pred_mask.permute(1,0).unsqueeze(0).to(torch.float))
+    smooth_loss_value = smooth_loss_value * 0.01
     print("loss", loss.item())
     print("loss2", loss2.item())
     print("mse_loss", mse_loss.item())
+    print("smooth_loss_value", smooth_loss_value.item())
     optimizer.zero_grad()
     optimizer_mask.zero_grad()
     pred_flow.retain_grad()
     pred_mask.retain_grad()
-    sum_loss = loss + loss2 +mse_loss
+    sum_loss = loss + loss2 +mse_loss +smooth_loss_value
     # sum_loss = mse_loss
     sum_loss.backward()
     if pred_flow.grad is not None:
@@ -179,6 +185,13 @@ for sample in infinite_loader:
         print("pred_mask.grad", pred_mask.grad.std())
     optimizer.step()
     optimizer_mask.step()
+    #compare with gt_flow
+    pred_flow = pred_flow.view(-1, 3)
+    pred_flow = pred_flow.reshape(-1, 3)
+    gt_flow = gt_flow.view(-1, 3)
+    gt_flow = gt_flow.reshape(-1, 3)
+    epe = torch.norm(pred_flow - gt_flow, dim=1)
+    print("epe", epe.mean().item())
     pred_point = (sample["point_cloud_first"] + pred_flow.cpu().detach()).numpy()
     pcd.points = o3d.utility.Vector3dVector(pred_point.reshape(-1, 3))
     pred_mask = pred_mask.permute(1, 0)
@@ -193,9 +206,9 @@ for sample in infinite_loader:
     reconstructed_pcd.points = o3d.utility.Vector3dVector(reconstructed_points.cpu().detach().numpy().reshape(-1, 3))
     reconstructed_pcd.paint_uniform_color([0, 0, 1])
     if first_iteration:
-        vis.add_geometry(pcd)
-        vis.add_geometry(gt_pcd)
-        vis.add_geometry(reconstructed_pcd)
+        # vis.add_geometry(pcd)
+        # vis.add_geometry(gt_pcd)
+        # vis.add_geometry(reconstructed_pcd)
         vis , lineset = visualize_vectors(
             sample["point_cloud_first"].reshape(-1, 3),
             pred_flow.cpu().detach().numpy().reshape(-1, 3),
@@ -204,7 +217,7 @@ for sample in infinite_loader:
             )
         first_iteration = False
     else:
-        vis.update_geometry(pcd)
+        # vis.update_geometry(pcd)
         lineset = update_vector_visualization(
             lineset,
             sample["point_cloud_first"].reshape(-1, 3),
@@ -213,8 +226,8 @@ for sample in infinite_loader:
             
         )
         vis.update_geometry(lineset)
-        vis.update_geometry(gt_pcd)
-        vis.update_geometry(reconstructed_pcd)
+        # vis.update_geometry(gt_pcd)
+        # vis.update_geometry(reconstructed_pcd)
     vis.poll_events()
     vis.update_renderer()
 
