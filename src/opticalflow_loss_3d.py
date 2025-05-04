@@ -55,7 +55,7 @@ class OpticalFlowLoss_3d:
     def loss(self, sample, mask, flow):
         B = 1
         K = mask.shape[0]
-        mask = ScaleGradient.apply(mask, 10.0)
+        mask = ScaleGradient.apply(mask, 1)
         point_position = sample["point_cloud_first"].to(self.device)
         scene_flows = flow
         
@@ -67,8 +67,7 @@ class OpticalFlowLoss_3d:
             coords = self.construct_embedding(point_position)  # (L, 4)
             scene_flow_b = normalize_global(scene_flows)  # (L, 3)
             scene_flow_b = scene_flow_b*0.2
-            with torch.no_grad():
-                mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
+            mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
             flow_reconstruction = torch.zeros_like(scene_flow_b)  # (L, 3)
             reconstruction_loss = 0
             for k in range(K):
