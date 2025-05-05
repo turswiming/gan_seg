@@ -2,6 +2,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import open3d as o3d
+# this loss is not used in the final version
+
+
+
 
 # This code is originally from OGC
 def fit_motion_svd_batch(pc1, pc2, pc1_mask, pc2_mask=None):

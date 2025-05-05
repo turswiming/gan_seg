@@ -34,7 +34,7 @@ def normalize_global(x):
             std = torch.ones_like(std)
     x = x/std # (HW, 2)
     return x
-class OpticalFlowLoss_3d:
+class FlowSmoothLoss():
     """
     Reproduces the parametric (quadratic) flow approximation loss described in Section 3.1:
       Lf(M|F) = sum_k || Fk - F̂k ||^2_F ,  where F̂k = Ek θ̂k  and θ̂k = (Eᵀ_k E_k)^(-1) Eᵀ_k Fk

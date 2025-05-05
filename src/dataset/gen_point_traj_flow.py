@@ -3,10 +3,10 @@ import numpy as np
 import json
 import cv2
 import pyquaternion as pyquat
-from reverse_projection import image_reverse_projection, point_reverse_projection
-from datasetutil import clamp, rgb_array_to_int32, camera_space_to_world_space
-from datasetutil import read_forward_flow,read_segmentation
-from datasetutil import visualize_scene_flow, vis,visualize_point_trajectory
+from dataset.reverse_projection import image_reverse_projection, point_reverse_projection
+from .datasetutil import clamp, rgb_array_to_int32, camera_space_to_world_space
+from .datasetutil import read_forward_flow,read_segmentation
+from .datasetutil import visualize_scene_flow, vis,visualize_point_trajectory
 
 
 def most_likely_instance(segmentations,color,instances)-> int:

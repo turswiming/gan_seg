@@ -83,7 +83,7 @@ class BallQLoss(nn.Module):
         return loss.mean()
 
 
-class SmoothLoss(nn.Module):
+class PointSmoothLoss(nn.Module):
     """
     Enforce local smoothness of object mask.
     """

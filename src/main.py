@@ -1,136 +1,60 @@
+#standard library
+import datetime
+
+#third party library
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.tensorboard import SummaryWriter
+
+#local library
 import open3d as o3d
-from per_scene_dataset import PerSceneDataset
-from scene_flow_predict_model import SceneFlowPredictor, Neural_Prior ,FLowPredictor
-from mask_predict_model import MaskPredictor
-from gan_loss import GanLoss
-from loss2 import Loss_version2
-from opticalflow_loss_3d import OpticalFlowLoss_3d
-from objectsmooth import SmoothLoss
-dataset = PerSceneDataset()
+from dataset.per_scene_dataset import PerSceneDataset
 
-def pca(pred_mask, num_components=3):
-    #PCA to 3D
-    
-    # Normalize the mask values for better PCA results
-    normalized_mask = F.softmax(pred_mask*0.1, dim=1)
-    
-    # Center the data
-    mean = torch.mean(normalized_mask, dim=0, keepdim=True)
-    centered_data = normalized_mask - mean
-    
-    # Compute covariance matrix
-    cov = torch.mm(centered_data.t(), centered_data) / (centered_data.size(0) - 1)
-    
-    # Compute eigenvalues and eigenvectors
-    eigenvalues, eigenvectors = torch.linalg.eigh(cov)
-    
-    # Sort eigenvalues and eigenvectors in descending order
-    indices = torch.argsort(eigenvalues, descending=True)
-    eigenvalues = eigenvalues[indices]
-    eigenvectors = eigenvectors[:, indices]
-    
-    # Select top 3 eigenvectors
-    top_eigenvectors = eigenvectors[:, :3]
-    
-    # Project the data onto the top 3 eigenvectors
-    color = torch.mm(centered_data, top_eigenvectors)
-    
-    # Scale to [0, 1] range for visualization
-    min_vals = torch.min(color, dim=0, keepdim=True)[0]
-    max_vals = torch.max(color, dim=0, keepdim=True)[0]
-    color = (color - min_vals) / (max_vals - min_vals + 1e-8)
-    return color
+from model.scene_flow_predict_model import FLowPredictor
+from model.mask_predict_model import MaskPredictor
 
-import numpy as np
+from losses.ChamferDistanceLoss import ChamferDistanceLoss
+from losses.ReconstructionLoss import ReconstructionLoss
+from losses.PointSmoothLoss import PointSmoothLoss
+from losses.FlowSmoothLoss import FlowSmoothLoss
 
-def visualize_vectors(points, vectors, vis=None, color=None, scale=1.0):
-    """
-    Visualize vectors in Open3D.
-    
-    Args:
-        points (numpy.ndarray): Starting points of vectors, shape (N, 3)
-        vectors (numpy.ndarray): Vectors to visualize, shape (N, 3)
-        vis (o3d.visualization.Visualizer, optional): Existing visualizer
-        color (list, optional): RGB color for vectors, default [1, 0, 0] (red)
-        scale (float, optional): Scaling factor for vector lengths
-        
-    Returns:
-        tuple: (visualizer, line_set) - The visualizer and the created line set
-    """
-    if color is None:
-        color = [1, 0, 0]  # Default red color
-        
-    if vis is None:
-        vis = o3d.visualization.Visualizer()
-        vis.create_window()
-    
-    # Create line set for vectors
-    line_set = o3d.geometry.LineSet()
-    
-    # Generate points and lines
-    end_points = points + vectors * scale
-    all_points = np.vstack((points, end_points))
-    line_set.points = o3d.utility.Vector3dVector(all_points)
-    
-    # Create lines connecting start points to end points
-    lines = [[i, i + len(points)] for i in range(len(points))]
-    line_set.lines = o3d.utility.Vector2iVector(lines)
-    
-    # Set color for all lines
-    line_set.colors = o3d.utility.Vector3dVector(color)
-    
-    # Add to visualizer
-    vis.add_geometry(line_set)
-    
-    return vis, line_set
-
-def update_vector_visualization(line_set, points, vectors, scale=1.0, color=None):
-    """
-    Update an existing line set with new vectors.
-    
-    Args:
-        line_set (o3d.geometry.LineSet): The line set to update
-        points (numpy.ndarray): Starting points of vectors, shape (N, 3)
-        vectors (numpy.ndarray): Vectors to visualize, shape (N, 3)
-        scale (float, optional): Scaling factor for vector lengths
-        color (list, optional): RGB color for vectors
-        
-    Returns:
-        o3d.geometry.LineSet: The updated line set
-    """
-    # Generate points
-    end_points = points + vectors * scale
-    all_points = np.vstack((points, end_points))
-    line_set.points = o3d.utility.Vector3dVector(all_points)
-    line_set.colors = o3d.utility.Vector3dVector(color)
-    
-    return line_set
+from visualize.open3d_func import visualize_vectors, update_vector_visualization
+from visualize.pca import pca
+#import tensorboard
 
 
 def infinite_dataloader(dataloader):
     while True:
         for batch in dataloader:
             yield batch
+
+#init summary writer
+time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+writer = SummaryWriter(log_dir=f"../outputs/exp/{time_str}")
+dataset = PerSceneDataset()
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dataset = PerSceneDataset()
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
+warmup_shaduler = lambda it : min(10+it*0.1,100)
 infinite_loader = infinite_dataloader(dataloader)
 sample = next(infinite_loader)
 _, N, _ = sample["point_cloud_first"].shape
 scene_flow_predictor = FLowPredictor(dim=3,pointSize=N)
 scene_flow_predictor.to(device)
-slot_num = 6
+slot_num = 3
 mask_predictor = MaskPredictor(slot_num=slot_num, point_length=N)
-optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.1, weight_decay=0.01)
+optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.03, weight_decay=0.01)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10)
 optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=1, weight_decay=0.01)
-criterion = Loss_version2(device=device)
-criterion2 = OpticalFlowLoss_3d(device=device)
-smooth_loss = SmoothLoss()
 
-mse = nn.MSELoss()
+reconstructionLoss = ReconstructionLoss(device)
+chamferLoss = ChamferDistanceLoss()
+flowSmoothLoss = FlowSmoothLoss(device)
+pointsmoothloss = PointSmoothLoss()
+flowRecLoss = nn.MSELoss()
+
 vis = o3d.visualization.Visualizer()
 vis.create_window()
 pcd = o3d.geometry.PointCloud()
@@ -158,27 +82,45 @@ for sample in infinite_loader:
     gt_flow = torch.tensor(sample["flow"])
     gt_flow = gt_flow.to(pred_flow.device)
     pred_mask = mask_predictor(sample)
-    loss, reconstructed_points = criterion(sample, pred_mask, pred_flow)
-    loss2 = criterion2(sample, pred_mask, pred_flow)
-    mse_loss = mse(pred_flow+sample["point_cloud_first"].to(device), reconstructed_points)
-    loss = loss *1
 
-    loss2 = loss2 * 10
+    #compute losses
+    rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
+    scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
+    rec_flow_loss = flowRecLoss(pred_flow+sample["point_cloud_first"].to(device), reconstructed_points)
+    flow_loss = chamferLoss(pred_flow+sample["point_cloud_first"].to(device), sample["point_cloud_second"].to(device))
+    point_smooth_loss = pointsmoothloss(sample["point_cloud_first"].to(device).to(torch.float), pred_mask.permute(1,0).unsqueeze(0).to(torch.float))
 
-    mse_loss = mse_loss * 0.001
-    smooth_loss_value = smooth_loss(sample["point_cloud_first"].to(device).to(torch.float), pred_mask.permute(1,0).unsqueeze(0).to(torch.float))
-    smooth_loss_value = smooth_loss_value * 0.01
-    print("loss", loss.item())
-    print("loss2", loss2.item())
-    print("mse_loss", mse_loss.item())
-    print("smooth_loss_value", smooth_loss_value.item())
+    #add weights to losses
+    rec_loss = rec_loss *0.1
+    flow_loss = flow_loss * 1
+    scene_flow_smooth_loss = scene_flow_smooth_loss * warmup_shaduler(step)
+    rec_flow_loss = rec_flow_loss * 0.001
+    point_smooth_loss = point_smooth_loss * 0.01
+
+    #add all losses together
+    loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss
+    print("rec_loss", rec_loss.item())
+    print("flow_loss", flow_loss.item())
+    print("scene_flow_smooth_loss", scene_flow_smooth_loss.item())
+    print("rec_flow_loss", rec_flow_loss.item())
+    print("point_smooth_loss", point_smooth_loss.item())
+    print("iteration", step)
+    #add all losses to tensorboard in one chart
+    writer.add_scalars("losses", {
+        "rec_loss": rec_loss.item(),
+        "flow_loss": flow_loss.item(),
+        "scene_flow_smooth_loss": scene_flow_smooth_loss.item(),
+        "rec_flow_loss": rec_flow_loss.item(),
+        "point_smooth_loss": point_smooth_loss.item(),
+        "total_loss": loss.item(),
+    }, step)
+    
     optimizer.zero_grad()
     optimizer_mask.zero_grad()
     pred_flow.retain_grad()
     pred_mask.retain_grad()
-    sum_loss = loss + loss2 +mse_loss +smooth_loss_value
     # sum_loss = mse_loss
-    sum_loss.backward()
+    loss.backward()
     if pred_flow.grad is not None:
         print("pred_flow.grad", pred_flow.grad.std())
     if pred_mask.grad is not None:
@@ -190,15 +132,16 @@ for sample in infinite_loader:
     pred_flow = pred_flow.reshape(-1, 3)
     gt_flow = gt_flow.view(-1, 3)
     gt_flow = gt_flow.reshape(-1, 3)
-    epe = torch.norm(pred_flow - gt_flow, dim=1)
+    epe = torch.norm(pred_flow - gt_flow, dim=1,p=2)
     print("epe", epe.mean().item())
     pred_point = (sample["point_cloud_first"] + pred_flow.cpu().detach()).numpy()
     pcd.points = o3d.utility.Vector3dVector(pred_point.reshape(-1, 3))
     pred_mask = pred_mask.permute(1, 0)
     pred_mask = pred_mask.reshape(-1, slot_num)
     #PCA to 3D
+    writer.add_scalar("epe", epe.mean().item(), step)
 
-
+    #visualize
     color = pca(pred_mask)
     pcd.colors = o3d.utility.Vector3dVector(color.cpu().detach().numpy())
     gt_pcd.points = o3d.utility.Vector3dVector(sample["point_cloud_second"].cpu().detach().numpy().reshape(-1, 3))

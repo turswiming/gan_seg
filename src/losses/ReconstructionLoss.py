@@ -2,9 +2,11 @@ import torch
 import open3d as o3d
 from torch import nn
 from torch.nn import functional as F
-class Loss_version2:
+from losses.ChamferDistanceLoss import ChamferDistanceLoss
+class ReconstructionLoss():
     def __init__(self,device):
         self.device = device
+        self.chamferDistanceLoss = ChamferDistanceLoss()
         pass
 
     def fit_motion_svd_batch(self, pc1, pc2, mask=None):
@@ -102,106 +104,23 @@ class Loss_version2:
         interpolated_values = torch.sum(weights.unsqueeze(-1) * neighbor_values, dim=1)  # (n_queries, v)
         
         return interpolated_values
-    def chamfer_distance_memory_efficient(self, x, y, bidirectional=True, reduction='mean', chunk_size=1024):
-        """
-        Computes the bidirectional Chamfer distance between two point clouds with memory efficiency.
-        
-        Args:
-            x: Tensor of shape (batch_size, num_points_x, dim) representing first point cloud
-            y: Tensor of shape (batch_size, num_points_y, dim) representing second point cloud
-            bidirectional: If True, computes the sum of both directions (x->y and y->x)
-            reduction: Reduction method - 'mean', 'sum', or 'none'
-            chunk_size: Size of chunks to process at once (smaller = less memory, slower)
-            
-        Returns:
-            chamfer_dist: Chamfer distance (reduced according to reduction parameter)
-        """
-        assert x.dim() == 3, "Expected 3D tensor for x"
-        assert y.dim() == 3, "Expected 3D tensor for y"
-        assert x.size(0) == y.size(0), "Batch sizes must match"
-        assert x.size(2) == y.size(2), "Point dimensions must match"
-        
-        batch_size = x.size(0)
-        num_points_x = x.size(1)
-        num_points_y = y.size(1)
-        
-        # Forward direction (x -> y)
-        mins_x = torch.zeros(batch_size, num_points_x, device=x.device)
-        for b in range(batch_size):
-            for i in range(0, num_points_x, chunk_size):
-                end_i = min(i + chunk_size, num_points_x)
-                x_chunk = x[b, i:end_i].unsqueeze(0)  # (1, chunk_size, dim)
-                
-                min_dists = float('inf') * torch.ones(end_i - i, device=x.device)
-                for j in range(0, num_points_y, chunk_size):
-                    end_j = min(j + chunk_size, num_points_y)
-                    y_chunk = y[b, j:end_j].unsqueeze(0)  # (1, chunk_size, dim)
-                    
-                    # Compute pairwise distances for this chunk
-                    dist_chunk = torch.cdist(x_chunk, y_chunk, p=2.0)**2  # (1, chunk_size_x, chunk_size_y)
-                    
-                    # Update minimum distances
-                    min_dists_chunk, _ = torch.min(dist_chunk.squeeze(0), dim=1)
-                    min_dists = torch.minimum(min_dists, min_dists_chunk)
-                
-                mins_x[b, i:end_i] = min_dists
-        
-        # Calculate forward Chamfer distance (x -> y)
-        if reduction == 'mean':
-            forward_chamfer = torch.mean(mins_x, dim=1)
-        elif reduction == 'sum':
-            forward_chamfer = torch.sum(mins_x, dim=1)
-        else:  # 'none'
-            forward_chamfer = mins_x
-        
-        if bidirectional:
-            # Backward direction (y -> x)
-            mins_y = torch.zeros(batch_size, num_points_y, device=y.device)
-            for b in range(batch_size):
-                for j in range(0, num_points_y, chunk_size):
-                    end_j = min(j + chunk_size, num_points_y)
-                    y_chunk = y[b, j:end_j].unsqueeze(0)  # (1, chunk_size, dim)
-                    
-                    min_dists = float('inf') * torch.ones(end_j - j, device=y.device)
-                    for i in range(0, num_points_x, chunk_size):
-                        end_i = min(i + chunk_size, num_points_x)
-                        x_chunk = x[b, i:end_i].unsqueeze(0)  # (1, chunk_size, dim)
-                        
-                        # Compute pairwise distances for this chunk
-                        dist_chunk = torch.cdist(y_chunk, x_chunk, p=2.0)**2  # (1, chunk_size_y, chunk_size_x)
-                        
-                        # Update minimum distances
-                        min_dists_chunk, _ = torch.min(dist_chunk.squeeze(0), dim=1)
-                        min_dists = torch.minimum(min_dists, min_dists_chunk)
-                    
-                    mins_y[b, j:end_j] = min_dists
-            
-            # Calculate backward Chamfer distance (y -> x)
-            if reduction == 'mean':
-                backward_chamfer = torch.mean(mins_y, dim=1)
-            elif reduction == 'sum':
-                backward_chamfer = torch.sum(mins_y, dim=1)
-            else:  # 'none'
-                backward_chamfer = mins_y
-            
-            # Combine forward and backward Chamfer distances
-            chamfer_dist = forward_chamfer + backward_chamfer
-        else:
-            chamfer_dist = forward_chamfer
-        
-        # Final reduction across batch
-        if reduction == 'mean':
-            return chamfer_dist.mean()
-        elif reduction == 'sum':
-            return chamfer_dist.sum()
-        else:  # 'none'
-            return chamfer_dist
+    
     def __call__(self, inputs,pred_mask, pred_flow):
         point_cloud_first = inputs["point_cloud_first"].to(self.device)
         point_cloud_second = inputs["point_cloud_second"].to(self.device)
         pred_mask = pred_mask.to(self.device)
         pred_flow = pred_flow.to(self.device)
         pred_mask = F.softmax(pred_mask, dim=0)
+        # print(pred_mask.dtype)
+        # #convert to one hot
+        # pred_mask = torch.argmax(pred_mask, dim=0)
+        # pred_mask = F.one_hot(pred_mask)
+        # print("pred_mask", pred_mask.shape)
+        # pred_mask = pred_mask.permute(1,0)
+        # pred_mask = pred_mask.to(self.device)
+        # pred_mask = pred_mask.to(torch.float64)
+        # pred_mask+= 0.00000000001
+        # pred_mask = pred_mask / torch.sum(pred_mask, dim=1, keepdim=True)
         '''
         loss2
         point_cloud_first torch.Size([1, 4121, 3])
@@ -224,7 +143,6 @@ class Loss_version2:
             # Now the broadcasting will work correctly
             masked_scene_flow = (transformed_point - point_cloud_first) * mask_expanded
             scene_flow_rec += masked_scene_flow
-        loss = self.chamfer_distance_memory_efficient(scene_flow_rec+point_cloud_first, point_cloud_second, bidirectional=False, reduction='mean', chunk_size=1024)
-        loss2 = self.chamfer_distance_memory_efficient(pred_flow+point_cloud_first, point_cloud_second, bidirectional=False, reduction='mean', chunk_size=1024)
-        return loss*0.1 + loss2*1, scene_flow_rec+point_cloud_first
+        loss = self.chamferDistanceLoss(scene_flow_rec+point_cloud_first, point_cloud_second)
+        return loss, scene_flow_rec+point_cloud_first
         pass
