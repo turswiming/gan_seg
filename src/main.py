@@ -65,18 +65,18 @@ loop_step =10
 step = 0
 for sample in infinite_loader:
     step += 1
-    # if (step // loop_step)%2 == 0:
-    #     train_flow_model = True
-    #     train_mask_model = False
-    # else:
-    #     train_flow_model = False
-    #     train_mask_model = True
-    # if train_flow_model:
-    #     scene_flow_predictor.train()
-    #     mask_predictor.eval()
-    # else:
-    #     scene_flow_predictor.eval()
-    #     mask_predictor.train()
+    if (step // loop_step)%2 == 0:
+        train_flow_model = True
+        train_mask_model = False
+    else:
+        train_flow_model = False
+        train_mask_model = True
+    if train_flow_model:
+        scene_flow_predictor.train()
+        mask_predictor.eval()
+    else:
+        scene_flow_predictor.eval()
+        mask_predictor.train()
     pred_flow = scene_flow_predictor(sample["point_cloud_first"].to(device))
     pred_flow = pred_flow.view(-1, 3)
     gt_flow = torch.tensor(sample["flow"])
