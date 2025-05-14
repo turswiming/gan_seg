@@ -62,17 +62,18 @@ def main(config ,writer):
     flowSmoothLoss = FlowSmoothLoss(device)
     pointsmoothloss = PointSmoothLoss()
     flowRecLoss = nn.MSELoss()
-
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    pcd = o3d.geometry.PointCloud()
-    gt_pcd = o3d.geometry.PointCloud()
-    reconstructed_pcd = o3d.geometry.PointCloud()
+    if config.vis.show_window:
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+        pcd = o3d.geometry.PointCloud()
+        gt_pcd = o3d.geometry.PointCloud()
+        reconstructed_pcd = o3d.geometry.PointCloud()
     first_iteration = True
-    loop_step =10
     step = 0
     for sample in infinite_loader:
         step += 1
+        if step > config.training.max_iter:
+            break
         # if (step // loop_step)%2 == 0:
         #     train_flow_model = True
         #     train_mask_model = False
@@ -155,14 +156,15 @@ def main(config ,writer):
         gt_flow = gt_flow.reshape(-1, 3)
         epe = torch.norm(pred_flow - gt_flow, dim=1,p=2)
         print("epe", epe.mean().item())
-        pred_point = (sample["point_cloud_first"] + pred_flow.cpu().detach()).numpy()
-        pcd.points = o3d.utility.Vector3dVector(pred_point.reshape(-1, 3))
-        pred_mask = pred_mask.permute(1, 0)
+
         #PCA to 3D
         writer.add_scalar("epe", epe.mean().item(), step)
 
         #visualize
         if config.vis.show_window:
+            pred_point = (sample["point_cloud_first"] + pred_flow.cpu().detach()).numpy()
+            pcd.points = o3d.utility.Vector3dVector(pred_point.reshape(-1, 3))
+            pred_mask = pred_mask.permute(1, 0)
             color = pca(pred_mask)
             pcd.colors = o3d.utility.Vector3dVector(color.cpu().detach().numpy())
             gt_pcd.points = o3d.utility.Vector3dVector(sample["point_cloud_second"].cpu().detach().numpy().reshape(-1, 3))
@@ -201,13 +203,16 @@ def main(config ,writer):
             vis.update_renderer()
 
     # 关闭窗口
-    vis.destroy_window()
+    if config.vis.show_window:
+        vis.destroy_window()
 
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Scene Flow and Mask Prediction")
     parser.add_argument("--config", type=str, default="config/baseconfig.yaml", help="Path to the config file")
-    config_obj = OmegaConf.load(parser.parse_args().config)
+    
+    args, unknown = parser.parse_known_args()
+    config_obj = OmegaConf.load(args.config)
     print_config(config_obj)
     cli_opts = OmegaConf.from_cli()
     print_config(cli_opts)
