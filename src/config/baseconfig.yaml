@@ -14,9 +14,10 @@ model:
     name: "OptimizedMask"
     slot_num: 10
 
-
+dataset:
+  name: "AV2" # MOVI_F or AV2
 training:
-  max_iter: 200
+  max_iter: 800
 
 dataloader:
   batchsize: 1

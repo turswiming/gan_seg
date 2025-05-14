@@ -11,10 +11,11 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from omegaconf import OmegaConf
 from config.config import print_config
-
+from tqdm import tqdm
 #local library
 import open3d as o3d
 from dataset.av2_dataset import AV2Dataset
+from dataset.per_scene_dataset import PerSceneDataset
 
 from model.scene_flow_predict_model import FLowPredictor, Neural_Prior ,SceneFlowPredictor
 from model.mask_predict_model import MaskPredictor
@@ -40,7 +41,12 @@ def main(config ,writer):
         
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = AV2Dataset()
+    if config.dataset.name == "AV2":
+        dataset = AV2Dataset()
+    elif config.dataset.name == "MOVI_F":
+        dataset = PerSceneDataset()
+    else:
+        raise ValueError("Dataset not supported")
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=config.dataloader.batchsize, 
@@ -70,7 +76,10 @@ def main(config ,writer):
         reconstructed_pcd = o3d.geometry.PointCloud()
     first_iteration = True
     step = 0
-    for sample in infinite_loader:
+    epe = None
+    for sample in tqdm(infinite_loader, total=config.training.max_iter):
+        if epe is not None:
+            tqdm.write(f"epe: {epe.mean().item():.4f}")
         step += 1
         if step > config.training.max_iter:
             break
