@@ -1,0 +1,29 @@
+# baseconfig.yaml
+# This is a base configuration file that sets default values for various parameters.
+log:
+  level: "INFO"
+  dir: "" #default save to /output/exp
+
+model:
+  flow:
+    name: "NSFP"
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "relu"
+  mask:
+    name: "OptimizedMask"
+
+training:
+  batch_size: 1
+  num_iter: 10000
+
+lr_multi:
+  rec_loss: 0.1
+  flow_loss: 1
+  scene_flow_smoothness: 50000
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.01
+
+vis:
+  show_window: true

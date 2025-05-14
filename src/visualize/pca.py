@@ -6,7 +6,12 @@ import numpy as np
 
 def pca(pred_mask, num_components=3):
     #PCA to 3D
-    
+    if pred_mask.shape[0]== 3:
+        return pred_mask
+    if pred_mask.shape[0]< 3:
+        # Pad with zeros to make it 3D
+        padded_mask = F.pad(pred_mask, (0, 0, 0, 0, 0, 3 - pred_mask.shape[0]))
+        return padded_mask
     # Normalize the mask values for better PCA results
     normalized_mask = F.softmax(pred_mask*0.1, dim=1)
     
