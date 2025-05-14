@@ -1,7 +1,6 @@
 # baseconfig.yaml
 # This is a base configuration file that sets default values for various parameters.
 log:
-  level: "INFO"
   dir: "" #default save to /output/exp
 model:
   flow:
@@ -16,8 +15,10 @@ model:
 
 
 training:
-  batch_size: 1
   num_iter: 10000
+
+dataloader:
+  batchsize: 1
 
 lr_multi:
   rec_loss: 0.0

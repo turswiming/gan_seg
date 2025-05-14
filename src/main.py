@@ -41,9 +41,11 @@ def main(config ,writer):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset = AV2Dataset()
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
-    loop_step = 10
-    # scene_flow_smooth_shaduler = lambda it : 10000
+    dataloader = torch.utils.data.DataLoader(
+        dataset, 
+        batch_size=config.dataloader.batchsize, 
+        shuffle=True
+        )
     infinite_loader = infinite_dataloader(dataloader)
     sample = next(infinite_loader)
     _, N, _ = sample["point_cloud_first"].shape
@@ -160,42 +162,43 @@ def main(config ,writer):
         writer.add_scalar("epe", epe.mean().item(), step)
 
         #visualize
-        color = pca(pred_mask)
-        pcd.colors = o3d.utility.Vector3dVector(color.cpu().detach().numpy())
-        gt_pcd.points = o3d.utility.Vector3dVector(sample["point_cloud_second"].cpu().detach().numpy().reshape(-1, 3))
-        gt_pcd.paint_uniform_color([0, 1, 0])
-        #if defined reconstructed_points:
+        if config.vis.show_window:
+            color = pca(pred_mask)
+            pcd.colors = o3d.utility.Vector3dVector(color.cpu().detach().numpy())
+            gt_pcd.points = o3d.utility.Vector3dVector(sample["point_cloud_second"].cpu().detach().numpy().reshape(-1, 3))
+            gt_pcd.paint_uniform_color([0, 1, 0])
+            #if defined reconstructed_points:
 
-        if "reconstructed_points" in locals():
-            reconstructed_pcd.points = o3d.utility.Vector3dVector(reconstructed_points.cpu().detach().numpy().reshape(-1, 3))
-            reconstructed_pcd.paint_uniform_color([0, 0, 1])
-        if first_iteration:
-            # vis.add_geometry(pcd)
-            vis.add_geometry(gt_pcd)
             if "reconstructed_points" in locals():
-                vis.add_geometry(reconstructed_pcd)
-            vis , lineset = visualize_vectors(
-                sample["point_cloud_first"].reshape(-1, 3),
-                pred_flow.cpu().detach().numpy().reshape(-1, 3),
-                vis=vis,
-                color=color.cpu().detach().numpy().reshape(-1, 3),
+                reconstructed_pcd.points = o3d.utility.Vector3dVector(reconstructed_points.cpu().detach().numpy().reshape(-1, 3))
+                reconstructed_pcd.paint_uniform_color([0, 0, 1])
+            if first_iteration:
+                # vis.add_geometry(pcd)
+                vis.add_geometry(gt_pcd)
+                if "reconstructed_points" in locals():
+                    vis.add_geometry(reconstructed_pcd)
+                vis , lineset = visualize_vectors(
+                    sample["point_cloud_first"].reshape(-1, 3),
+                    pred_flow.cpu().detach().numpy().reshape(-1, 3),
+                    vis=vis,
+                    color=color.cpu().detach().numpy().reshape(-1, 3),
+                    )
+                first_iteration = False
+            else:
+                # vis.update_geometry(pcd)
+                lineset = update_vector_visualization(
+                    lineset,
+                    sample["point_cloud_first"].reshape(-1, 3),
+                    pred_flow.cpu().detach().numpy().reshape(-1, 3),
+                    color=color.cpu().detach().numpy().reshape(-1, 3),
+                    
                 )
-            first_iteration = False
-        else:
-            # vis.update_geometry(pcd)
-            lineset = update_vector_visualization(
-                lineset,
-                sample["point_cloud_first"].reshape(-1, 3),
-                pred_flow.cpu().detach().numpy().reshape(-1, 3),
-                color=color.cpu().detach().numpy().reshape(-1, 3),
-                
-            )
-            vis.update_geometry(lineset)
-            vis.update_geometry(gt_pcd)
-            if "reconstructed_points" in locals():
-                vis.update_geometry(reconstructed_pcd)
-        vis.poll_events()
-        vis.update_renderer()
+                vis.update_geometry(lineset)
+                vis.update_geometry(gt_pcd)
+                if "reconstructed_points" in locals():
+                    vis.update_geometry(reconstructed_pcd)
+            vis.poll_events()
+            vis.update_renderer()
 
     # 关闭窗口
     vis.destroy_window()
