@@ -14,21 +14,21 @@ class SceneFlowPredictor(nn.Module):
         self.activation_input = nn.ReLU()
         for i in range(layer_num):
             setattr(self, f"linear{i}", nn.Linear(hidden_dim, hidden_dim,device=self.device,dtype=torch.float64))
-            setattr(self, f"tanh{i}", nn.ReLU())
+            setattr(self, f"relu{i}", nn.ReLU())
         self.output_layer = nn.Linear(hidden_dim, self.output_dim,device=self.device,dtype=torch.float64)
         self.activation_output = nn.ReLU()
 
     def forward(self, inputs):
-        point_cloud = inputs["point_cloud_first"].to(self.device)
+        point_cloud = inputs.to(self.device)
         #connver to double
         point_cloud = point_cloud.view(-1, self.input_dim)
         point_cloud = self.input_layer(point_cloud)
         point_cloud = self.activation_input(point_cloud)
         for i in range(self.layer_num):
             linear = getattr(self, f"linear{i}")
-            tanh = getattr(self, f"tanh{i}")
+            tanh = getattr(self, f"relu{i}")
             point_cloud_linear = linear(point_cloud)
-            point_cloud = tanh(point_cloud_linear)
+            point_cloud = tanh(point_cloud_linear) + point_cloud
         point_cloud = point_cloud.view(-1, self.hidden_dim)
         point_cloud = self.output_layer(point_cloud)
         point_cloud = self.activation_output(point_cloud)

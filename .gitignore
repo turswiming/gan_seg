@@ -1,3 +1,5 @@
 __pycache__
 dataset/*
 outputs/*
+demo_data/*
+*.zip

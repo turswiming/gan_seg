@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-
+from .ChamferDistanceLoss import ChamferDistanceLoss
 class ScaleGradient(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, scale):
@@ -44,6 +44,7 @@ class FlowSmoothLoss():
         """Initialize with config and model/device references."""
         self.device=device
         self.criterion = nn.MSELoss(reduction="mean").to(self.device)
+        self.chamferDistanceLoss = ChamferDistanceLoss()
         pass
 
     def __call__(self, sample, flow, mask):
@@ -69,7 +70,9 @@ class FlowSmoothLoss():
             scene_flow_b = scene_flow_b*0.2
             mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
             flow_reconstruction = torch.zeros_like(scene_flow_b)  # (L, 3)
+            flow_reconstruction_mk = torch.zeros_like(scene_flow_b)
             reconstruction_loss = 0
+            distande_loss = 0
             for k in range(K):
                 mk = mask_binary_b[k].unsqueeze(-1)  # (L,1)
                 

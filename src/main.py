@@ -9,9 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 #local library
 import open3d as o3d
-from dataset.per_scene_dataset import PerSceneDataset
+from dataset.av2_dataset import AV2Dataset
 
-from model.scene_flow_predict_model import FLowPredictor
+from model.scene_flow_predict_model import FLowPredictor, Neural_Prior ,SceneFlowPredictor
 from model.mask_predict_model import MaskPredictor
 
 from losses.ChamferDistanceLoss import ChamferDistanceLoss
@@ -32,21 +32,24 @@ def infinite_dataloader(dataloader):
 #init summary writer
 time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 writer = SummaryWriter(log_dir=f"../outputs/exp/{time_str}")
-dataset = PerSceneDataset()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset = PerSceneDataset()
+dataset = AV2Dataset()
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
-warmup_shaduler = lambda it : min(10+it*0.1,100)
+loop_step = 10
+scene_flow_smooth_shaduler = lambda it : (it%loop_step)/loop_step *100 +1
+# scene_flow_smooth_shaduler = lambda it : 1
 infinite_loader = infinite_dataloader(dataloader)
 sample = next(infinite_loader)
 _, N, _ = sample["point_cloud_first"].shape
-scene_flow_predictor = FLowPredictor(dim=3,pointSize=N)
+scene_flow_predictor = Neural_Prior()
+# scene_flow_predictor = FLowPredictor(pointSize=N)
+# scene_flow_predictor = SceneFlowPredictor(layer_num=8)
 scene_flow_predictor.to(device)
 slot_num = 3
 mask_predictor = MaskPredictor(slot_num=slot_num, point_length=N)
-optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.03, weight_decay=0.01)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10)
+optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.001, weight_decay=0.1)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10)
 optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=1, weight_decay=0.01)
 
 reconstructionLoss = ReconstructionLoss(device)
@@ -93,8 +96,8 @@ for sample in infinite_loader:
     #add weights to losses
     rec_loss = rec_loss *0.1
     flow_loss = flow_loss * 1
-    scene_flow_smooth_loss = scene_flow_smooth_loss * warmup_shaduler(step)
-    rec_flow_loss = rec_flow_loss * 0.001
+    scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_smooth_shaduler(step)*5
+    rec_flow_loss = rec_flow_loss * 0.0
     point_smooth_loss = point_smooth_loss * 0.01
 
     #add all losses together
@@ -146,12 +149,16 @@ for sample in infinite_loader:
     pcd.colors = o3d.utility.Vector3dVector(color.cpu().detach().numpy())
     gt_pcd.points = o3d.utility.Vector3dVector(sample["point_cloud_second"].cpu().detach().numpy().reshape(-1, 3))
     gt_pcd.paint_uniform_color([0, 1, 0])
-    reconstructed_pcd.points = o3d.utility.Vector3dVector(reconstructed_points.cpu().detach().numpy().reshape(-1, 3))
-    reconstructed_pcd.paint_uniform_color([0, 0, 1])
+    #if defined reconstructed_points:
+
+    if "reconstructed_points" in locals():
+        reconstructed_pcd.points = o3d.utility.Vector3dVector(reconstructed_points.cpu().detach().numpy().reshape(-1, 3))
+        reconstructed_pcd.paint_uniform_color([0, 0, 1])
     if first_iteration:
         # vis.add_geometry(pcd)
         vis.add_geometry(gt_pcd)
-        vis.add_geometry(reconstructed_pcd)
+        if "reconstructed_points" in locals():
+            vis.add_geometry(reconstructed_pcd)
         vis , lineset = visualize_vectors(
             sample["point_cloud_first"].reshape(-1, 3),
             pred_flow.cpu().detach().numpy().reshape(-1, 3),
@@ -170,7 +177,8 @@ for sample in infinite_loader:
         )
         vis.update_geometry(lineset)
         vis.update_geometry(gt_pcd)
-        vis.update_geometry(reconstructed_pcd)
+        if "reconstructed_points" in locals():
+            vis.update_geometry(reconstructed_pcd)
     vis.poll_events()
     vis.update_renderer()
 
