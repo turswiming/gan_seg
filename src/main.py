@@ -26,6 +26,8 @@ from losses.FlowSmoothLoss import FlowSmoothLoss
 
 from visualize.open3d_func import visualize_vectors, update_vector_visualization
 from visualize.pca import pca
+from Predictor import get_mask_predictor,get_scene_flow_predictor
+
 #import tensorboard
 
 
@@ -45,13 +47,11 @@ def main(config ,writer):
     infinite_loader = infinite_dataloader(dataloader)
     sample = next(infinite_loader)
     _, N, _ = sample["point_cloud_first"].shape
-    scene_flow_predictor = Neural_Prior()
-    # scene_flow_predictor = FLowPredictor(pointSize=N)
-    # scene_flow_predictor = SceneFlowPredictor(layer_num=8)
+    mask_predictor = get_mask_predictor(config.model.mask,N)
+    scene_flow_predictor = get_scene_flow_predictor(config.model.flow,N)
     scene_flow_predictor.to(device)
-    slot_num = 10
-    mask_predictor = MaskPredictor(slot_num=slot_num, point_length=N)
-    optimizer = torch.optim.Adam(scene_flow_predictor.parameters(), lr=0.001)
+
+    optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.001)
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10)
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=1)
 
@@ -71,18 +71,18 @@ def main(config ,writer):
     step = 0
     for sample in infinite_loader:
         step += 1
-        if (step // loop_step)%2 == 0:
-            train_flow_model = True
-            train_mask_model = False
-        else:
-            train_flow_model = False
-            train_mask_model = True
-        if train_flow_model:
-            scene_flow_predictor.train()
-            mask_predictor.eval()
-        else:
-            scene_flow_predictor.eval()
-            mask_predictor.train()
+        # if (step // loop_step)%2 == 0:
+        #     train_flow_model = True
+        #     train_mask_model = False
+        # else:
+        #     train_flow_model = False
+        #     train_mask_model = True
+        # if train_flow_model:
+        #     scene_flow_predictor.train()
+        #     mask_predictor.eval()
+        # else:
+        #     scene_flow_predictor.eval()
+        #     mask_predictor.train()
         pred_flow = scene_flow_predictor(sample["point_cloud_first"].to(device))
         pred_flow = pred_flow.view(-1, 3)
         gt_flow = torch.tensor(sample["flow"])
@@ -90,7 +90,7 @@ def main(config ,writer):
         pred_mask = mask_predictor(sample)
 
         #compute losses
-        if config.lr_multi.rec_loss>0 and config.lr_multi.rec_flow_loss>0:
+        if config.lr_multi.rec_loss>0 or config.lr_multi.rec_flow_loss>0:
             rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
             rec_loss = rec_loss *config.lr_multi.rec_loss
         else:
@@ -156,7 +156,6 @@ def main(config ,writer):
         pred_point = (sample["point_cloud_first"] + pred_flow.cpu().detach()).numpy()
         pcd.points = o3d.utility.Vector3dVector(pred_point.reshape(-1, 3))
         pred_mask = pred_mask.permute(1, 0)
-        pred_mask = pred_mask.reshape(-1, slot_num)
         #PCA to 3D
         writer.add_scalar("epe", epe.mean().item(), step)
 

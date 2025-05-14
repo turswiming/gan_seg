@@ -3,25 +3,26 @@
 log:
   level: "INFO"
   dir: "" #default save to /output/exp
-
 model:
   flow:
-    name: "NSFP"
+    name: "NSFP" # NSFP or OptimizedFlow
     NSFP:
       num_layers: 8
       num_hidden: 128
       activation: "relu"
   mask:
     name: "OptimizedMask"
+    slot_num: 13
+
 
 training:
   batch_size: 1
   num_iter: 10000
 
 lr_multi:
-  rec_loss: 0.1
+  rec_loss: 0.0
   flow_loss: 1
-  scene_flow_smoothness: 50000
+  scene_flow_smoothness: 1000
   rec_flow_loss: 0.0
   point_smooth_loss: 0.01
 

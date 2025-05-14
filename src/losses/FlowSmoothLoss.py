@@ -20,20 +20,18 @@ class ScaleGradient(torch.autograd.Function):
 def normalize_global(x):
     with torch.no_grad():
         std = x.clone().reshape(-1).std(dim=0)
-        print(f"std  {std}")
         if std.max() <= 1e-6:
             std = torch.ones_like(std)
     x = x/std # (HW, 2)
     return x
 
-def normalize_global(x):
+def normalize_useing_other(x,points):
     with torch.no_grad():
-        std = x.clone().reshape(-1).std(dim=0)
-        print(f"std  {std}")
+        std = points.clone().reshape(-1).std(dim=0)
         if std.max() <= 1e-6:
             std = torch.ones_like(std)
-    x = x/std # (HW, 2)
-    return x
+    return x/std
+
 class FlowSmoothLoss():
     """
     Reproduces the parametric (quadratic) flow approximation loss described in Section 3.1:
@@ -60,38 +58,29 @@ class FlowSmoothLoss():
         point_position = sample["point_cloud_first"].to(self.device)
         scene_flows = flow
         
-        # 添加幅度约束
-        flow_magnitude = scene_flows.norm(dim=-1).mean()
         
         total_loss = 0.0
         for b in range(B):
             coords = self.construct_embedding(point_position)  # (L, 4)
-            scene_flow_b = normalize_global(scene_flows)  # (L, 3)
-            scene_flow_b = scene_flow_b*0.2
+            scene_flow_b = normalize_useing_other(scene_flows,point_position)  # (L, 3)
             mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
             flow_reconstruction = torch.zeros_like(scene_flow_b)  # (L, 3)
-            flow_reconstruction_mk = torch.zeros_like(scene_flow_b)
             reconstruction_loss = 0
-            distande_loss = 0
             for k in range(K):
                 mk = mask_binary_b[k].unsqueeze(-1)  # (L,1)
                 
-                # 加权最小二乘
-                Ek = coords * mk  # sqrt加权
+                Ek = coords * mk
                 Fk = scene_flow_b * mk
                 
-                # 正则化最小二乘
                 theta_k = torch.linalg.lstsq(Ek, Fk).solution  # 更稳定的求解
                 
-                # 重建误差
-                Fk_hat = coords @ theta_k
-                flow_reconstruction += Fk_hat * mk  # (L, 3)
+                Fk_hat = Ek @ theta_k
+                flow_reconstruction += Fk_hat  # (L, 3)
+
             reconstruction_loss += self.criterion(flow_reconstruction, scene_flow_b)
-            
-            # 组合损失：重建项 + 幅度约束项
             total_loss += reconstruction_loss
         
-        return total_loss / (K * B)
+        return total_loss / K
 
 
     @torch.no_grad()
