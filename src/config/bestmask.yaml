@@ -1,0 +1,14 @@
+# baseconfig.yaml
+__base__: "baseconfig.yaml"
+
+
+
+lr_multi:
+  rec_loss: 0.1
+  flow_loss: 1
+  scene_flow_smoothness: 1000
+  rec_flow_loss: 0.01
+  point_smooth_loss: 1
+
+vis:
+  show_window: true

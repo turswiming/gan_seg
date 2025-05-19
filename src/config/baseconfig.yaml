@@ -32,4 +32,4 @@ lr_multi:
   point_smooth_loss: 0.01
 
 vis:
-  show_window: false
+  show_window: true

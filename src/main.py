@@ -15,6 +15,7 @@ import os
 import shutil
 
 # Third party imports
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -55,6 +56,8 @@ def calculate_miou(pred_mask, gt_mask):
 
     max_iou_list = []
     for j in range(gt_mask.shape[0]):
+        if j == 0:
+            continue
         max_iou = 0
         for i in range(pred_mask.shape[0]):
 
@@ -88,6 +91,51 @@ def remap_instance_labels(labels):
         remapped[labels == old_label] = new_label
         
     return remapped
+
+def create_label_colormap():
+    """Creates a label colormap used in CITYSCAPES segmentation benchmark.
+  Returns:
+    A colormap for visualizing segmentation results.
+  """
+    colormap = np.zeros((256, 3), dtype=np.int64)
+    colormap[1] = [166, 206, 227]
+    colormap[2] = [31, 120, 180]
+    colormap[3] = [178, 223, 138]
+    colormap[4] = [51, 160, 44]
+    colormap[5] = [251, 154, 153]
+    colormap[6] = [227, 26, 28]
+    colormap[7] = [253, 191, 111]
+    colormap[8] = [255, 127, 0]
+    colormap[9] = [202, 178, 214]
+    colormap[10] = [106, 61, 154]
+    colormap[11] = [255, 255, 153]
+    colormap[12] = [177, 89, 40]
+    colormap[13] = [0, 0, 142]
+    colormap[14] = [0, 0, 70]
+    colormap[15] = [0, 60, 100]
+    colormap[16] = [0, 80, 100]
+    colormap[17] = [0, 0, 230]
+    colormap[18] = [119, 11, 32]
+
+    return torch.from_numpy(colormap).long()
+
+def color_mask(mask):
+    """
+    Color the mask using PCA for visualization.
+    
+    Args:
+        mask (torch.Tensor): Input mask [K, N]
+        
+    Returns:
+        torch.Tensor: Colored mask [N, 3]
+    """
+    color_label = create_label_colormap()
+    mask = torch.softmax(mask, dim=0)
+    color_result = torch.zeros((mask.shape[1], 3))
+    for i in range(mask.shape[0]):
+        color_result += mask[i].unsqueeze(1) * color_label[i]
+    color_result = color_result / 255.0
+    return color_result
 
 def main(config, writer):
     """
@@ -233,14 +281,14 @@ def main(config, writer):
         miou_list = []
         for i in range(len(point_cloud_firsts)):
             gt_mask = remap_instance_labels(sample["dynamic_instance_mask"][i])
+            tqdm.write(f"gt_mask size {max(gt_mask)}")
             miou_list.append(
                 calculate_miou(
                     pred_mask[i], 
                     F.one_hot(gt_mask.to(torch.long)).permute(1, 0).to(device=device)  # Shape: [K, N]
                     )
                 )
-        miou_mean = [torch.mean(miou) for miou in miou_list]
-        miou_mean = torch.mean(torch.stack(miou_mean))
+        miou_mean = torch.mean(torch.stack(miou_list))
         tqdm.write(f"miou {miou_mean.item()}")
         writer.add_scalar("miou", miou_mean.item(), step)
 
@@ -255,46 +303,50 @@ def main(config, writer):
             current_pred_mask = pred_mask[batch_idx].cpu().detach()
             
             # PCA for coloring
-            current_pred_mask = current_pred_mask.permute(1, 0)  # Change to [N, K] for PCA
-            color = pca(current_pred_mask)
-            
+            # current_pred_mask = current_pred_mask.permute(1, 0)  # Change to [N, K] for PCA
+            # pred_color = pca(current_pred_mask)
+
+            pred_color = color_mask(current_pred_mask)
+            gt_color = color_mask(F.one_hot(gt_mask.to(torch.long)).permute(1, 0).to(torch.float32))
+
             # Update point clouds
             pred_point = point_cloud_first + current_pred_flow
             pcd.points = o3d.utility.Vector3dVector(pred_point)
-            pcd.colors = o3d.utility.Vector3dVector(color.numpy())
+            pcd.colors = o3d.utility.Vector3dVector(gt_color.numpy())
             
             gt_pcd.points = o3d.utility.Vector3dVector(point_cloud_second)
             gt_pcd.paint_uniform_color([0, 1, 0])
             
             if "reconstructed_points" in locals():
-                current_reconstructed = reconstructed_points[batch_idx].cpu().detach().numpy()
+                current_reconstructed = reconstructed_points[batch_idx].cpu().detach().numpy().squeeze(0)
                 reconstructed_pcd.points = o3d.utility.Vector3dVector(current_reconstructed)
                 reconstructed_pcd.paint_uniform_color([0, 0, 1])
                 
             if first_iteration:
-                # vis.add_geometry(pcd)
-                vis.add_geometry(gt_pcd)
-                if "reconstructed_points" in locals():
-                    vis.add_geometry(reconstructed_pcd)
+                vis.add_geometry(pcd)
+                # vis.add_geometry(gt_pcd)
+                # if "reconstructed_points" in locals():
+                #     vis.add_geometry(reconstructed_pcd)
                 vis, lineset = visualize_vectors(
                     point_cloud_first,
                     current_pred_flow,
                     vis=vis,
-                    color=color.numpy(),
+                    color=pred_color.numpy(),
                 )
                 first_iteration = False
             else:
-                # vis.update_geometry(pcd)
+                vis.update_geometry(pcd)
+                # vis.update_geometry(gt_pcd)
+                # if "reconstructed_points" in locals():
+                #     vis.update_geometry(reconstructed_pcd)
                 lineset = update_vector_visualization(
                     lineset,
                     point_cloud_first,
                     current_pred_flow,
-                    color=color.numpy(),
+                    color=pred_color.numpy(),
                 )
                 vis.update_geometry(lineset)
-                vis.update_geometry(gt_pcd)
-                if "reconstructed_points" in locals():
-                    vis.update_geometry(reconstructed_pcd)
+                
             vis.poll_events()
             vis.update_renderer()
 
