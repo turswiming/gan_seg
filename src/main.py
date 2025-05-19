@@ -25,12 +25,12 @@ from tqdm import tqdm
 
 # Local imports
 import open3d as o3d
-from dataset.av2_dataset import AV2Dataset
-from dataset.per_scene_dataset import PerSceneDataset
+from dataset.av2_dataset import AV2PerSceneDataset
+from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
 from utils.config_utils import load_config_with_inheritance, save_config_and_code
 from utils.dataloader_utils import create_dataloaders
-from model.scene_flow_predict_model import FLowPredictor, Neural_Prior, SceneFlowPredictor
-from model.mask_predict_model import MaskPredictor
+from model.scene_flow_predict_model import OptimizedFLowPredictor, Neural_Prior, SceneFlowPredictor
+from model.mask_predict_model import OptimizedMaskPredictor
 from losses.ChamferDistanceLoss import ChamferDistanceLoss
 from losses.ReconstructionLoss import ReconstructionLoss
 from losses.PointSmoothLoss import PointSmoothLoss
@@ -38,6 +38,56 @@ from losses.FlowSmoothLoss import FlowSmoothLoss
 from visualize.open3d_func import visualize_vectors, update_vector_visualization
 from visualize.pca import pca
 from Predictor import get_mask_predictor, get_scene_flow_predictor
+
+def calculate_miou(pred_mask, gt_mask):
+    """
+    Calculate Mean Intersection over Union (mIoU) for the predicted masks.
+    
+    Args:
+        pred_mask (torch.Tensor): Predicted masks [K, N]
+        gt_mask (torch.Tensor): Ground truth masks [K, N]
+        
+    Returns:
+        float: Mean IoU value
+    """
+    pred_mask = torch.softmax(pred_mask, dim=0)
+    pred_mask = pred_mask>0.5
+
+    max_iou_list = []
+    for j in range(gt_mask.shape[0]):
+        max_iou = 0
+        for i in range(pred_mask.shape[0]):
+
+            intersection = torch.sum(pred_mask[i] * gt_mask[j])
+            union = torch.sum(pred_mask[i]) + torch.sum(gt_mask[j]) - intersection
+            iou = float(intersection) / float(union) if union != 0 else 0
+            if iou > max_iou:
+                max_iou = iou
+        
+        max_iou_list.append(max_iou)
+    mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
+    return mean_iou
+
+def remap_instance_labels(labels):
+    """
+    将任意整数标签重映射为连续的标签编号，从0开始
+    例如: [0,1,8,1] -> [0,1,2,1]
+    
+    Args:
+        labels: 输入标签张量
+    
+    Returns:
+        重映射后的标签张量
+    """
+    unique_labels = torch.unique(labels)
+    mapping = {label.item(): idx for idx, label in enumerate(unique_labels)}
+    
+    # 创建新的标签张量
+    remapped = torch.zeros_like(labels)
+    for old_label, new_label in mapping.items():
+        remapped[labels == old_label] = new_label
+        
+    return remapped
 
 def main(config, writer):
     """
@@ -90,9 +140,14 @@ def main(config, writer):
             break
 
         # Forward pass
-        pred_flow = scene_flow_predictor(sample["point_cloud_first"].to(device))  # Shape: [B, N, 3]
-        gt_flow = sample["flow"].to(device)  # Shape: [B, N, 3]
-        pred_mask = mask_predictor(sample)  # Shape: [B, K, N]
+        point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
+        pred_flow = []
+        for i in range(len(point_cloud_firsts)):
+            pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
+        gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
+        pred_mask =[]
+        for i in range(len(point_cloud_firsts)):
+            pred_mask.append(mask_predictor(point_cloud_firsts[i]))
 
         # Compute losses
         if config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0:
@@ -108,23 +163,25 @@ def main(config, writer):
             scene_flow_smooth_loss = torch.tensor(0.0, device=device)
 
         if config.lr_multi.rec_flow_loss > 0:
-            point_cloud_first = sample["point_cloud_first"].to(device)
-            pred_second_points = point_cloud_first + pred_flow
-            rec_flow_loss = flowRecLoss(pred_second_points, reconstructed_points)
+            rec_flow_loss = torch.tensor(0.0, device=device)
+            for i in range(len(point_cloud_firsts)):
+                pred_second_point = point_cloud_firsts[i] + pred_flow[i]
+                rec_flow_loss += flowRecLoss(pred_second_point, reconstructed_points[i])
             rec_flow_loss = rec_flow_loss * config.lr_multi.rec_flow_loss
         else:
             rec_flow_loss = torch.tensor(0.0, device=device)
 
         if config.lr_multi.flow_loss > 0:
-            point_cloud_first = sample["point_cloud_first"].to(device)
-            pred_second_points = point_cloud_first + pred_flow
-            flow_loss = chamferLoss(pred_second_points, sample["point_cloud_second"].to(device))
+            flow_loss = torch.tensor(0.0, device=device)
+            for i in range(len(point_cloud_firsts)):
+                pred_second_points = point_cloud_firsts[i] + pred_flow[i]
+                flow_loss += chamferLoss(pred_second_points.unsqueeze(0), sample["point_cloud_second"][i].to(device).unsqueeze(0))
             flow_loss = flow_loss * config.lr_multi.flow_loss
         else:
             flow_loss = torch.tensor(0.0, device=device)
 
         if config.lr_multi.point_smooth_loss > 0:
-            point_smooth_loss = pointsmoothloss(sample["point_cloud_first"].to(device), pred_mask)
+            point_smooth_loss = pointsmoothloss(point_cloud_firsts, pred_mask)
             point_smooth_loss = point_smooth_loss * config.lr_multi.point_smooth_loss
         else:
             point_smooth_loss = torch.tensor(0.0, device=device)
@@ -133,12 +190,12 @@ def main(config, writer):
         loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss
 
         # Log losses
-        print("rec_loss", rec_loss.item())
-        print("flow_loss", flow_loss.item())
-        print("scene_flow_smooth_loss", scene_flow_smooth_loss.item())
-        print("rec_flow_loss", rec_flow_loss.item())
-        print("point_smooth_loss", point_smooth_loss.item())
-        print("iteration", step)
+        tqdm.write(f"rec_loss: {rec_loss.item():.4f}")
+        tqdm.write(f"flow_loss: {flow_loss.item():.4f}")
+        tqdm.write(f"scene_flow_smooth_loss: {scene_flow_smooth_loss.item():.4f}")
+        tqdm.write(f"rec_flow_loss: {rec_flow_loss.item():.4f}")
+        tqdm.write(f"point_smooth_loss: {point_smooth_loss.item():.4f}")
+        tqdm.write(f"iteration: {step}")
 
         # Log to tensorboard
         writer.add_scalars("losses", {
@@ -157,25 +214,42 @@ def main(config, writer):
         
         # Log gradients if needed
         if hasattr(pred_flow, 'grad') and pred_flow.grad is not None:
-            print("pred_flow.grad", pred_flow.grad.std().item())
+            tqdm.write(f"pred_flow.grad {pred_flow.grad.std().item()}")
         if hasattr(pred_mask, 'grad') and pred_mask.grad is not None:
-            print("pred_mask.grad", pred_mask.grad.std().item())
+            tqdm.write(f"pred_mask.grad {pred_mask.grad.std().item()}")
             
         optimizer.step()
         optimizer_mask.step()
         
         # Compute EPE (End Point Error)
-        epe = torch.norm(pred_flow - gt_flow, dim=2, p=2)  # Shape: [B, N]
-        epe_mean = epe.mean()
-        print("epe", epe_mean.item())
+        epe_list = []
+        for i in range(len(point_cloud_firsts)):
+            epe_list.append(torch.norm(pred_flow[i] - gt_flow[i], dim=1, p=2))  # Shape: [B, N]
+        epe_mean = [torch.mean(epe) for epe in epe_list]
+        epe_mean = torch.mean(torch.stack(epe_mean))
+        tqdm.write(f"epe {epe_mean.item()}")
         writer.add_scalar("epe", epe_mean.item(), step)
+        #calculate miou using pred_mask and sample["dynamic_instance_mask"]
+        miou_list = []
+        for i in range(len(point_cloud_firsts)):
+            gt_mask = remap_instance_labels(sample["dynamic_instance_mask"][i])
+            miou_list.append(
+                calculate_miou(
+                    pred_mask[i], 
+                    F.one_hot(gt_mask.to(torch.long)).permute(1, 0).to(device=device)  # Shape: [K, N]
+                    )
+                )
+        miou_mean = [torch.mean(miou) for miou in miou_list]
+        miou_mean = torch.mean(torch.stack(miou_mean))
+        tqdm.write(f"miou {miou_mean.item()}")
+        writer.add_scalar("miou", miou_mean.item(), step)
 
         # Visualization
-        if config.vis.show_window and sample["point_cloud_first"].shape[0] > 0:
+        if config.vis.show_window and point_cloud_firsts[0].shape[0] > 0:
             batch_idx = 0
             
             # Get data for visualization
-            point_cloud_first = sample["point_cloud_first"][batch_idx].cpu().numpy()
+            point_cloud_first = point_cloud_firsts[batch_idx].cpu().numpy()
             point_cloud_second = sample["point_cloud_second"][batch_idx].cpu().numpy()
             current_pred_flow = pred_flow[batch_idx].cpu().detach().numpy()
             current_pred_mask = pred_mask[batch_idx].cpu().detach()
