@@ -69,7 +69,7 @@ class Neural_Prior(torch.nn.Module):
                 
         return x
     
-class FLowPredictor(torch.nn.Module):
+class OptimizedFLowPredictor(torch.nn.Module):
     def __init__(self, dim=3, pointSize=128):
         super().__init__()
         self.pointSize = pointSize

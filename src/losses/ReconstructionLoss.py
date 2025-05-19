@@ -132,22 +132,24 @@ class ReconstructionLoss():
         return interpolated_values
     
     def __call__(self, inputs, pred_mask, pred_flow):
-        point_cloud_first = inputs["point_cloud_first"].to(self.device)
-        point_cloud_second = inputs["point_cloud_second"].to(self.device)
-        pred_mask = pred_mask.to(self.device)
-        pred_flow = pred_flow.to(self.device)
+        point_cloud_first = [item.to(self.device) for item in inputs["point_cloud_first"]]
+        point_cloud_second = [item.to(self.device) for item in inputs["point_cloud_second"]]
+        pred_mask = [item.to(self.device) for item in pred_mask]
+        pred_flow = [item.to(self.device) for item in pred_flow]
         
-        batch_size = point_cloud_first.shape[0]
-        scene_flow_rec = torch.zeros_like(point_cloud_first)
-        
+        batch_size = len(point_cloud_first)
+        loss_summ = 0
+        rec_point_cloud = []
         # Process each batch item
         for batch_idx in range(batch_size):
             # Get data for current batch
-            current_point_cloud_first = point_cloud_first[batch_idx:batch_idx+1]  # Keep batch dimension
-            current_point_cloud_second = point_cloud_second[batch_idx:batch_idx+1]
+            current_point_cloud_first = point_cloud_first[batch_idx]  # Keep batch dimension
+            current_point_cloud_first = current_point_cloud_first.unsqueeze(0)
+            current_point_cloud_second = point_cloud_second[batch_idx]
+            current_point_cloud_second = current_point_cloud_second.unsqueeze(0)
             current_pred_mask = pred_mask[batch_idx]  # Shape: [slot_num, N]
             current_pred_flow = pred_flow[batch_idx]  # Shape: [N, 3]
-            
+            scene_flow_rec = torch.zeros_like(current_point_cloud_first)
             # Apply softmax to mask
             current_pred_mask = F.softmax(current_pred_mask, dim=0)
             
@@ -167,7 +169,9 @@ class ReconstructionLoss():
                 # Add to reconstruction
                 scene_flow_rec[batch_idx:batch_idx+1] += masked_scene_flow
         
-        # Compute loss using Chamfer distance
-        loss = self.chamferDistanceLoss(scene_flow_rec + point_cloud_first, point_cloud_second)
-        return loss, scene_flow_rec + point_cloud_first
+            # Compute loss using Chamfer distance
+            loss = self.chamferDistanceLoss(scene_flow_rec + current_point_cloud_first, current_point_cloud_second)
+            loss_summ += loss
+            rec_point_cloud.append(scene_flow_rec + current_point_cloud_first)
+        return loss, rec_point_cloud
         pass

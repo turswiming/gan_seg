@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from .gen_point_traj_flow import process_one_sample
 from .datasetutil.av2 import read_av2_scene
 
-class AV2Dataset(nn.Module):
+class AV2PerSceneDataset(nn.Module):
     """
     Dataset class for loading and processing AV2 dataset.
     
@@ -28,7 +28,7 @@ class AV2Dataset(nn.Module):
         """
         Initialize the AV2 dataset loader.
         """
-        super(AV2Dataset, self).__init__()
+        super(AV2PerSceneDataset, self).__init__()
         self.point_cloud_first = None
         
     def __len__(self):
@@ -80,12 +80,13 @@ class AV2Dataset(nn.Module):
             self.point_cloud_second = second_value["point_cloud_first"][valid_mask_second]
             flow = first_value["flow"]
             self.flow = flow[valid_mask]
-
+            self.dynamic_instance_mask = first_value["flow_category"][valid_mask]
         # Prepare sample
         sample = {
             "point_cloud_first": self.point_cloud_first,
             "point_cloud_second": self.point_cloud_second,
-            "flow": self.flow
+            "flow": self.flow,
+            'dynamic_instance_mask': self.dynamic_instance_mask,
         }
 
         return sample

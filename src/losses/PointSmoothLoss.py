@@ -184,8 +184,11 @@ class PointSmoothLoss(nn.Module):
             torch.Tensor: Combined smoothness loss
         """
         # Reshape mask from (B, K, N) to (B, N, K) for compatibility with loss functions
-        batch_size = mask.shape[0]
-        mask_reshaped = mask.permute(0, 2, 1)  # Change to (B, N, K)
-        
-        loss = (self.w_knn * self.knn_loss(pc, mask_reshaped)) + (self.w_ball_q * self.ball_q_loss(pc, mask_reshaped))
+        batch_size = len(pc)
+        mask_reshaped = [item.permute(1, 0).unsqueeze(0) for item in mask]
+        pc = [item.unsqueeze(0) for item in pc]
+        loss = torch.zeros(batch_size).to(pc[0].device)
+        for i in range(batch_size):
+            loss[i] = (self.w_knn * self.knn_loss(pc[i], mask_reshaped[i])) + (self.w_ball_q * self.ball_q_loss(pc[i], mask_reshaped[i]))
+        loss = loss.mean()
         return loss

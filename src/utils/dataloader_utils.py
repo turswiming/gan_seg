@@ -1,6 +1,6 @@
 import torch
-from dataset.av2_dataset import AV2Dataset
-from dataset.per_scene_dataset import PerSceneDataset
+from dataset.av2_dataset import AV2PerSceneDataset
+from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
 
 def infinite_dataloader(dataloader):
     """
@@ -47,9 +47,9 @@ def create_dataloaders(config):
     """
     # Create dataset based on config
     if config.dataset.name == "AV2":
-        dataset = AV2Dataset()
+        dataset = AV2PerSceneDataset()
     elif config.dataset.name == "MOVI_F":
-        dataset = PerSceneDataset()
+        dataset = MOVIPerSceneDataset()
     else:
         raise ValueError(f"Dataset {config.dataset.name} not supported")
     
@@ -59,9 +59,10 @@ def create_dataloaders(config):
         batch_size=config.dataloader.batchsize, 
         shuffle=True,
         collate_fn=lambda batch: {
-            "point_cloud_first": torch.stack([item["point_cloud_first"] for item in batch]),
-            "point_cloud_second": torch.stack([item["point_cloud_second"] for item in batch]),
-            "flow": torch.stack([item["flow"] for item in batch])
+            "point_cloud_first": [item["point_cloud_first"] for item in batch],
+            "point_cloud_second": [item["point_cloud_second"] for item in batch],
+            "flow": [item["flow"] for item in batch],
+            "dynamic_instance_mask": [item["dynamic_instance_mask"] for item in batch if "dynamic_instance_mask" in item],
         }
     )
     
@@ -70,6 +71,7 @@ def create_dataloaders(config):
     
     # Get sample to determine dimensions
     sample = next(infinite_dataloader(dataloader))
-    batch_size, N, _ = sample["point_cloud_first"].shape
+    batch_size = len(sample["point_cloud_first"])
+    N = sample["point_cloud_first"][0].shape[0]
     
     return dataloader, infinite_loader, batch_size, N 

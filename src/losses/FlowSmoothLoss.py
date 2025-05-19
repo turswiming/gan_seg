@@ -146,8 +146,8 @@ class FlowSmoothLoss():
         Returns:
             torch.Tensor: Average reconstruction loss across all batches
         """
-        batch_size = sample["point_cloud_first"].shape[0]
-        point_position = sample["point_cloud_first"].to(self.device)
+        batch_size = len(sample["point_cloud_first"])
+        point_position = [item.to(self.device) for item in sample["point_cloud_first"]]
         scene_flows = flow
         
         total_loss = 0.0

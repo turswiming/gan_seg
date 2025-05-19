@@ -1,3 +1,3 @@
-from .mask_predict_model import MaskPredictor
+from .mask_predict_model import OptimizedMaskPredictor
 
-from .scene_flow_predict_model import FLowPredictor
+from .scene_flow_predict_model import OptimizedFLowPredictor

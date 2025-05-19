@@ -10,7 +10,7 @@ from torch import nn
 from torch.nn import functional as F
 from .gen_point_traj_flow import process_one_sample
 
-class PerSceneDataset(nn.Module):
+class MOVIPerSceneDataset(nn.Module):
     """
     Dataset class for loading and processing individual scenes.
     
@@ -28,7 +28,7 @@ class PerSceneDataset(nn.Module):
         """
         Initialize the per scene dataset loader.
         """
-        super(PerSceneDataset, self).__init__()
+        super(MOVIPerSceneDataset, self).__init__()
         self.traj = None
         
     def __len__(self):
