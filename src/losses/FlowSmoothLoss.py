@@ -62,7 +62,7 @@ class FlowSmoothLoss():
         total_loss = 0.0
         for b in range(B):
             coords = self.construct_embedding(point_position)  # (L, 4)
-            scene_flow_b = normalize_useing_other(scene_flows,point_position)  # (L, 3)
+            scene_flow_b = normalize_useing_other(scene_flows,scene_flows)  # (L, 3)
             mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
             flow_reconstruction = torch.zeros_like(scene_flow_b)  # (L, 3)
             reconstruction_loss = 0

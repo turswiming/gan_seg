@@ -43,9 +43,9 @@ class AV2Dataset(nn.Module):
 
 
         sample = {}
-        sample["point_cloud_first"] = self.point_cloud_first.to(torch.double)
+        sample["point_cloud_first"] = self.point_cloud_first
         print("datatype",self.point_cloud_first.dtype)
-        sample["point_cloud_second"] = self.point_cloud_second.to(torch.double)
-        sample['flow'] = self.flow.to(torch.double)
+        sample["point_cloud_second"] = self.point_cloud_second
+        sample['flow'] = self.flow
 
         return sample

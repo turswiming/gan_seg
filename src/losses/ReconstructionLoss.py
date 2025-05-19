@@ -133,8 +133,8 @@ class ReconstructionLoss():
             pred_mask_b = pred_mask[b]
             pred_point_cloud_second = point_cloud_first + pred_flow.unsqueeze(0)
             rotation, move = self.fit_motion_svd_batch(point_cloud_first, pred_point_cloud_second, pred_mask_b.unsqueeze(0))
-            rotation = rotation.to(torch.float64)
-            move = move.to(torch.float64)
+            # No explicit type conversion needed
+            # rotation and move will keep their original dtype
             transformed_point = torch.bmm(point_cloud_first, rotation) + move
 
             # Add an extra dimension to the mask tensor to make it [1, 4121, 1]

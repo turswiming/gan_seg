@@ -6,24 +6,26 @@ log:
 model:
   flow:
     name: "NSFP" # NSFP or OptimizedFlow
+    lr : 0.001
     NSFP:
       num_layers: 8
       num_hidden: 128
       activation: "relu"
   mask:
+    lr: 1.0
     name: "OptimizedMask"
     slot_num: 10
 
 dataset:
   name: "AV2" # MOVI_F or AV2
 training:
-  max_iter: 800
+  max_iter: 400
 
 dataloader:
   batchsize: 1
 
 lr_multi:
-  rec_loss: 0.0
+  rec_loss: 0.01
   flow_loss: 1
   scene_flow_smoothness: 1000
   rec_flow_loss: 0.01

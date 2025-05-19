@@ -10,12 +10,12 @@ class SceneFlowPredictor(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.input_dim = 3
         self.output_dim = 3
-        self.input_layer = nn.Linear(self.input_dim, hidden_dim,device=self.device,dtype=torch.float64)
+        self.input_layer = nn.Linear(self.input_dim, hidden_dim,device=self.device)
         self.activation_input = nn.ReLU()
         for i in range(layer_num):
-            setattr(self, f"linear{i}", nn.Linear(hidden_dim, hidden_dim,device=self.device,dtype=torch.float64))
+            setattr(self, f"linear{i}", nn.Linear(hidden_dim, hidden_dim,device=self.device))
             setattr(self, f"relu{i}", nn.ReLU())
-        self.output_layer = nn.Linear(hidden_dim, self.output_dim,device=self.device,dtype=torch.float64)
+        self.output_layer = nn.Linear(hidden_dim, self.output_dim,device=self.device)
         self.activation_output = nn.ReLU()
 
     def forward(self, inputs):
@@ -45,20 +45,20 @@ class Neural_Prior(torch.nn.Module):
         self.nn_layers = torch.nn.ModuleList([])
         # input layer (default: xyz -> 128)
         if layer_size >= 1:
-            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, filter_size,dtype=torch.float64)))
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, filter_size)))
             if act_fn == 'relu':
                 self.nn_layers.append(torch.nn.ReLU())
             elif act_fn == 'sigmoid':
                 self.nn_layers.append(torch.nn.Sigmoid())
             for _ in range(layer_size-1):
-                self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(filter_size, filter_size,dtype=torch.float64)))
+                self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(filter_size, filter_size)))
                 if act_fn == 'relu':
                     self.nn_layers.append(torch.nn.ReLU())
                 elif act_fn == 'sigmoid':
                     self.nn_layers.append(torch.nn.Sigmoid())
-            self.nn_layers.append(torch.nn.Linear(filter_size, dim_x,dtype=torch.float64))
+            self.nn_layers.append(torch.nn.Linear(filter_size, dim_x))
         else:
-            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, dim_x,dtype=torch.float64)))
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, dim_x)))
 
     def forward(self, x):
         """ points -> features
@@ -74,7 +74,7 @@ class FLowPredictor(torch.nn.Module):
         super().__init__()
         self.pointSize = pointSize
         self.dim = dim
-        init_noise = torch.randn((pointSize, dim), dtype=torch.float64)*0.1
+        init_noise = torch.randn((pointSize, dim))*0.1
         self.init_noise = torch.nn.Parameter(init_noise, requires_grad=True)
     
     def forward(self, x):

@@ -59,9 +59,9 @@ def main(config ,writer):
     scene_flow_predictor = get_scene_flow_predictor(config.model.flow,N)
     scene_flow_predictor.to(device)
 
-    optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=0.001)
+    optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=config.model.flow.lr)
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10)
-    optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=1)
+    optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
 
     reconstructionLoss = ReconstructionLoss(device)
     chamferLoss = ChamferDistanceLoss()
@@ -123,7 +123,7 @@ def main(config ,writer):
         else:
             flow_loss = torch.tensor(0.0)
         if config.lr_multi.point_smooth_loss>0:
-            point_smooth_loss = pointsmoothloss(sample["point_cloud_first"].to(device).to(torch.float), pred_mask.permute(1,0).unsqueeze(0).to(torch.float))
+            point_smooth_loss = pointsmoothloss(sample["point_cloud_first"].to(device), pred_mask.permute(1,0).unsqueeze(0))
             point_smooth_loss = point_smooth_loss * config.lr_multi.point_smooth_loss
         else:
             point_smooth_loss = torch.tensor(0.0)
@@ -215,13 +215,28 @@ def main(config ,writer):
     if config.vis.show_window:
         vis.destroy_window()
 
+def load_config_with_inheritance(config_path):
+    config = OmegaConf.load(config_path)
+    base_config_path = config_path
+    while '__base__' in config:
+        base_config_path = os.path.join(os.path.dirname(base_config_path), config.__base__)
+        print(f"Loading base config from: {base_config_path}")
+        base_config = OmegaConf.load(base_config_path)
+        # 移除_base_字段避免干扰
+        config.pop('__base__')
+        config = OmegaConf.merge(base_config, config)
+    return config
+
+# 使用
+
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Scene Flow and Mask Prediction")
     parser.add_argument("--config", type=str, default="config/baseconfig.yaml", help="Path to the config file")
     
     args, unknown = parser.parse_known_args()
-    config_obj = OmegaConf.load(args.config)
+    config_obj = load_config_with_inheritance(args.config)
+
     print_config(config_obj)
     cli_opts = OmegaConf.from_cli()
     print_config(cli_opts)

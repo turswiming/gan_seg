@@ -1,0 +1,25 @@
+# movi_f_prescene.yaml
+__base__: "baseconfig.yaml"
+model:
+  flow:
+    name: "OptimizedFlow" # NSFP or OptimizedFlow
+    lr : 0.1
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "relu"
+  mask:
+    lr: 1.0
+    name: "OptimizedMask"
+    slot_num: 6
+dataset:
+  name: "MOVI_F" # MOVI_F or AV2
+
+training:
+  max_iter: 2000
+lr_multi:
+  rec_loss: 0.1
+  flow_loss: 1
+  scene_flow_smoothness: 30
+  rec_flow_loss: 0.01
+  point_smooth_loss: 0.01

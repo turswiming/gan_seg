@@ -9,20 +9,21 @@ import os
 from read_tensorboard import read_tensorboard_data
 
 
-lr_multi = {  # rec   flow   flow_s  rec_flow  point_s
-    "ALL":      [True,  True,  True,    True,     True],
-    "NSFP":     [False, True,  False,   False,    False],
-    "NO_OGC1":  [False, True,  True,    True,     True],
-    "NO_GWM":   [True,  True,  False,   True,     True],
-    "NO_OGC2":  [True,  True,  True,    True,     False],
-    "NO_rec":   [False, True,  True,    False,    True],
+lr_multi = { #rec   flow   flow_s rec_flow point_s
+    "NSFP":[    0.0,    1.0,  0.0,    0.0,    0.0],
+    "LR1":[    0.1,    1.0, 1.0,  0.0,    0.01],
+    "LR10":[    0.1,    1.0, 10.0,  0.0,    0.01],
+    "LR100":[    0.1,    1.0, 100.0,  0.0,    0.01],
+    "LR1000":[    0.1,    1.0, 1000.0,  0.0,    0.01],
+    "LR10000":[    0.1,    1.0, 10000.0,  0.0,    0.01],
+    "LR100000":[    0.1,    1.0, 100000.0,  0.0,    0.01],
 }
-run_times = 4
-dataset_list = ["MOVI_F"]
+run_times = 2
+dataset_list = ["AV2"]
 cwd = os.path.dirname(os.path.abspath(__file__))
 cwd = os.path.join(cwd, "../")
 for dataset in dataset_list:
-    save_path_base = os.path.join(cwd, f"../outputs/ablation/lr/{dataset}")
+    save_path_base = os.path.join(cwd, f"../outputs/ablation/lr_flow_smooth/{dataset}")
     for key in lr_multi.keys():
         # Create a new directory for the current key
         for i in range(run_times):
@@ -31,32 +32,17 @@ for dataset in dataset_list:
                 continue
             os.makedirs(savepath, exist_ok=True)
             # Create a new JSON file for the current key
-            config_path = os.path.dirname(os.path.abspath(__file__))
-            if dataset == "MOVI_F":
-                config_path = os.path.join(config_path, "../config/movi_f_prescene.yaml")
-            else:
-                config_path = os.path.join(config_path, "../config/baseconfig.yaml")
             command_list = [
                 "python","main.py",
-                f"--config {config_path}",
                 f"log.dir={savepath}",
                 f"dataset.name={dataset}",
-                # f"lr_multi.rec_loss={lr_multi[key][0]}",
-                # f"lr_multi.flow_loss={lr_multi[key][1]}",
-                # f"lr_multi.scene_flow_smoothness={lr_multi[key][2]}",
-                # f"lr_multi.rec_flow_loss={lr_multi[key][3]}",
-                # f"lr_multi.point_smooth_loss={lr_multi[key][4]}",
+                f"lr_multi.rec_loss={lr_multi[key][0]}",
+                f"lr_multi.flow_loss={lr_multi[key][1]}",
+                f"lr_multi.flow_s_loss={lr_multi[key][2]}",
+                f"lr_multi.rec_flow_loss={lr_multi[key][3]}",
+                f"lr_multi.point_s_loss={lr_multi[key][4]}",
             ]
-            if not lr_multi[key][0]:
-                command_list.append("lr_multi.rec_loss=0.0")
-            if not lr_multi[key][1]:
-                command_list.append("lr_multi.flow_loss=0.0")
-            if not lr_multi[key][2]:
-                command_list.append("lr_multi.scene_flow_smoothness=0.0")
-            if not lr_multi[key][3]:
-                command_list.append("lr_multi.rec_flow_loss=0.0")
-            if not lr_multi[key][4]:
-                command_list.append("lr_multi.point_smooth_loss=0.0")
+            command_list.append("model.mask.slot_num=30")
             # Run the command
             command = " ".join(command_list)
             print(command)
@@ -92,12 +78,13 @@ for dataset in dataset_list:
 
     # 颜色映射
     colors = {
-        "ALL": "#1f77b4",     # 蓝色
         "NSFP": "#ff7f0e",    # 橙色
-        "NO_OGC1": "#2ca02c", # 绿色
-        "NO_GWM": "#d62728",  # 红色
-        "NO_OGC2": "#9467bd", # 紫色
-        "NO_rec": "#8c564b",  # 棕色
+        "LR1": "#2ca02c", # 绿色
+        "LR10": "#d62728",  # 红色
+        "LR100": "#9467bd", # 紫色
+        "LR1000": "#8c564b",  # 棕色
+        "LR10000": "#7f7f7f",   # 灰色
+        "LR100000": "#1f77b4",     # 蓝色
     }
 
     # 确保所有运行结果长度相同
@@ -136,7 +123,7 @@ for dataset in dataset_list:
     plt.ylabel('EPE Value (Lower is Better)', fontsize=14)
     plt.legend(fontsize=12)
     # Add a line of explanatory text
-    plt.text(0.5, -True, f'For memory efficiency, only the [dynamic objects] from the {dataset} dataset were used. Unlike other literature, the numerical values are not directly comparable.', fontsize=12, ha='center', transform=plt.gca().transAxes)
+    plt.text(0.5, -0.1, f'For memory efficiency, only the [dynamic objects] from the {dataset} dataset were used. Unlike other literature, the numerical values are not directly comparable.', fontsize=12, ha='center', transform=plt.gca().transAxes)
 
     # 添加网格
     plt.grid(True, linestyle='--', alpha=0.7)

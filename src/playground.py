@@ -56,12 +56,12 @@ def fit_motion_svd_batch(pc1, pc2, mask=None):
 
 
 
-point_cloud_first = torch.randn((1, 1000, 3), dtype=torch.float64)
+point_cloud_first = torch.randn((1, 1000, 3))
 
 rotation_matrix = torch.tensor([[0.0, -1.0, 0.0],
                                [1.0, 0.0, 0.0],
-                               [0.0, 0.0, 1.0]], dtype=torch.float64)
-translation_vector = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64)
+                               [0.0, 0.0, 1.0]])
+translation_vector = torch.tensor([0.0, 0.0, 0.0])
 point_cloud_second = torch.bmm(point_cloud_first, rotation_matrix.unsqueeze(0)) + translation_vector.unsqueeze(0)
 
 rot_reconstructed, translation_reconstructed = fit_motion_svd_batch(point_cloud_first, point_cloud_second)
