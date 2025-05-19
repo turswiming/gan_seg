@@ -1,10 +1,36 @@
+"""
+Reconstruction Loss implementation for point cloud reconstruction.
+
+This module implements a reconstruction loss that measures how well a predicted
+point cloud matches the ground truth, taking into account both point positions
+and their flow vectors.
+"""
+
 import torch
 import open3d as o3d
 from torch import nn
 from torch.nn import functional as F
 from losses.ChamferDistanceLoss import ChamferDistanceLoss
+
 class ReconstructionLoss():
-    def __init__(self,device):
+    """
+    Reconstruction Loss for point cloud and flow prediction.
+    
+    This loss function evaluates the quality of reconstructed point clouds by
+    comparing them with ground truth data, considering both point positions
+    and their associated flow vectors.
+    
+    Attributes:
+        device (torch.device): Device to perform computations on
+    """
+    
+    def __init__(self, device):
+        """
+        Initialize the Reconstruction Loss module.
+        
+        Args:
+            device (torch.device): Device to perform computations on
+        """
         self.device = device
         self.chamferDistanceLoss = ChamferDistanceLoss()
         pass

@@ -11,6 +11,16 @@ from typing import Tuple
 from pointnet2.pointnet2 import *
 
 """
+Point Smoothness Loss implementation for point cloud segmentation.
+
+This module implements a comprehensive smoothness loss for point cloud segmentation,
+combining k-nearest neighbors (KNN) and ball query approaches to encourage spatially
+coherent segmentation masks. The loss penalizes rapid changes in segmentation
+probabilities between neighboring points using two complementary neighborhood
+definitions.
+"""
+
+"""
   smooth_loss_params:
     w_knn: 3.
     w_ball_q: 1.
@@ -25,9 +35,30 @@ from pointnet2.pointnet2 import *
 """
 class KnnLoss(nn.Module):
     """
-    Part of the smooth loss by KNN.
+    K-nearest neighbors based smoothness loss component.
+    
+    This loss encourages consistent segmentation masks among k-nearest neighbors
+    within a specified radius, using either L1/L2 distance or cross-entropy to
+    measure differences in segmentation probabilities.
+    
+    Attributes:
+        k (int): Number of nearest neighbors to consider
+        radius (float): Maximum distance for neighbor consideration
+        cross_entropy (bool): Whether to use cross-entropy instead of norm distance
+        loss_norm (int): Norm to use for distance calculation (1 for L1, 2 for L2)
     """
+    
     def __init__(self, k=8, radius=0.1, cross_entropy=False, loss_norm=1, **kwargs):
+        """
+        Initialize the KNN Loss component.
+        
+        Args:
+            k (int): Number of nearest neighbors
+            radius (float): Maximum neighbor distance
+            cross_entropy (bool): Use cross-entropy loss instead of norm
+            loss_norm (int): Which norm to use (1 or 2)
+            **kwargs: Additional arguments
+        """
         super().__init__()
         self.k = k
         self.radius = radius
@@ -36,10 +67,14 @@ class KnnLoss(nn.Module):
 
     def forward(self, pc, mask):
         """
-        :param pc: (B, N, 3) torch.Tensor.
-        :param mask: (B, N, K) torch.Tensor.
-        :return:
-            loss: () torch.Tensor.
+        Compute the KNN-based smoothness loss.
+        
+        Args:
+            pc (torch.Tensor): Point cloud coordinates [B, N, 3]
+            mask (torch.Tensor): Segmentation mask [B, N, K]
+            
+        Returns:
+            torch.Tensor: Computed KNN smoothness loss
         """
         mask = mask.permute(0, 2, 1).contiguous()
         dist, idx = knn(self.k, pc, pc)
@@ -56,9 +91,30 @@ class KnnLoss(nn.Module):
 
 class BallQLoss(nn.Module):
     """
-    Part of the smooth loss by ball query.
+    Ball query based smoothness loss component.
+    
+    This loss encourages consistent segmentation masks among points within
+    a fixed radius ball, complementing the KNN-based approach by providing
+    a different neighborhood definition.
+    
+    Attributes:
+        k (int): Maximum number of points in ball
+        radius (float): Ball radius for neighbor search
+        cross_entropy (bool): Whether to use cross-entropy instead of norm distance
+        loss_norm (int): Norm to use for distance calculation (1 for L1, 2 for L2)
     """
-    def __init__(self, k = 16, radius = 0.2, cross_entropy=False, loss_norm=1, **kwargs):
+    
+    def __init__(self, k=16, radius=0.2, cross_entropy=False, loss_norm=1, **kwargs):
+        """
+        Initialize the Ball Query Loss component.
+        
+        Args:
+            k (int): Maximum points in ball
+            radius (float): Ball radius
+            cross_entropy (bool): Use cross-entropy loss instead of norm
+            loss_norm (int): Which norm to use (1 or 2)
+            **kwargs: Additional arguments
+        """
         super().__init__()
         self.k = k
         self.radius = radius
@@ -67,10 +123,14 @@ class BallQLoss(nn.Module):
 
     def forward(self, pc, mask):
         """
-        :param pc: (B, N, 3) torch.Tensor.
-        :param mask: (B, N, K) torch.Tensor.
-        :return:
-            loss: () torch.Tensor.
+        Compute the ball query based smoothness loss.
+        
+        Args:
+            pc (torch.Tensor): Point cloud coordinates [B, N, 3]
+            mask (torch.Tensor): Segmentation mask [B, N, K]
+            
+        Returns:
+            torch.Tensor: Computed ball query smoothness loss
         """
         mask = mask.permute(0, 2, 1).contiguous()
         idx = ball_query(self.radius, self.k, pc, pc)
@@ -85,9 +145,27 @@ class BallQLoss(nn.Module):
 
 class PointSmoothLoss(nn.Module):
     """
-    Enforce local smoothness of object mask.
+    Combined point smoothness loss for segmentation.
+    
+    This loss combines KNN and ball query based approaches to encourage
+    spatially coherent segmentation masks. The combination provides robust
+    smoothness constraints using different neighborhood definitions.
+    
+    Attributes:
+        w_knn (float): Weight for KNN loss component
+        w_ball_q (float): Weight for ball query loss component
+        knn_loss (KnnLoss): KNN-based smoothness loss
+        ball_q_loss (BallQLoss): Ball query based smoothness loss
     """
-    def __init__(self, w_knn = 3, w_ball_q =1):
+    
+    def __init__(self, w_knn=3, w_ball_q=1):
+        """
+        Initialize the combined Point Smoothness Loss.
+        
+        Args:
+            w_knn (float): Weight for KNN loss
+            w_ball_q (float): Weight for ball query loss
+        """
         super().__init__()
         self.knn_loss = KnnLoss()
         self.ball_q_loss = BallQLoss()
@@ -96,10 +174,14 @@ class PointSmoothLoss(nn.Module):
 
     def forward(self, pc, mask):
         """
-        :param pc: (B, N, 3) torch.Tensor.
-        :param mask: (B, K, N) torch.Tensor.
-        :return:
-            loss: () torch.Tensor.
+        Compute the combined smoothness loss.
+        
+        Args:
+            pc (torch.Tensor): Point cloud coordinates [B, N, 3]
+            mask (torch.Tensor): Segmentation mask [B, K, N]
+            
+        Returns:
+            torch.Tensor: Combined smoothness loss
         """
         # Reshape mask from (B, K, N) to (B, N, K) for compatibility with loss functions
         batch_size = mask.shape[0]

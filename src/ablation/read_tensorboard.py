@@ -1,39 +1,46 @@
+"""
+TensorBoard log reader utility.
+
+This module provides functionality to read scalar data from TensorBoard log files.
+"""
+
 from tensorboard.backend.event_processing import event_accumulator
 
 def read_tensorboard_data(log_dir, tag_name):
     """
-    从TensorBoard日志文件中读取特定标签的数据
+    Read data for a specific tag from TensorBoard log files.
     
     Args:
-        log_dir: TensorBoard日志目录路径
-        tag_name: 要读取的数据标签名称
+        log_dir (str): Path to the TensorBoard log directory
+        tag_name (str): Name of the data tag to read
     
     Returns:
-        values: 值列表
-        steps: 对应的步骤列表
+        tuple: A tuple containing:
+            - steps (list): List of training steps
+            - values (list): List of corresponding values
     """
-    # 创建事件累加器
+    # Create event accumulator
     ea = event_accumulator.EventAccumulator(
         log_dir,
         size_guidance={
-            event_accumulator.SCALARS: 0,  # 0表示加载所有数据
+            event_accumulator.SCALARS: 0,  # 0 means load all data
             event_accumulator.HISTOGRAMS: 0,
             event_accumulator.IMAGES: 0,
         }
     )
     
-    # 加载日志数据
+    # Load log data
     ea.Reload()
     
-    # 检查标签是否存在
+    # Check if tag exists
     available_tags = ea.Tags()['scalars']
     if tag_name not in available_tags:
         print(f"Tag '{tag_name}' not found. Available tags: {available_tags}")
         return [], []
         
-    # 读取标量数据
+    # Read scalar data
     scalar_events = ea.Scalars(tag_name)
     values = [event.value for event in scalar_events]
     steps = [event.step for event in scalar_events]
     
-    return steps,values
+    return steps, values

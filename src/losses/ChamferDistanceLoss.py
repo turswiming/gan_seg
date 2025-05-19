@@ -1,10 +1,26 @@
+"""
+Memory-efficient Chamfer Distance Loss implementation for point cloud comparison.
+
+This module implements a memory-efficient version of the Chamfer Distance Loss,
+which processes point clouds in chunks to reduce memory usage while maintaining
+accuracy. The Chamfer distance measures the bidirectional distance between two
+point clouds by finding the nearest neighbor distances in both directions.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class ChamferDistanceLoss:
     """
-    Chamfer Distance Loss for point cloud data.
+    Memory-efficient Chamfer Distance Loss for point cloud comparison.
+    
+    This implementation processes point clouds in chunks to reduce memory usage,
+    making it suitable for large point clouds. It supports both unidirectional
+    and bidirectional distance calculations with various reduction methods.
+    
+    Attributes:
+        reduction (str): Method to reduce the loss ('mean', 'sum', or 'none')
     """
 
     def __init__(self, reduction='mean'):
@@ -12,23 +28,37 @@ class ChamferDistanceLoss:
         Initialize the ChamferDistanceLoss.
 
         Args:
-            reduction (str): Reduction method to apply to the loss. Options are 'mean', 'sum', or 'none'.
+            reduction (str): Reduction method for the loss:
+                - 'mean': Average across all points and batches
+                - 'sum': Sum across all points and batches
+                - 'none': Return per-point distances
         """
         self.reduction = reduction
 
     def chamfer_distance_memory_efficient(self, x, y, bidirectional=True, reduction='mean', chunk_size=1024):
         """
-        Computes the bidirectional Chamfer distance between two point clouds with memory efficiency.
+        Compute the Chamfer distance between two point clouds using chunked processing.
+        
+        This method splits the computation into chunks to reduce memory usage,
+        making it feasible to process large point clouds on limited memory devices.
         
         Args:
-            x: Tensor of shape (batch_size, num_points_x, dim) representing first point cloud
-            y: Tensor of shape (batch_size, num_points_y, dim) representing second point cloud
-            bidirectional: If True, computes the sum of both directions (x->y and y->x)
-            reduction: Reduction method - 'mean', 'sum', or 'none'
-            chunk_size: Size of chunks to process at once (smaller = less memory, slower)
+            x (torch.Tensor): First point cloud [batch_size, num_points_x, dim]
+            y (torch.Tensor): Second point cloud [batch_size, num_points_y, dim]
+            bidirectional (bool): If True, compute distance in both directions (x->y and y->x)
+            reduction (str): Method to reduce the loss ('mean', 'sum', 'none')
+            chunk_size (int): Number of points to process at once (memory vs. speed tradeoff)
             
         Returns:
-            chamfer_dist: Chamfer distance (reduced according to reduction parameter)
+            torch.Tensor: Computed Chamfer distance with shape determined by reduction method:
+                - 'mean': scalar
+                - 'sum': scalar
+                - 'none': [batch_size, num_points]
+                
+        Note:
+            Smaller chunk_size reduces memory usage but increases computation time.
+            The bidirectional option doubles computation time but provides more
+            accurate distance measurements.
         """
         assert x.dim() == 3, "Expected 3D tensor for x"
         assert y.dim() == 3, "Expected 3D tensor for y"
@@ -110,17 +140,20 @@ class ChamferDistanceLoss:
             return chamfer_dist.sum()
         else:  # 'none'
             return chamfer_dist
+
     def __call__(self, x, y):
         """
-        Compute the Chamfer distance loss.
+        Compute the Chamfer distance between two point clouds.
+
+        A convenience wrapper around chamfer_distance_memory_efficient that uses
+        the instance's reduction setting.
 
         Args:
-            input (dict): Input data containing point clouds.
-            pred_mask (torch.Tensor): Predicted mask.
-            pred_flow (torch.Tensor): Predicted flow.
+            x (torch.Tensor): First point cloud [batch_size, num_points, dim]
+            y (torch.Tensor): Second point cloud [batch_size, num_points, dim]
 
         Returns:
-            torch.Tensor: Computed loss.
+            torch.Tensor: Computed Chamfer distance
         """
         return self.chamfer_distance_memory_efficient(x, y, bidirectional=True, reduction=self.reduction, chunk_size=1024)
         # Implement the Chamfer distance calculation here
