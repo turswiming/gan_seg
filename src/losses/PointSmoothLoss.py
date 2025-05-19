@@ -97,9 +97,13 @@ class PointSmoothLoss(nn.Module):
     def forward(self, pc, mask):
         """
         :param pc: (B, N, 3) torch.Tensor.
-        :param mask: (B, N, K) torch.Tensor.
+        :param mask: (B, K, N) torch.Tensor.
         :return:
             loss: () torch.Tensor.
         """
-        loss = (self.w_knn * self.knn_loss(pc, mask)) + (self.w_ball_q * self.ball_q_loss(pc, mask))
+        # Reshape mask from (B, K, N) to (B, N, K) for compatibility with loss functions
+        batch_size = mask.shape[0]
+        mask_reshaped = mask.permute(0, 2, 1)  # Change to (B, N, K)
+        
+        loss = (self.w_knn * self.knn_loss(pc, mask_reshaped)) + (self.w_ball_q * self.ball_q_loss(pc, mask_reshaped))
         return loss

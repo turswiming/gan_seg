@@ -45,53 +45,70 @@ class FlowSmoothLoss():
         self.chamferDistanceLoss = ChamferDistanceLoss()
         pass
 
-    def __call__(self, sample, flow, mask):
+    def __call__(self, sample, mask, flow):
         """
-        flow: shape (B, 2, H, W) containing optical flow vectors for each pixel
-        mask: shape (K, H, W) with K segments
+        flow: shape (B, N, 3) containing flow vectors for each point
+        mask: shape (B, K, N) with K segments and B batches
         """
-        return self.loss(sample, flow, mask)
+        return self.loss(sample, mask, flow)
+        
     def loss(self, sample, mask, flow):
-        B = 1
-        K = mask.shape[0]
-        mask = ScaleGradient.apply(mask, 1)
+        batch_size = sample["point_cloud_first"].shape[0]
         point_position = sample["point_cloud_first"].to(self.device)
         scene_flows = flow
         
-        
         total_loss = 0.0
-        for b in range(B):
-            coords = self.construct_embedding(point_position)  # (L, 4)
-            scene_flow_b = normalize_useing_other(scene_flows,scene_flows)  # (L, 3)
-            mask_binary_b = F.softmax(mask, dim=0)  # (K, L)
-            flow_reconstruction = torch.zeros_like(scene_flow_b)  # (L, 3)
+        for b in range(batch_size):
+            # Get batch data
+            point_position_b = point_position[b]  # (N, 3)
+            scene_flow_b = scene_flows[b]  # (N, 3)
+            mask_b = mask[b]  # (K, N)
+            
+            # Process mask
+            mask_b = ScaleGradient.apply(mask_b, 1)
+            mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
+            
+            # Normalize flow
+            scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
+            
+            # Construct embedding
+            coords = self.construct_embedding(point_position_b)  # (N, 5)
+            
+            # Initialize flow reconstruction
+            flow_reconstruction = torch.zeros_like(scene_flow_b)  # (N, 3)
+            
+            # Per-slot reconstruction
+            K = mask_b.shape[0]
             reconstruction_loss = 0
+            
             for k in range(K):
-                mk = mask_binary_b[k].unsqueeze(-1)  # (L,1)
+                mk = mask_binary_b[k].unsqueeze(-1)  # (N, 1)
                 
-                Ek = coords * mk
-                Fk = scene_flow_b * mk
+                Ek = coords * mk  # Apply mask to embedding
+                Fk = scene_flow_b * mk  # Apply mask to flow
                 
-                theta_k = torch.linalg.lstsq(Ek, Fk).solution  # 更稳定的求解
+                # Solve for parameters
+                theta_k = torch.linalg.lstsq(Ek, Fk).solution
                 
+                # Reconstruct flow
                 Fk_hat = Ek @ theta_k
-                flow_reconstruction += Fk_hat  # (L, 3)
-
-            reconstruction_loss += self.criterion(flow_reconstruction, scene_flow_b)
+                flow_reconstruction += Fk_hat  # (N, 3)
+                
+            # Compute reconstruction loss
+            reconstruction_loss = self.criterion(flow_reconstruction, scene_flow_b)
             total_loss += reconstruction_loss
         
-        return total_loss / K
-
+        # Return average loss
+        return total_loss / batch_size
 
     @torch.no_grad()
-    def construct_embedding(self,point_position):
+    def construct_embedding(self, point_position):
         """
-        Construct the pixel coordinate embedding [x, y, z, 1]
-        in flattened (HW, 4) form.
+        Construct the point coordinate embedding [x, y, z, 1, 1]
         """
-        x = point_position[...,0].view(-1)
-        y = point_position[...,1].view(-1)
-        z = point_position[...,2].view(-1)
-        # shape (L, 4)
-        emb = torch.stack([x, y, z, torch.ones_like(x),torch.ones_like(x)], dim=1)
+        x = point_position[..., 0].view(-1)
+        y = point_position[..., 1].view(-1)
+        z = point_position[..., 2].view(-1)
+        # shape (N, 5)
+        emb = torch.stack([x, y, z, torch.ones_like(x), torch.ones_like(x)], dim=1)
         return emb

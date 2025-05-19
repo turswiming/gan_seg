@@ -50,11 +50,16 @@ def main(config ,writer):
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=config.dataloader.batchsize, 
-        shuffle=True
-        )
+        shuffle=True,
+        collate_fn=lambda batch: {
+            "point_cloud_first": torch.stack([item["point_cloud_first"] for item in batch]),
+            "point_cloud_second": torch.stack([item["point_cloud_second"] for item in batch]),
+            "flow": torch.stack([item["flow"] for item in batch])
+        }
+    )
     infinite_loader = infinite_dataloader(dataloader)
     sample = next(infinite_loader)
-    _, N, _ = sample["point_cloud_first"].shape
+    batch_size, N, _ = sample["point_cloud_first"].shape
     mask_predictor = get_mask_predictor(config.model.mask,N)
     scene_flow_predictor = get_scene_flow_predictor(config.model.flow,N)
     scene_flow_predictor.to(device)
@@ -95,38 +100,44 @@ def main(config ,writer):
         # else:
         #     scene_flow_predictor.eval()
         #     mask_predictor.train()
-        pred_flow = scene_flow_predictor(sample["point_cloud_first"].to(device))
-        pred_flow = pred_flow.view(-1, 3)
-        gt_flow = torch.tensor(sample["flow"])
-        gt_flow = gt_flow.to(pred_flow.device)
-        pred_mask = mask_predictor(sample)
+        
+        # Get predictions with batch dimension
+        pred_flow = scene_flow_predictor(sample["point_cloud_first"].to(device))  # Shape: [B, N, 3]
+        gt_flow = sample["flow"].to(device)  # Shape: [B, N, 3]
+        pred_mask = mask_predictor(sample)  # Shape: [B, K, N]
 
         #compute losses
         if config.lr_multi.rec_loss>0 or config.lr_multi.rec_flow_loss>0:
             rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
-            rec_loss = rec_loss *config.lr_multi.rec_loss
+            rec_loss = rec_loss * config.lr_multi.rec_loss
         else:
-            rec_loss = torch.tensor(0.0)
+            rec_loss = torch.tensor(0.0, device=device)
         if config.lr_multi.scene_flow_smoothness>0:
             scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
             scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
         else:
-            scene_flow_smooth_loss = torch.tensor(0.0)
+            scene_flow_smooth_loss = torch.tensor(0.0, device=device)
         if config.lr_multi.rec_flow_loss>0:
-            rec_flow_loss = flowRecLoss(pred_flow+sample["point_cloud_first"].to(device), reconstructed_points)
+            # Apply flow to get predicted second point cloud
+            point_cloud_first = sample["point_cloud_first"].to(device)
+            pred_second_points = point_cloud_first + pred_flow
+            rec_flow_loss = flowRecLoss(pred_second_points, reconstructed_points)
             rec_flow_loss = rec_flow_loss * config.lr_multi.rec_flow_loss
         else:
-            rec_flow_loss = torch.tensor(0.0)
+            rec_flow_loss = torch.tensor(0.0, device=device)
         if config.lr_multi.flow_loss>0:
-            flow_loss = chamferLoss(pred_flow+sample["point_cloud_first"].to(device), sample["point_cloud_second"].to(device))
+            # Apply flow to get predicted second point cloud
+            point_cloud_first = sample["point_cloud_first"].to(device)
+            pred_second_points = point_cloud_first + pred_flow
+            flow_loss = chamferLoss(pred_second_points, sample["point_cloud_second"].to(device))
             flow_loss = flow_loss * config.lr_multi.flow_loss
         else:
-            flow_loss = torch.tensor(0.0)
+            flow_loss = torch.tensor(0.0, device=device)
         if config.lr_multi.point_smooth_loss>0:
-            point_smooth_loss = pointsmoothloss(sample["point_cloud_first"].to(device), pred_mask.permute(1,0).unsqueeze(0))
+            point_smooth_loss = pointsmoothloss(sample["point_cloud_first"].to(device), pred_mask)
             point_smooth_loss = point_smooth_loss * config.lr_multi.point_smooth_loss
         else:
-            point_smooth_loss = torch.tensor(0.0)
+            point_smooth_loss = torch.tensor(0.0, device=device)
 
         #add all losses together
         loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss
@@ -148,61 +159,74 @@ def main(config ,writer):
         
         optimizer.zero_grad()
         optimizer_mask.zero_grad()
-        pred_flow.retain_grad()
-        pred_mask.retain_grad()
-        # sum_loss = mse_loss
         loss.backward()
-        if pred_flow.grad is not None:
-            print("pred_flow.grad", pred_flow.grad.std())
-        if pred_mask.grad is not None:
-            print("pred_mask.grad", pred_mask.grad.std())
+        
+        # Log gradients if needed
+        if hasattr(pred_flow, 'grad') and pred_flow.grad is not None:
+            print("pred_flow.grad", pred_flow.grad.std().item())
+        if hasattr(pred_mask, 'grad') and pred_mask.grad is not None:
+            print("pred_mask.grad", pred_mask.grad.std().item())
+            
         optimizer.step()
         optimizer_mask.step()
+        
         #compare with gt_flow
-        pred_flow = pred_flow.view(-1, 3)
-        pred_flow = pred_flow.reshape(-1, 3)
-        gt_flow = gt_flow.view(-1, 3)
-        gt_flow = gt_flow.reshape(-1, 3)
-        epe = torch.norm(pred_flow - gt_flow, dim=1,p=2)
-        print("epe", epe.mean().item())
+        epe = torch.norm(pred_flow - gt_flow, dim=2, p=2)  # Shape: [B, N]
+        epe_mean = epe.mean()
+        print("epe", epe_mean.item())
 
         #PCA to 3D
-        writer.add_scalar("epe", epe.mean().item(), step)
+        writer.add_scalar("epe", epe_mean.item(), step)
 
         #visualize
-        if config.vis.show_window:
-            pred_point = (sample["point_cloud_first"] + pred_flow.cpu().detach()).numpy()
-            pcd.points = o3d.utility.Vector3dVector(pred_point.reshape(-1, 3))
-            pred_mask = pred_mask.permute(1, 0)
-            color = pca(pred_mask)
-            pcd.colors = o3d.utility.Vector3dVector(color.cpu().detach().numpy())
-            gt_pcd.points = o3d.utility.Vector3dVector(sample["point_cloud_second"].cpu().detach().numpy().reshape(-1, 3))
+        if config.vis.show_window and sample["point_cloud_first"].shape[0] > 0:
+            # Use the first batch item for visualization
+            batch_idx = 0
+            
+            # Get point clouds and predictions for visualization
+            point_cloud_first = sample["point_cloud_first"][batch_idx].cpu().numpy()
+            point_cloud_second = sample["point_cloud_second"][batch_idx].cpu().numpy()
+            current_pred_flow = pred_flow[batch_idx].cpu().detach().numpy()
+            current_pred_mask = pred_mask[batch_idx].cpu().detach()
+            
+            # PCA for coloring
+            current_pred_mask = current_pred_mask.permute(1, 0)  # Change to [N, K] for PCA
+            color = pca(current_pred_mask)
+            
+            # Predicted point cloud
+            pred_point = point_cloud_first + current_pred_flow
+            pcd.points = o3d.utility.Vector3dVector(pred_point)
+            pcd.colors = o3d.utility.Vector3dVector(color.numpy())
+            
+            # Ground truth point cloud
+            gt_pcd.points = o3d.utility.Vector3dVector(point_cloud_second)
             gt_pcd.paint_uniform_color([0, 1, 0])
-            #if defined reconstructed_points:
-
+            
+            # Reconstructed point cloud if available
             if "reconstructed_points" in locals():
-                reconstructed_pcd.points = o3d.utility.Vector3dVector(reconstructed_points.cpu().detach().numpy().reshape(-1, 3))
+                current_reconstructed = reconstructed_points[batch_idx].cpu().detach().numpy()
+                reconstructed_pcd.points = o3d.utility.Vector3dVector(current_reconstructed)
                 reconstructed_pcd.paint_uniform_color([0, 0, 1])
+                
             if first_iteration:
                 # vis.add_geometry(pcd)
                 vis.add_geometry(gt_pcd)
                 if "reconstructed_points" in locals():
                     vis.add_geometry(reconstructed_pcd)
-                vis , lineset = visualize_vectors(
-                    sample["point_cloud_first"].reshape(-1, 3),
-                    pred_flow.cpu().detach().numpy().reshape(-1, 3),
+                vis, lineset = visualize_vectors(
+                    point_cloud_first,
+                    current_pred_flow,
                     vis=vis,
-                    color=color.cpu().detach().numpy().reshape(-1, 3),
+                    color=color.numpy(),
                     )
                 first_iteration = False
             else:
                 # vis.update_geometry(pcd)
                 lineset = update_vector_visualization(
                     lineset,
-                    sample["point_cloud_first"].reshape(-1, 3),
-                    pred_flow.cpu().detach().numpy().reshape(-1, 3),
-                    color=color.cpu().detach().numpy().reshape(-1, 3),
-                    
+                    point_cloud_first,
+                    current_pred_flow,
+                    color=color.numpy(),
                 )
                 vis.update_geometry(lineset)
                 vis.update_geometry(gt_pcd)

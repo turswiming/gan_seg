@@ -13,4 +13,6 @@ class MaskPredictor(nn.Module):
         self.tensor3d = torch.nn.Parameter(softmaxed_tensor, requires_grad=True)
     
     def forward(self, inputs):
-        return self.tensor3d
+        batch_size = inputs["point_cloud_first"].shape[0]
+        # Repeat the parameter tensor for each batch item
+        return self.tensor3d.unsqueeze(0).expand(batch_size, -1, -1)

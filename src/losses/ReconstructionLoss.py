@@ -105,44 +105,43 @@ class ReconstructionLoss():
         
         return interpolated_values
     
-    def __call__(self, inputs,pred_mask, pred_flow):
+    def __call__(self, inputs, pred_mask, pred_flow):
         point_cloud_first = inputs["point_cloud_first"].to(self.device)
         point_cloud_second = inputs["point_cloud_second"].to(self.device)
         pred_mask = pred_mask.to(self.device)
         pred_flow = pred_flow.to(self.device)
-        pred_mask = F.softmax(pred_mask, dim=0)
-        # print(pred_mask.dtype)
-        # #convert to one hot
-        # pred_mask = torch.argmax(pred_mask, dim=0)
-        # pred_mask = F.one_hot(pred_mask)
-        # print("pred_mask", pred_mask.shape)
-        # pred_mask = pred_mask.permute(1,0)
-        # pred_mask = pred_mask.to(self.device)
-        # pred_mask = pred_mask.to(torch.float64)
-        # pred_mask+= 0.00000000001
-        # pred_mask = pred_mask / torch.sum(pred_mask, dim=1, keepdim=True)
-        '''
-        loss2
-        point_cloud_first torch.Size([1, 4121, 3])
-        point_cloud_second torch.Size([1, 4121, 3])
-        pred_mask torch.Size([8, 4121])
-        pred_flow torch.Size([4121, 3])
-        '''
+        
+        batch_size = point_cloud_first.shape[0]
         scene_flow_rec = torch.zeros_like(point_cloud_first)
-        for b in range(pred_mask.shape[0]):
-            pred_mask_b = pred_mask[b]
-            pred_point_cloud_second = point_cloud_first + pred_flow.unsqueeze(0)
-            rotation, move = self.fit_motion_svd_batch(point_cloud_first, pred_point_cloud_second, pred_mask_b.unsqueeze(0))
-            # No explicit type conversion needed
-            # rotation and move will keep their original dtype
-            transformed_point = torch.bmm(point_cloud_first, rotation) + move
-
-            # Add an extra dimension to the mask tensor to make it [1, 4121, 1]
-            mask_expanded = pred_mask_b.unsqueeze(0).unsqueeze(-1)  # Shape: [1, 4121, 1]
-
-            # Now the broadcasting will work correctly
-            masked_scene_flow = (transformed_point - point_cloud_first) * mask_expanded
-            scene_flow_rec += masked_scene_flow
-        loss = self.chamferDistanceLoss(scene_flow_rec+point_cloud_first, point_cloud_second)
-        return loss, scene_flow_rec+point_cloud_first
+        
+        # Process each batch item
+        for batch_idx in range(batch_size):
+            # Get data for current batch
+            current_point_cloud_first = point_cloud_first[batch_idx:batch_idx+1]  # Keep batch dimension
+            current_point_cloud_second = point_cloud_second[batch_idx:batch_idx+1]
+            current_pred_mask = pred_mask[batch_idx]  # Shape: [slot_num, N]
+            current_pred_flow = pred_flow[batch_idx]  # Shape: [N, 3]
+            
+            # Apply softmax to mask
+            current_pred_mask = F.softmax(current_pred_mask, dim=0)
+            
+            # Compute reconstruction for each slot
+            for slot_idx in range(current_pred_mask.shape[0]):
+                slot_mask = current_pred_mask[slot_idx]  # Shape: [N]
+                pred_point_cloud_second = current_point_cloud_first + current_pred_flow.unsqueeze(0)
+                rotation, move = self.fit_motion_svd_batch(current_point_cloud_first, pred_point_cloud_second, slot_mask.unsqueeze(0))
+                
+                # Transform points
+                transformed_point = torch.bmm(current_point_cloud_first, rotation) + move.unsqueeze(1)
+                
+                # Apply mask
+                mask_expanded = slot_mask.unsqueeze(0).unsqueeze(-1)  # Shape: [1, N, 1]
+                masked_scene_flow = (transformed_point - current_point_cloud_first) * mask_expanded
+                
+                # Add to reconstruction
+                scene_flow_rec[batch_idx:batch_idx+1] += masked_scene_flow
+        
+        # Compute loss using Chamfer distance
+        loss = self.chamferDistanceLoss(scene_flow_rec + point_cloud_first, point_cloud_second)
+        return loss, scene_flow_rec + point_cloud_first
         pass
