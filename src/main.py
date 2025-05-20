@@ -352,9 +352,6 @@ def main(config, writer):
         miou_list = []
         for i in range(len(point_cloud_firsts)):
             gt_mask = remap_instance_labels(sample["dynamic_instance_mask"][i])
-            pred_mask[i] = pred_mask[i]*(torch.sum(pred_flow[i],dim=1)>0.01)
-            print(f"pred_mask {pred_mask[i].shape}")
-            pred_mask[i] = torch.concat([pred_mask[i], torch.ones((1,pred_mask[i].shape[-1])).to(device)], dim=0)
             tqdm.write(f"gt_mask size {max(gt_mask)}")
             miou_list.append(
                 calculate_miou(

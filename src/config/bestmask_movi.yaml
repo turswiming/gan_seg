@@ -1,7 +1,7 @@
 # baseconfig.yaml
 __base__: "baseconfig.yaml"
 dataset:
-  name: "AV2" # MOVI_F or AV2
+  name: "MOVI_F" # MOVI_F or AV2
 training:
   max_iter: 30000
 model:
@@ -13,7 +13,7 @@ model:
       num_hidden: 128
       activation: "relu"
   mask:
-    lr: 0.001
+    lr: 0.1
     name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
     slot_num: 5
     num_layers: 8
