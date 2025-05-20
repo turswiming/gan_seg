@@ -27,7 +27,7 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         
         # Get the group for this timestamp
         group = f[timestamp]
-        
+        print(f"group keys: {group.keys()}")
         # Always available data
         point_cloud_first = np.array(group['lidar'])
         ground_mask = np.array(group['ground_mask'])
@@ -57,6 +57,16 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         if next_timestamp_idx < len(timestamps) and flow is not None:
             next_timestamp = timestamps[next_timestamp_idx]
             point_cloud_second = np.array(f[next_timestamp]['lidar'])
+                # 在read_av2_h5函数中添加这些字段
+        label = None
+        if 'label' in group:
+            label = np.array(group['label'])
+        dufo_label = None
+        if 'dufo_label' in group:
+            dufo_label = np.array(group['dufo_label'])
+        flow_instance_id = None
+        if 'flow_instance_id' in group:
+            flow_instance_id = np.array(group['flow_instance_id'])
     
     # Create result dictionary
     result = {
@@ -64,7 +74,12 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         "ground_mask": torch.from_numpy(ground_mask).bool(),
         "pose": torch.from_numpy(pose).float(),
     }
-    
+    if label is not None:
+        result["label"] = torch.from_numpy(label).long()
+    if dufo_label is not None:
+        result["dufo_label"] = torch.from_numpy(dufo_label).long()
+    if flow_instance_id is not None:
+        result["flow_instance_id"] = torch.from_numpy(flow_instance_id).long()
     if flow is not None:
         result["flow"] = torch.from_numpy(flow).float()
         result["flow_is_valid"] = torch.from_numpy(flow_is_valid).bool()

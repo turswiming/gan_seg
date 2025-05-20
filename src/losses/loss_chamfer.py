@@ -3,8 +3,7 @@
 from typing import Union
 import torch
 import torch.nn.functional as F
-from pytorch3d.ops.knn import knn_gather, knn_points
-from pytorch3d.structures.pointclouds import Pointclouds
+from pointnet2.pointnet2 import KNN, knn, gather_operation
 
 
 def _validate_chamfer_reduction_inputs(
@@ -24,18 +23,37 @@ def _validate_chamfer_reduction_inputs(
         raise ValueError('point_reduction must be one of ["mean", "sum"]')
 
 
+class PointCloudInfo:
+    """Simple class to mimic PyTorch3D's Pointclouds functionality"""
+    def __init__(self, points, normals=None):
+        self.points = points
+        self.normals = normals
+        self.batch_size = points.shape[0]
+        self.num_points = points.shape[1]
+
+    def points_padded(self):
+        return self.points
+
+    def normals_padded(self):
+        return self.normals
+
+    def num_points_per_cloud(self):
+        return torch.full((self.batch_size,), self.num_points, 
+                          dtype=torch.int64, device=self.points.device)
+
+
 def _handle_pointcloud_input(
-    points: Union[torch.Tensor, Pointclouds],
+    points: Union[torch.Tensor, 'PointCloudInfo'],
     lengths: Union[torch.Tensor, None],
     normals: Union[torch.Tensor, None],
 ):
     """
-    If points is an instance of Pointclouds, retrieve the padded points tensor
+    If points is an instance of PointCloudInfo, retrieve the padded points tensor
     along with the number of points per batch and the padded normals.
     Otherwise, return the input points (and normals) with the number of points per cloud
     set to the size of the second dimension of `points`.
     """
-    if isinstance(points, Pointclouds):
+    if isinstance(points, PointCloudInfo):
         X = points.points_padded()
         lengths = points.num_points_per_cloud()
         normals = points.normals_padded()  # either a tensor or None
@@ -56,10 +74,96 @@ def _handle_pointcloud_input(
     else:
         raise ValueError(
             "The input pointclouds should be either "
-            + "Pointclouds objects or torch.Tensor of shape "
+            + "PointCloudInfo objects or torch.Tensor of shape "
             + "(minibatch, num_points, 3)."
         )
     return X, lengths, normals
+
+
+# Custom nearest point search replacement for PyTorch3D's knn_points
+def nearest_point_search(x, y, x_lengths=None, y_lengths=None, K=1):
+    """
+    Find the K nearest neighbors of x in y
+    Args:
+        x: (B, N, 3) tensor of points
+        y: (B, M, 3) tensor of points
+        x_lengths: (B) tensor of lengths of each batch element in x
+        y_lengths: (B) tensor of lengths of each batch element in y
+        K: Number of nearest neighbors to find
+    Returns:
+        dist: (B, N, K) tensor of squared distances to the nearest points
+        idx: (B, N, K) tensor of indices of nearest points
+    """
+    B, N, _ = x.shape
+    M = y.shape[1]
+    
+    # Create masks for valid points
+    x_mask = torch.arange(N, device=x.device)[None] >= x_lengths[:, None]  # shape [B, N]
+    y_mask = torch.arange(M, device=y.device)[None] >= y_lengths[:, None]  # shape [B, M]
+    
+    # Use pointnet2's knn function
+    # Need to transpose x and y to match the expected shape (B, 3, N)
+    x_t = x.transpose(1, 2).contiguous()
+    y_t = y.transpose(1, 2).contiguous()
+    
+    # Get distances and indices
+    dist, idx = knn(K, x, y)
+    
+    # Apply masks to exclude invalid points
+    for b in range(B):
+        if x_lengths is not None and x_lengths[b] < N:
+            dist[b, x_lengths[b]:] = 0.0
+        if y_lengths is not None:
+            # For points in x that matched to invalid points in y, set large distance
+            invalid_matches = idx[b] >= y_lengths[b].item()
+            dist[b][invalid_matches] = float('inf')
+    
+    # Return a class with the same structure as PyTorch3D's knn_points output
+    class KNNResults:
+        def __init__(self, dists, idx):
+            self.dists = dists
+            self.idx = idx
+    
+    return KNNResults(dist, idx)
+
+
+# Custom gather operation to replace PyTorch3D's knn_gather
+def custom_gather(y, idx, y_lengths=None):
+    """
+    Gather features from y using indices idx
+    Args:
+        y: (B, M, C) tensor of features to gather from
+        idx: (B, N, K) tensor of indices
+        y_lengths: (B) tensor of lengths of each batch element in y
+    Returns:
+        gathered_y: (B, N, K, C) tensor of gathered features
+    """
+    B, M, C = y.shape
+    _, N, K = idx.shape
+    
+    # Reshape y for gather_operation: (B, C, M)
+    y_t = y.transpose(1, 2).contiguous()
+    
+    # Create output tensor
+    gathered_y = torch.zeros(B, N, K, C, device=y.device)
+    
+    # For each k in K, gather features
+    for k in range(K):
+        idx_k = idx[:, :, k]  # (B, N)
+        
+        # Apply y_lengths mask if needed
+        if y_lengths is not None:
+            for b in range(B):
+                idx_k[b, idx_k[b] >= y_lengths[b]] = 0  # Use the first point as padding
+        
+        # Use gather_operation
+        gathered_features = gather_operation(y_t, idx_k)  # (B, C, N)
+        gathered_features = gathered_features.transpose(1, 2)  # (B, N, C)
+        
+        # Store in output tensor
+        gathered_y[:, :, k, :] = gathered_features
+    
+    return gathered_y
 
 
 def my_chamfer_fn(
@@ -77,10 +181,10 @@ def my_chamfer_fn(
     Chamfer distance between two pointclouds x and y.
 
     Args:
-        x: FloatTensor of shape (N, P1, D) or a Pointclouds object representing
+        x: FloatTensor of shape (N, P1, D) or a PointCloudInfo object representing
             a batch of point clouds with at most P1 points in each batch element,
             batch size N and feature dimension D.
-        y: FloatTensor of shape (N, P2, D) or a Pointclouds object representing
+        y: FloatTensor of shape (N, P2, D) or a PointCloudInfo object representing
             a batch of point clouds with at most P2 points in each batch element,
             batch size N and feature dimension D.
         x_lengths: Optional LongTensor of shape (N,) giving the number of points in each
@@ -144,8 +248,9 @@ def my_chamfer_fn(
     cham_norm_x = x.new_zeros(())
     cham_norm_y = x.new_zeros(())
 
-    x_nn = knn_points(x, y, lengths1=x_lengths, lengths2=y_lengths, K=1)
-    y_nn = knn_points(y, x, lengths1=y_lengths, lengths2=x_lengths, K=1)
+    # Use our custom nearest point search
+    x_nn = nearest_point_search(x, y, x_lengths, y_lengths, K=1)
+    y_nn = nearest_point_search(y, x, y_lengths, x_lengths, K=1)
 
     cham_x = x_nn.dists[..., 0]  # (N, P1)
     cham_y = y_nn.dists[..., 0]  # (N, P2)
@@ -168,8 +273,8 @@ def my_chamfer_fn(
 
     if return_normals:
         # Gather the normals using the indices and keep only value for k=0
-        x_normals_near = knn_gather(y_normals, x_nn.idx, y_lengths)[..., 0, :]
-        y_normals_near = knn_gather(x_normals, y_nn.idx, x_lengths)[..., 0, :]
+        x_normals_near = custom_gather(y_normals, x_nn.idx, y_lengths)[..., 0, :]
+        y_normals_near = custom_gather(x_normals, y_nn.idx, x_lengths)[..., 0, :]
 
         cham_norm_x = 1 - torch.abs(
             F.cosine_similarity(x_normals, x_normals_near, dim=2, eps=1e-6)
@@ -218,5 +323,4 @@ def my_chamfer_fn(
 
     cham_dist = cham_x + cham_y
     cham_normals = cham_norm_x + cham_norm_y if return_normals else None
-
-    return cham_dist, cham_normals
+    return cham_dist #, cham_normals

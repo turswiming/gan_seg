@@ -8,8 +8,28 @@ scene flow prediction, handling depth images and segmentation masks.
 import torch
 from torch import nn
 from torch.nn import functional as F
-from .gen_point_traj_flow import process_one_sample
-
+from .gen_point_traj_flow import process_one_sample,rgb_array_to_int32
+import cv2
+def remap_instance_labels(labels):
+    """
+    将任意整数标签重映射为连续的标签编号，从0开始
+    例如: [0,1,8,1] -> [0,1,2,1]
+    
+    Args:
+        labels: 输入标签张量
+    
+    Returns:
+        重映射后的标签张量
+    """
+    unique_labels = torch.unique(labels)
+    mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
+    print(f"remap {mapping}")
+    # 创建新的标签张量
+    remapped = torch.zeros_like(labels)
+    for old_label, new_label in mapping.items():
+        remapped[labels == old_label] = new_label
+        
+    return remapped
 class MOVIPerSceneDataset(nn.Module):
     """
     Dataset class for loading and processing individual scenes.
@@ -61,12 +81,18 @@ class MOVIPerSceneDataset(nn.Module):
             dep_img_path = f"/home/lzq/workspace/gan_seg/dataset/0/depth_{start:05d}.tiff"
             seg_img_path = f"/home/lzq/workspace/gan_seg/dataset/0/segmentation_{start:05d}.png"
             self.traj = process_one_sample(metadata_path, dep_img_path, seg_img_path, f=start)
-            
+            self.traj = torch.from_numpy(self.traj).to(torch.float32)
+            #read segmentation image
+            seg_img = cv2.imread(seg_img_path, cv2.IMREAD_UNCHANGED)
+            seg_img = rgb_array_to_int32(seg_img)
+            seg_img = torch.from_numpy(seg_img).to(torch.int32)
+            seg_img = remap_instance_labels(seg_img)
+            self.seg_img = seg_img.reshape(-1)
             # Load second frame
             dep_img_path_2 = f"/home/lzq/workspace/gan_seg/dataset/0/depth_{end:05d}.tiff"
             seg_img_path_2 = f"/home/lzq/workspace/gan_seg/dataset/0/segmentation_{end:05d}.png"
             traj2 = process_one_sample(metadata_path, dep_img_path_2, seg_img_path_2, f=end)
-            
+            traj2 = torch.from_numpy(traj2).to(torch.float32)
             # Calculate movement masks
             movement = self.traj[end] - self.traj[start]
             movement = torch.tensor(movement)
@@ -84,7 +110,8 @@ class MOVIPerSceneDataset(nn.Module):
         sample = {
             "point_cloud_first": self.point_cloud_first,
             "point_cloud_second": self.point_cloud_second,
-            "flow": (self.traj[end] - self.traj[start])[self.movement_mask]
+            "flow": (self.traj[end] - self.traj[start])[self.movement_mask],
+            "dynamic_instance_mask": self.seg_img[self.movement_mask],
         }
 
         return sample

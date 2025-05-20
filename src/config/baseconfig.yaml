@@ -6,15 +6,19 @@ log:
 model:
   flow:
     name: "NSFP" # NSFP or OptimizedFlow
-    lr : 0.001
+    lr : 0.0001
     NSFP:
       num_layers: 8
       num_hidden: 128
       activation: "relu"
   mask:
-    lr: 1.0
-    name: "OptimizedMask"
+    lr: 0.001
+    name: "NeuralMask"
     slot_num: 10
+    num_layers: 8
+    num_hidden: 128
+    activation: "relu"
+
 
 dataset:
   name: "AV2" # MOVI_F or AV2

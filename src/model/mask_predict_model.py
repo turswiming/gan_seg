@@ -57,3 +57,36 @@ class OptimizedMaskPredictor(nn.Module):
         """
         # Repeat the parameter tensor for each batch item
         return self.tensor2d 
+    
+class Neural_Mask_Prior(torch.nn.Module):
+    def __init__(self, dim_x=3, slot_num = 10,filter_size=128, act_fn='sigmoid', layer_size=8):
+        super().__init__()
+        self.layer_size = layer_size
+        
+        self.nn_layers = torch.nn.ModuleList([])
+        # input layer (default: xyz -> 128)
+        if layer_size >= 1:
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, filter_size)))
+            if act_fn == 'relu':
+                self.nn_layers.append(torch.nn.ReLU())
+            elif act_fn == 'sigmoid':
+                self.nn_layers.append(torch.nn.Sigmoid())
+            for _ in range(layer_size-1):
+                self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(filter_size, filter_size)))
+                if act_fn == 'relu':
+                    self.nn_layers.append(torch.nn.ReLU())
+                elif act_fn == 'sigmoid':
+                    self.nn_layers.append(torch.nn.Sigmoid())
+            self.nn_layers.append(torch.nn.Linear(filter_size, slot_num))
+        else:
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, slot_num)))
+
+    def forward(self, x):
+        """ points -> features
+            [N, 3] -> [slot_num, N]
+        """
+        for layer in self.nn_layers:
+            x = layer(x)
+                
+        return x.permute(1, 0)
+    

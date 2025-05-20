@@ -51,23 +51,21 @@ def calculate_miou(pred_mask, gt_mask):
     Returns:
         float: Mean IoU value
     """
-    pred_mask = torch.softmax(pred_mask, dim=0)
+    pred_mask = torch.softmax(pred_mask/0.000001, dim=0)
     pred_mask = pred_mask>0.5
-
+    pred_mask = pred_mask.to(dtype=torch.float32)
     max_iou_list = []
     for j in range(gt_mask.shape[0]):
-        if j == 0:
-            continue
         max_iou = 0
         for i in range(pred_mask.shape[0]):
-
+        
             intersection = torch.sum(pred_mask[i] * gt_mask[j])
             union = torch.sum(pred_mask[i]) + torch.sum(gt_mask[j]) - intersection
             iou = float(intersection) / float(union) if union != 0 else 0
             if iou > max_iou:
                 max_iou = iou
-        
         max_iou_list.append(max_iou)
+    print(f"max_iou_list {max_iou_list}")
     mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
     return mean_iou
 
@@ -83,8 +81,8 @@ def remap_instance_labels(labels):
         重映射后的标签张量
     """
     unique_labels = torch.unique(labels)
-    mapping = {label.item(): idx for idx, label in enumerate(unique_labels)}
-    
+    mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
+    print(f"remap {mapping}")
     # 创建新的标签张量
     remapped = torch.zeros_like(labels)
     for old_label, new_label in mapping.items():
@@ -98,6 +96,7 @@ def create_label_colormap():
     A colormap for visualizing segmentation results.
   """
     colormap = np.zeros((256, 3), dtype=np.int64)
+    colormap[0] = [100, 134, 102]
     colormap[1] = [166, 206, 227]
     colormap[2] = [31, 120, 180]
     colormap[3] = [178, 223, 138]
@@ -116,6 +115,58 @@ def create_label_colormap():
     colormap[16] = [0, 80, 100]
     colormap[17] = [0, 0, 230]
     colormap[18] = [119, 11, 32]
+    colormap[19] = [100, 134, 102]
+    colormap[20] = [166, 206, 227]
+    colormap[21] = [31, 120, 180]
+    colormap[22] = [178, 223, 138]
+    colormap[23] = [51, 160, 44]
+    colormap[24] = [251, 154, 153]
+    colormap[25] = [227, 26, 28]
+    colormap[26] = [253, 191, 111]
+    colormap[27] = [255, 127, 0]
+    colormap[28] = [202, 178, 214]
+    colormap[29] = [106, 61, 154]
+    colormap[30] = [255, 255, 153]
+    colormap[31] = [177, 89, 40]
+    colormap[32] = [0, 0, 142]
+    colormap[33] = [0, 0, 70]
+    colormap[34] = [0, 60, 100]
+    colormap[35] = [0, 80, 100]
+    colormap[36] = [0, 0, 230]
+    colormap[37] = [119, 11, 32]
+    colormap[38] = [100, 134, 102]
+    colormap[39] = [166, 206, 227]
+    colormap[40] = [31, 120, 180]
+    colormap[41] = [178, 223, 138]
+    colormap[42] = [51, 160, 44]
+    colormap[43] = [251, 154, 153]
+    colormap[44] = [227, 26, 28]
+    colormap[45] = [253, 191, 111]
+    colormap[46] = [255, 127, 0]
+    colormap[47] = [202, 178, 214]
+    colormap[48] = [106, 61, 154]
+    colormap[49] = [255, 255, 153]
+    colormap[50] = [177, 89, 40]
+    colormap[51] = [0, 0, 142]
+    colormap[52] = [0, 0, 70]
+    colormap[53] = [0, 60, 100]
+    colormap[54] = [0, 80, 100]
+    colormap[55] = [0, 0, 230]
+    colormap[56] = [119, 11, 32]
+    colormap[57] = [100, 134, 102]
+    colormap[58] = [166, 206, 227]
+    colormap[59] = [31, 120, 180]
+    colormap[60] = [178, 223, 138]
+    colormap[61] = [51, 160, 44]
+    colormap[62] = [251, 154, 153]
+    colormap[63] = [227, 26, 28]
+    colormap[64] = [253, 191, 111]
+    colormap[65] = [255, 127, 0]
+    colormap[66] = [202, 178, 214]
+    colormap[67] = [106, 61, 154]
+    colormap[68] = [255, 255, 153]
+    colormap[69] = [177, 89, 40]
+    colormap[70] = [0, 0, 142]
 
     return torch.from_numpy(colormap).long()
 
@@ -130,7 +181,8 @@ def color_mask(mask):
         torch.Tensor: Colored mask [N, 3]
     """
     color_label = create_label_colormap()
-    mask = torch.softmax(mask, dim=0)
+    mask = torch.softmax(mask/0.000001, dim=0)
+    mask = mask > 0.5
     color_result = torch.zeros((mask.shape[1], 3))
     for i in range(mask.shape[0]):
         color_result += mask[i].unsqueeze(1) * color_label[i]
@@ -158,7 +210,7 @@ def main(config, writer):
     # Initialize optimizers
     optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=config.model.flow.lr)
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
-
+    loop = 10
     # Initialize loss functions
     reconstructionLoss = ReconstructionLoss(device)
     chamferLoss = ChamferDistanceLoss()
@@ -181,22 +233,41 @@ def main(config, writer):
     # Main training loop
     for sample in tqdm(infinite_loader, total=config.training.max_iter):
         if epe is not None:
-            tqdm.write(f"epe: {epe.mean().item():.4f}")
+            tqdm.write(f"epe: {epe.mean().item()}")
         
         step += 1
         if step > config.training.max_iter:
             break
-
+        if step // loop%2 == 0:
+            train_flow = True
+            train_mask = False
+        else:
+            train_flow = False
+            train_mask = True
+            
         # Forward pass
         point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
-        pred_flow = []
-        for i in range(len(point_cloud_firsts)):
-            pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
-        gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
-        pred_mask =[]
-        for i in range(len(point_cloud_firsts)):
-            pred_mask.append(mask_predictor(point_cloud_firsts[i]))
-
+        if train_flow:
+            pred_flow = []
+            for i in range(len(point_cloud_firsts)):
+                pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
+            gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
+        else:
+            with torch.no_grad():
+                pred_flow = []
+                for i in range(len(point_cloud_firsts)):
+                    pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))
+                gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
+        if train_mask:
+            pred_mask = []
+            for i in range(len(point_cloud_firsts)):
+                pred_mask.append(mask_predictor(point_cloud_firsts[i]))
+        else:
+            with torch.no_grad():
+                pred_mask =[]
+                for i in range(len(point_cloud_firsts)):
+                    pred_mask.append(mask_predictor(point_cloud_firsts[i]))
+        print(f"pred_mask shape {pred_mask[0].shape}")
         # Compute losses
         if config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0:
             rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
@@ -238,11 +309,11 @@ def main(config, writer):
         loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss
 
         # Log losses
-        tqdm.write(f"rec_loss: {rec_loss.item():.4f}")
-        tqdm.write(f"flow_loss: {flow_loss.item():.4f}")
-        tqdm.write(f"scene_flow_smooth_loss: {scene_flow_smooth_loss.item():.4f}")
-        tqdm.write(f"rec_flow_loss: {rec_flow_loss.item():.4f}")
-        tqdm.write(f"point_smooth_loss: {point_smooth_loss.item():.4f}")
+        tqdm.write(f"rec_loss: {rec_loss.item()}")
+        tqdm.write(f"flow_loss: {flow_loss.item()}")
+        tqdm.write(f"scene_flow_smooth_loss: {scene_flow_smooth_loss.item()}")
+        tqdm.write(f"rec_flow_loss: {rec_flow_loss.item()}")
+        tqdm.write(f"point_smooth_loss: {point_smooth_loss.item()}")
         tqdm.write(f"iteration: {step}")
 
         # Log to tensorboard
@@ -281,6 +352,9 @@ def main(config, writer):
         miou_list = []
         for i in range(len(point_cloud_firsts)):
             gt_mask = remap_instance_labels(sample["dynamic_instance_mask"][i])
+            pred_mask[i] = pred_mask[i]*(torch.sum(pred_flow[i],dim=1)>0.01)
+            print(f"pred_mask {pred_mask[i].shape}")
+            pred_mask[i] = torch.concat([pred_mask[i], torch.ones((1,pred_mask[i].shape[-1])).to(device)], dim=0)
             tqdm.write(f"gt_mask size {max(gt_mask)}")
             miou_list.append(
                 calculate_miou(
@@ -308,10 +382,11 @@ def main(config, writer):
 
             pred_color = color_mask(current_pred_mask)
             gt_color = color_mask(F.one_hot(gt_mask.to(torch.long)).permute(1, 0).to(torch.float32))
-
+            writer.add_histogram("pred_color", pred_color, step)
+            writer.add_histogram("gt_color", gt_color, step)
             # Update point clouds
             pred_point = point_cloud_first + current_pred_flow
-            pcd.points = o3d.utility.Vector3dVector(pred_point)
+            pcd.points = o3d.utility.Vector3dVector(point_cloud_first)
             pcd.colors = o3d.utility.Vector3dVector(gt_color.numpy())
             
             gt_pcd.points = o3d.utility.Vector3dVector(point_cloud_second)
@@ -324,9 +399,9 @@ def main(config, writer):
                 
             if first_iteration:
                 vis.add_geometry(pcd)
-                # vis.add_geometry(gt_pcd)
-                # if "reconstructed_points" in locals():
-                #     vis.add_geometry(reconstructed_pcd)
+                vis.add_geometry(gt_pcd)
+                if "reconstructed_points" in locals():
+                    vis.add_geometry(reconstructed_pcd)
                 vis, lineset = visualize_vectors(
                     point_cloud_first,
                     current_pred_flow,
@@ -336,9 +411,9 @@ def main(config, writer):
                 first_iteration = False
             else:
                 vis.update_geometry(pcd)
-                # vis.update_geometry(gt_pcd)
-                # if "reconstructed_points" in locals():
-                #     vis.update_geometry(reconstructed_pcd)
+                vis.update_geometry(gt_pcd)
+                if "reconstructed_points" in locals():
+                    vis.update_geometry(reconstructed_pcd)
                 lineset = update_vector_visualization(
                     lineset,
                     point_cloud_first,

@@ -63,24 +63,35 @@ class AV2PerSceneDataset(nn.Module):
             
             # Process first frame
             keys = list(av2_dataset.keys())
-            first_key = keys[0]
+            first_key = keys[5]
             first_value = av2_dataset[first_key]
+            print("first_value", first_value.keys())
             valid_mask = first_value["flow_is_valid"]
-            ground_mask = first_value["ground_mask"]
             dynamic_mask = first_value["flow_category"] != 0
-            valid_mask = valid_mask & dynamic_mask
+            ground_mask = first_value["ground_mask"]
+            valid_mask = valid_mask & dynamic_mask & (~ ground_mask)
             self.point_cloud_first = first_value["point_cloud_first"][valid_mask]
-
+            ego_motion = first_value["ego_motion"]
+            
             # Process second frame
-            second_key = keys[1]
+            second_key = keys[6]
             second_value = av2_dataset[second_key]
             valid_mask_second = second_value["flow_is_valid"]
             dynamic_mask_second = second_value["flow_category"] != 0
-            valid_mask_second = valid_mask_second & dynamic_mask_second
+            ground_mask_second = second_value["ground_mask"]
+            valid_mask_second = valid_mask_second & dynamic_mask_second & (~ ground_mask_second)
             self.point_cloud_second = second_value["point_cloud_first"][valid_mask_second]
-            flow = first_value["flow"]
-            self.flow = flow[valid_mask]
-            self.dynamic_instance_mask = first_value["flow_category"][valid_mask]
+            #apply ego motion
+            self.point_cloud_second = torch.matmul(self.point_cloud_second - ego_motion[:3, 3], ego_motion[:3, :3].T)
+
+            self.flow = first_value["flow"]
+            self.flow = torch.matmul(self.flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
+            motion_mask = torch.sum(self.flow, dim=1) >= 0.01
+
+            self.flow = self.flow[valid_mask]
+            # Apply ego motion to flow
+            print(f"first value keyts: {first_value.keys()}") #first_value["flow_instance_id"]
+            self.dynamic_instance_mask = (motion_mask*first_value["label"])[valid_mask]
         # Prepare sample
         sample = {
             "point_cloud_first": self.point_cloud_first,

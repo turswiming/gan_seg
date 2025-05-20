@@ -79,8 +79,6 @@ class OptimizedFLowPredictor(torch.nn.Module):
     
     def forward(self, x):
         """ points -> features
-            [B, N, 3] -> [B, N, 3]
+            [N, 3] -> [N, 3]
         """
-        batch_size = x.shape[0]
-        # Repeat the parameters for each item in the batch
-        return self.init_noise.unsqueeze(0).expand(batch_size, -1, -1)
+        return self.init_noise

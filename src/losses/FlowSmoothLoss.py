@@ -186,10 +186,13 @@ class FlowSmoothLoss():
                 # Reconstruct flow
                 Fk_hat = Ek @ theta_k
                 flow_reconstruction += Fk_hat  # (N, 3)
-                
-            # Compute reconstruction loss
-            reconstruction_loss = self.criterion(flow_reconstruction, scene_flow_b)
+            reconstruction_loss = self.criterion(scene_flow_b, flow_reconstruction)
             total_loss += reconstruction_loss
+
+            # Compute reconstruction loss
+            # with torch.no_grad():
+            #     flow_reconstruction = flow_reconstruction.detach()
+            # reconstruction_loss = torch.pow(torch.log((scene_flow_b+1e8)/(flow_reconstruction+1e8)), 2).mean()
         
         # Return average loss
         return total_loss / batch_size

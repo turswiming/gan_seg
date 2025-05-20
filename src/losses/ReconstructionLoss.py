@@ -10,7 +10,7 @@ import torch
 import open3d as o3d
 from torch import nn
 from torch.nn import functional as F
-from losses.ChamferDistanceLoss import ChamferDistanceLoss
+from losses.loss_chamfer import my_chamfer_fn
 
 class ReconstructionLoss():
     """
@@ -32,7 +32,7 @@ class ReconstructionLoss():
             device (torch.device): Device to perform computations on
         """
         self.device = device
-        self.chamferDistanceLoss = ChamferDistanceLoss()
+        self.chamferDistanceLoss = my_chamfer_fn
         pass
 
     def fit_motion_svd_batch(self, pc1, pc2, mask=None):
