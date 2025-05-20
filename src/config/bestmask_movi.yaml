@@ -1,0 +1,31 @@
+# baseconfig.yaml
+__base__: "baseconfig.yaml"
+dataset:
+  name: "AV2" # MOVI_F or AV2
+training:
+  max_iter: 30000
+model:
+  flow:
+    name: "NSFP" # NSFP or OptimizedFlow
+    lr : 0.0001
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "relu"
+  mask:
+    lr: 0.001
+    name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
+    slot_num: 5
+    num_layers: 8
+    num_hidden: 128
+    activation: "sigmoid"
+
+lr_multi:
+  rec_loss: 0.0
+  flow_loss: 1
+  scene_flow_smoothness: 0.0001
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.01
+
+vis:
+  show_window: true
