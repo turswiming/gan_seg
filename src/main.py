@@ -210,7 +210,8 @@ def main(config, writer):
     # Initialize optimizers
     optimizer = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=config.model.flow.lr)
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
-    loop = 10
+    loop = 100
+    scene_flow_scheduler = lambda iter: iter%loop/loop
     # Initialize loss functions
     reconstructionLoss = ReconstructionLoss(device)
     chamferLoss = ChamferDistanceLoss()
@@ -244,7 +245,8 @@ def main(config, writer):
         else:
             train_flow = False
             train_mask = True
-            
+        train_flow = True
+        train_mask = True
         # Forward pass
         point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
         if train_flow:
@@ -278,6 +280,7 @@ def main(config, writer):
         if config.lr_multi.scene_flow_smoothness > 0:
             scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
             scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
+            scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_scheduler(step)
         else:
             scene_flow_smooth_loss = torch.tensor(0.0, device=device)
 

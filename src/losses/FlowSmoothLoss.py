@@ -215,5 +215,17 @@ class FlowSmoothLoss():
         y = point_position[..., 1].view(-1)
         z = point_position[..., 2].view(-1)
         # shape (N, 5)
-        emb = torch.stack([x, y, z, torch.ones_like(x), torch.ones_like(x)], dim=1)
+        emb = torch.stack([
+            # x, y, z,
+            # x*x*x,
+            # y*y*y,
+            # z*z*z, 
+            # x*x*x*x*x,
+            # y*y*y*y*y,
+            # z*z*z*z*z,
+            # x*y,
+            # y*z,
+            # x*z,
+            torch.ones_like(x),
+            ], dim=1)
         return emb
