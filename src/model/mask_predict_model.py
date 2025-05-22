@@ -59,7 +59,7 @@ class OptimizedMaskPredictor(nn.Module):
         return self.tensor2d 
     
 class Neural_Mask_Prior(torch.nn.Module):
-    def __init__(self, dim_x=3, slot_num = 10,filter_size=128, act_fn='sigmoid', layer_size=8):
+    def __init__(self, dim_x=3, slot_num=10, filter_size=128, act_fn='sigmoid', layer_size=8, dropout=0.2):
         super().__init__()
         self.layer_size = layer_size
         
@@ -85,8 +85,11 @@ class Neural_Mask_Prior(torch.nn.Module):
         """ points -> features
             [N, 3] -> [slot_num, N]
         """
+        layer_num = 0
         for layer in self.nn_layers:
+            layer_num += 1
+            print(f"layer_num: {layer_num}, x_std{x.std()}, x_mean: {x.mean()}")
             x = layer(x)
-                
+        x = F.softmax(x, dim=0)
         return x.permute(1, 0)
     

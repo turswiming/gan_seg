@@ -62,7 +62,7 @@ class Neural_Prior(torch.nn.Module):
 
     def forward(self, x):
         """ points -> features
-            [B, N, 3] -> [B, N, 3]
+            [N, 3] -> [N, 3]
         """
         for layer in self.nn_layers:
             x = layer(x)

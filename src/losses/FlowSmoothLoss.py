@@ -113,7 +113,8 @@ class FlowSmoothLoss():
             device (torch.device): Device to perform computations on
         """
         self.device=device
-        self.criterion = nn.MSELoss(reduction="mean").to(self.device)
+        self.criterionl2 = nn.MSELoss(reduction="mean").to(self.device)
+        self.criterionl1 = nn.L1Loss(reduction="mean").to(self.device)
         self.chamferDistanceLoss = ChamferDistanceLoss()
         pass
 
@@ -186,16 +187,18 @@ class FlowSmoothLoss():
                 # Reconstruct flow
                 Fk_hat = Ek @ theta_k
                 flow_reconstruction += Fk_hat  # (N, 3)
-            reconstruction_loss = self.criterion(scene_flow_b, flow_reconstruction)
-            total_loss += reconstruction_loss
 
+                reconstruction_loss = self.criterionl2(Fk_hat,Fk)
+                total_loss += reconstruction_loss
+            reconstruction_loss = self.criterionl1(scene_flow_b, flow_reconstruction)
+            total_loss += reconstruction_loss
             # Compute reconstruction loss
             # with torch.no_grad():
             #     flow_reconstruction = flow_reconstruction.detach()
             # reconstruction_loss = torch.pow(torch.log((scene_flow_b+1e8)/(flow_reconstruction+1e8)), 2).mean()
         
         # Return average loss
-        return total_loss / batch_size
+        return total_loss / batch_size/2
 
     @torch.no_grad()
     def construct_embedding(self, point_position):

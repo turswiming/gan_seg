@@ -12,10 +12,10 @@ model:
       num_hidden: 128
       activation: "relu"
   mask:
-    lr: 0.001
-    name: "NeuralMask"
-    slot_num: 10
-    num_layers: 8
+    lr: 0.1
+    name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
+    slot_num: 20
+    num_layers: 2
     num_hidden: 128
     activation: "relu"
 
@@ -23,17 +23,17 @@ model:
 dataset:
   name: "AV2" # MOVI_F or AV2
 training:
-  max_iter: 3000
+  max_iter: 30000
 
 dataloader:
   batchsize: 1
 
 lr_multi:
-  rec_loss: 0.01
+  rec_loss: 0.0
   flow_loss: 1
-  scene_flow_smoothness: 1000
-  rec_flow_loss: 0.01
-  point_smooth_loss: 0.01
+  scene_flow_smoothness: 0.01
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.001
 
 vis:
   show_window: true

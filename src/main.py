@@ -51,19 +51,29 @@ def calculate_miou(pred_mask, gt_mask):
     Returns:
         float: Mean IoU value
     """
-    pred_mask = torch.softmax(pred_mask/0.000001, dim=0)
-    pred_mask = pred_mask>0.5
+    pred_mask = torch.softmax(pred_mask, dim=0)
+    pred_mask = torch.argmax(pred_mask, dim=0)
+    pred_mask = F.one_hot(pred_mask).permute(1, 0).to(device=gt_mask.device)
+    pred_mask = pred_mask>0.49
     pred_mask = pred_mask.to(dtype=torch.float32)
     max_iou_list = []
+    gt_mask = gt_mask>0.5
+    #pre calculate the size of each mask
+    gt_mask_size = torch.sum(gt_mask, dim=1)
+    pred_mask_size = torch.sum(pred_mask, dim=1)
     for j in range(gt_mask.shape[0]):
+        if j == 0:
+            continue#skip the background
         max_iou = 0
+        print(f"gt_mask {j} size {gt_mask_size[j]}")
         for i in range(pred_mask.shape[0]):
         
             intersection = torch.sum(pred_mask[i] * gt_mask[j])
-            union = torch.sum(pred_mask[i]) + torch.sum(gt_mask[j]) - intersection
+            union = pred_mask_size[i] + gt_mask_size[j] - intersection
             iou = float(intersection) / float(union) if union != 0 else 0
             if iou > max_iou:
                 max_iou = iou
+        print(f"max_iou {max_iou}")
         max_iou_list.append(max_iou)
     print(f"max_iou_list {max_iou_list}")
     mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
@@ -181,11 +191,13 @@ def color_mask(mask):
         torch.Tensor: Colored mask [N, 3]
     """
     color_label = create_label_colormap()
-    mask = torch.softmax(mask/0.000001, dim=0)
-    mask = mask > 0.5
-    color_result = torch.zeros((mask.shape[1], 3))
-    for i in range(mask.shape[0]):
-        color_result += mask[i].unsqueeze(1) * color_label[i]
+    #get all different values in mask
+    mask_argmax = torch.argmax(mask, dim=0)
+    unique_values = torch.unique(mask_argmax)
+    color_result = torch.zeros((mask_argmax.shape[0], 3), dtype=torch.float32)
+    for i in range(len(unique_values)):
+        # Convert color_label to float before assignment
+        color_result[mask_argmax == unique_values[i]] = color_label[unique_values[i]].to(torch.float32)
     color_result = color_result / 255.0
     return color_result
 
