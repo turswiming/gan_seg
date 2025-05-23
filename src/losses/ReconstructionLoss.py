@@ -37,12 +37,21 @@ class ReconstructionLoss():
 
     def fit_motion_svd_batch(self, pc1, pc2, mask=None):
         """
-        :param pc1: (B, N, 3) torch.Tensor.
-        :param pc2: (B, N, 3) torch.Tensor. pc1 and pc2 should be the same point cloud only with disturbed.
-        :param mask: (B, N) torch.Tensor.
-        :return:
-            R_base: (B, 3, 3) torch.Tensor.
-            t_base: (B, 3) torch.Tensor.
+        Fit rigid transformation between two point clouds using SVD.
+        
+        This method computes the optimal rigid transformation (rotation and translation)
+        that aligns two point clouds, optionally weighted by a mask. It uses Singular
+        Value Decomposition (SVD) to find the best rotation matrix.
+        
+        Args:
+            pc1 (torch.Tensor): Source point cloud [B, N, 3]
+            pc2 (torch.Tensor): Target point cloud [B, N, 3]
+            mask (torch.Tensor, optional): Weights for each point [B, N]
+            
+        Returns:
+            tuple: A tuple containing:
+                - R (torch.Tensor): Batch of rotation matrices [B, 3, 3]
+                - t (torch.Tensor): Batch of translation vectors [B, 3]
         """
         n_batch, n_point, _ = pc1.size()
 
@@ -132,6 +141,21 @@ class ReconstructionLoss():
         return interpolated_values
     
     def __call__(self, inputs, pred_mask, pred_flow):
+        """
+        Compute the reconstruction loss.
+        
+        Args:
+            inputs (dict): Input data containing:
+                - point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
+                - point_cloud_second (list[torch.Tensor]): List of second frame point clouds [N, 3]
+            pred_mask (list[torch.Tensor]): List of predicted segmentation masks, each of shape [K, N]
+            pred_flow (list[torch.Tensor]): List of predicted flow vectors, each of shape [N, 3]
+            
+        Returns:
+            tuple: A tuple containing:
+                - loss (torch.Tensor): Computed reconstruction loss averaged across the batch
+                - rec_point_cloud (list[torch.Tensor]): List of reconstructed point clouds
+        """
         point_cloud_first = [item.to(self.device) for item in inputs["point_cloud_first"]]
         point_cloud_second = [item.to(self.device) for item in inputs["point_cloud_second"]]
         pred_mask = [item.to(self.device) for item in pred_mask]

@@ -123,12 +123,13 @@ class FlowSmoothLoss():
         Compute the flow smoothness loss.
         
         Args:
-            sample (dict): Input data containing point clouds
-            mask (torch.Tensor): Segmentation mask [B, K, N]
-            flow (torch.Tensor): Predicted flow vectors [B, N, 3]
+            sample (dict): Input data containing:
+                - point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
+            mask (list[torch.Tensor]): List of segmentation masks, each of shape [K, N]
+            flow (list[torch.Tensor]): List of predicted flow vectors, each of shape [N, 3]
             
         Returns:
-            torch.Tensor: Computed smoothness loss
+            torch.Tensor: Computed smoothness loss averaged across the batch
         """
         return self.loss(sample, mask, flow)
         
@@ -140,9 +141,10 @@ class FlowSmoothLoss():
         and penalizes deviations from this model.
         
         Args:
-            sample (dict): Input data containing point clouds
-            mask (torch.Tensor): Segmentation mask [B, K, N]
-            flow (torch.Tensor): Predicted flow vectors [B, N, 3]
+            sample (dict): Input data containing:
+                - point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
+            mask (list[torch.Tensor]): List of segmentation masks, each of shape [K, N]
+            flow (list[torch.Tensor]): List of predicted flow vectors, each of shape [N, 3]
             
         Returns:
             torch.Tensor: Average reconstruction loss across all batches

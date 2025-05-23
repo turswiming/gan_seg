@@ -59,7 +59,25 @@ def fit_motion_svd_batch(pc1, pc2, pc1_mask, pc2_mask=None):
 
 
 class GanLoss():
+    """
+    GAN-style loss for point cloud segmentation and flow prediction.
+    
+    This loss encourages consistency between predicted segmentation masks and
+    flow vectors by comparing motion patterns between different segments.
+    
+    Attributes:
+        device (torch.device): Device to perform computations on
+        criterion (nn.Module): MSE loss for comparing motion parameters
+        KNN_SEARCH_SIZE (int): Number of neighbors for KNN search
+    """
+    
     def __init__(self, device):
+        """
+        Initialize the GAN Loss.
+        
+        Args:
+            device (torch.device): Device to perform computations on
+        """
         self.device = device
         self.criterion = nn.MSELoss()
         self.KNN_SEARCH_SIZE = 3
@@ -68,11 +86,15 @@ class GanLoss():
 
     def pi_func(self, mask_single_frame, point_position, sample_goal):
         """
-        使用 Open3D 的 KDTree 实现 KNN 搜索，并手动计算梯度。
-        :param mask_single_frame: (N,)
-        :param point_position: (N, 3)
-        :param sample_goal: (num_tracks, 3)
-        :return: (num_tracks,)
+        Implement KNN search using Open3D's KDTree and compute gradients manually.
+        
+        Args:
+            mask_single_frame (torch.Tensor): Single frame mask values [N]
+            point_position (torch.Tensor): Point cloud positions [N, 3]
+            sample_goal (torch.Tensor): Target points for KNN search [num_tracks, 3]
+            
+        Returns:
+            torch.Tensor: Aggregated mask values for each target point [num_tracks]
         """
         # 确保输入形状正确
         if len(point_position.shape) == 3:
@@ -112,7 +134,21 @@ class GanLoss():
 
         return neighbor_values
 
-    def __call__(self, inputs,pred_mask, pred_flow):
+    def __call__(self, inputs, pred_mask, pred_flow):
+        """
+        Compute the GAN-style loss between predicted masks and flows.
+        
+        Args:
+            inputs (dict): Input data containing:
+                - point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
+                - point_cloud_second (list[torch.Tensor]): List of second frame point clouds [N, 3]
+            pred_mask (list[torch.Tensor]): List of predicted segmentation masks, each of shape [K, N]
+            pred_flow (list[torch.Tensor]): List of predicted flow vectors, each of shape [N, 3]
+            
+        Returns:
+            torch.Tensor: Computed GAN loss combining motion consistency and flow prediction,
+                         averaged across the batch
+        """
         point_cloud_first = inputs["point_cloud_first"].to(self.device)
         point_cloud_second = inputs["point_cloud_second"].to(self.device)
         pred_mask = pred_mask.to(self.device)

@@ -59,7 +59,30 @@ class OptimizedMaskPredictor(nn.Module):
         return self.tensor2d 
     
 class Neural_Mask_Prior(torch.nn.Module):
+    """
+    Neural network based mask predictor for point cloud segmentation.
+    
+    This model uses a multi-layer perceptron to learn point cloud segmentation
+    by mapping 3D coordinates to slot assignment probabilities. The network
+    architecture is configurable in terms of depth, width, and activation functions.
+    
+    Attributes:
+        layer_size (int): Number of hidden layers
+        nn_layers (nn.ModuleList): List of neural network layers
+    """
+    
     def __init__(self, dim_x=3, slot_num=10, filter_size=128, act_fn='sigmoid', layer_size=8, dropout=0.2):
+        """
+        Initialize the neural mask predictor.
+        
+        Args:
+            dim_x (int): Input dimension (default: 3 for xyz coordinates)
+            slot_num (int): Number of segmentation slots
+            filter_size (int): Width of hidden layers
+            act_fn (str): Activation function ('relu' or 'sigmoid')
+            layer_size (int): Number of hidden layers
+            dropout (float): Dropout probability
+        """
         super().__init__()
         self.layer_size = layer_size
         
@@ -82,8 +105,14 @@ class Neural_Mask_Prior(torch.nn.Module):
             self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, slot_num)))
 
     def forward(self, x):
-        """ points -> features
-            [N, 3] -> [slot_num, N]
+        """
+        Forward pass of the network.
+        
+        Args:
+            x (torch.Tensor): Input point cloud coordinates [N, 3]
+            
+        Returns:
+            torch.Tensor: Predicted slot assignment probabilities [slot_num, N]
         """
         layer_num = 0
         for layer in self.nn_layers:

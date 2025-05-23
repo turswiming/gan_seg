@@ -12,19 +12,20 @@ from .gen_point_traj_flow import process_one_sample,rgb_array_to_int32
 import cv2
 def remap_instance_labels(labels):
     """
-    将任意整数标签重映射为连续的标签编号，从0开始
-    例如: [0,1,8,1] -> [0,1,2,1]
+    Remap arbitrary integer labels to consecutive label numbers starting from 0.
+    
+    For example: [0,1,8,1] -> [0,1,2,1]
     
     Args:
-        labels: 输入标签张量
-    
+        labels (torch.Tensor): Input label tensor with arbitrary integer values
+        
     Returns:
-        重映射后的标签张量
+        torch.Tensor: Remapped label tensor with consecutive integers starting from 0
     """
     unique_labels = torch.unique(labels)
     mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
     print(f"remap {mapping}")
-    # 创建新的标签张量
+    # Create new label tensor
     remapped = torch.zeros_like(labels)
     for old_label, new_label in mapping.items():
         remapped[labels == old_label] = new_label

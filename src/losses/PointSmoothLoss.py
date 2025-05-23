@@ -177,11 +177,11 @@ class PointSmoothLoss(nn.Module):
         Compute the combined smoothness loss.
         
         Args:
-            pc (torch.Tensor): Point cloud coordinates [B, N, 3]
-            mask (torch.Tensor): Segmentation mask [B, K, N]
+            pc (list[torch.Tensor]): List of point cloud coordinates, each of shape [N, 3]
+            mask (list[torch.Tensor]): List of segmentation masks, each of shape [K, N]
             
         Returns:
-            torch.Tensor: Combined smoothness loss
+            torch.Tensor: Combined smoothness loss averaged across the batch
         """
         # Reshape mask from (B, K, N) to (B, N, K) for compatibility with loss functions
         batch_size = len(pc)

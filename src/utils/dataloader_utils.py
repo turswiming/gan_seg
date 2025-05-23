@@ -4,19 +4,26 @@ from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
 
 def infinite_dataloader(dataloader):
     """
-    Creates an infinite iterator that cycles through the dataset indefinitely.
+    Create an infinite iterator that cycles through a dataloader indefinitely.
     
-    This function wraps a PyTorch DataLoader to create an infinite stream of batches.
-    When the end of the dataset is reached, it automatically restarts from the beginning.
+    This function is useful for training scenarios where you want to continue
+    training beyond one epoch without manual epoch handling. It will continuously
+    cycle through the dataset, allowing for unlimited iterations.
     
     Args:
-        dataloader (torch.utils.data.DataLoader): The original PyTorch DataLoader to wrap
-        
-    Yields:
-        dict: A batch of data containing:
-            - point_cloud_first (torch.Tensor): First point cloud [B, N, 3]
-            - point_cloud_second (torch.Tensor): Second point cloud [B, N, 3]
-            - flow (torch.Tensor): Ground truth flow vectors [B, N, 3]
+        dataloader (DataLoader): The source PyTorch DataLoader to create an infinite
+                               iterator from
+    
+    Returns:
+        iterator: An infinite iterator that yields batches from the dataloader
+                 indefinitely by cycling through the dataset
+    
+    Example:
+        >>> train_loader = DataLoader(dataset, batch_size=32)
+        >>> infinite_train_loader = infinite_dataloader(train_loader)
+        >>> for batch in infinite_train_loader:  # This loop will never end
+        >>>     # Process batch
+        >>>     pass
     """
     while True:
         for batch in dataloader:
@@ -24,26 +31,22 @@ def infinite_dataloader(dataloader):
 
 def create_dataloaders(config):
     """
-    Creates and initializes data loaders based on the provided configuration.
-    
-    This function handles the creation of both the standard DataLoader and an infinite
-    version. It also determines the batch size and number of points per sample from
-    the first batch.
+    Create training and infinite dataloaders based on configuration.
     
     Args:
-        config: Configuration object containing:
-            - dataset.name (str): Name of the dataset ("AV2" or "MOVI_F")
-            - dataloader.batchsize (int): Number of samples per batch
-            
+        config (OmegaConf): Configuration object containing dataset and dataloader parameters
+                           including batch_size, num_workers, and dataset-specific settings
+    
     Returns:
         tuple: A tuple containing:
-            - dataloader (torch.utils.data.DataLoader): Standard PyTorch DataLoader
-            - infinite_loader (generator): Infinite version of the DataLoader
-            - batch_size (int): Actual batch size from the first batch
-            - N (int): Number of points per sample
+            - dataloader (DataLoader): The main PyTorch dataloader
+            - infinite_loader (iterator): An infinite iterator cycling through the dataset
+            - batch_size (int): The batch size used for the dataloaders
+            - N (int): Total number of samples in the dataset
             
-    Raises:
-        ValueError: If the specified dataset name is not supported
+    Note:
+        The infinite loader is particularly useful for training scenarios where
+        you want to continue training beyond one epoch without manual epoch handling.
     """
     # Create dataset based on config
     if config.dataset.name == "AV2":

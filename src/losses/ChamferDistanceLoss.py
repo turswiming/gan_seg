@@ -156,5 +156,3 @@ class ChamferDistanceLoss:
             torch.Tensor: Computed Chamfer distance
         """
         return self.chamfer_distance_memory_efficient(x, y, bidirectional=True, reduction=self.reduction, chunk_size=1024)
-        # Implement the Chamfer distance calculation here
-        pass
