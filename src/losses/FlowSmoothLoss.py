@@ -192,7 +192,7 @@ class FlowSmoothLoss():
 
                 reconstruction_loss = self.criterionl2(Fk_hat,Fk)
                 total_loss += reconstruction_loss
-            reconstruction_loss = self.criterionl1(scene_flow_b, flow_reconstruction)
+            reconstruction_loss = self.criterionl2(scene_flow_b, flow_reconstruction)
             total_loss += reconstruction_loss
             # Compute reconstruction loss
             # with torch.no_grad():
