@@ -61,14 +61,14 @@ def evaluate_predictions(pred_flows, gt_flows, pred_masks, gt_masks, device, wri
     """
     # Compute EPE
     epe_mean = calculate_epe(pred_flows, gt_flows)
-    tqdm.write(f"epe {epe_mean.item()}")
+    tqdm.write(f"\rEPE: {epe_mean.item()}", end="")
     writer.add_scalar("epe", epe_mean.item(), step)
     
     # Compute mIoU
     miou_list = []
     for i in range(len(pred_masks)):
         gt_mask = remap_instance_labels(gt_masks[i])
-        tqdm.write(f"gt_mask size {max(gt_mask)}")
+        # tqdm.write(f"gt_mask size {max(gt_mask)}")
         miou_list.append(
             calculate_miou(
                 pred_masks[i], 
@@ -76,7 +76,7 @@ def evaluate_predictions(pred_flows, gt_flows, pred_masks, gt_masks, device, wri
             )
         )
     miou_mean = torch.mean(torch.stack(miou_list))
-    tqdm.write(f"miou {miou_mean.item()}")
+    # tqdm.write(f"miou {miou_mean.item()}")
     writer.add_scalar("miou", miou_mean.item(), step)
     
     return epe_mean, miou_mean
@@ -162,7 +162,6 @@ def main(config, writer):
                 pred_mask =[]
                 for i in range(len(point_cloud_firsts)):
                     pred_mask.append(mask_predictor(point_cloud_firsts[i]))
-        print(f"pred_mask shape {pred_mask[0].shape}")
         # Compute losses
         if config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0:
             rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)

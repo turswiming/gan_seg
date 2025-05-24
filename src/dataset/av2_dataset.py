@@ -65,7 +65,6 @@ class AV2PerSceneDataset(nn.Module):
             keys = list(av2_dataset.keys())
             first_key = keys[5]
             first_value = av2_dataset[first_key]
-            print("first_value", first_value.keys())
             valid_mask = first_value["flow_is_valid"]
             dynamic_mask = first_value["flow_category"] != 0
             ground_mask = first_value["ground_mask"]
@@ -90,7 +89,6 @@ class AV2PerSceneDataset(nn.Module):
 
             self.flow = self.flow[valid_mask]
             # Apply ego motion to flow
-            print(f"first value keyts: {first_value.keys()}") #first_value["flow_instance_id"]
             self.dynamic_instance_mask = (motion_mask*first_value["label"])[valid_mask]
         # Prepare sample
         sample = {

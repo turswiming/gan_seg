@@ -27,7 +27,6 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         
         # Get the group for this timestamp
         group = f[timestamp]
-        print(f"group keys: {group.keys()}")
         # Always available data
         point_cloud_first = np.array(group['lidar'])
         ground_mask = np.array(group['ground_mask'])

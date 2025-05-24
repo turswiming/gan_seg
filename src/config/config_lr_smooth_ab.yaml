@@ -1,0 +1,40 @@
+# baseconfig.yaml
+# This is a base configuration file that sets default values for various parameters.
+log:
+  name: "defaultname"
+  dir: "" #default save to /output/exp
+model:
+  flow:
+    name: "NSFP" # NSFP or OptimizedFlow
+    lr : 0.0001
+    lambda_reg: 0.1
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "relu"
+  mask:
+    lr: 0.3
+    name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
+    slot_num: 15
+    num_layers: 2
+    num_hidden: 128
+    activation: "relu"
+
+
+dataset:
+  name: "AV2" # MOVI_F or AV2
+training:
+  max_iter: 600
+
+dataloader:
+  batchsize: 1
+
+lr_multi:
+  rec_loss: 0.0
+  flow_loss: 1
+  scene_flow_smoothness: 0.01
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.001
+
+vis:
+  show_window: false
