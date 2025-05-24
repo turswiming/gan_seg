@@ -172,7 +172,7 @@ def main(config, writer):
         if config.lr_multi.scene_flow_smoothness > 0:
             scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
             scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
-            scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_scheduler(step)
+            # scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_scheduler(step)
         else:
             scene_flow_smooth_loss = torch.tensor(0.0, device=device)
 

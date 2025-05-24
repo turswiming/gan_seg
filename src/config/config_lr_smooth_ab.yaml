@@ -24,7 +24,7 @@ model:
 dataset:
   name: "AV2" # MOVI_F or AV2
 training:
-  max_iter: 600
+  max_iter: 2500
 
 dataloader:
   batchsize: 1
