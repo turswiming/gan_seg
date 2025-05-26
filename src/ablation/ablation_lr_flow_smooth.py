@@ -41,7 +41,7 @@ colors = {
     "LR1000": "#7f7f7f",  # Gray
 }
 run_times = 5  # Number of runs for each configuration
-dataset_list = ["AV2"]  # Dataset to use for ablation study
+dataset_list = ["MOVI_F"]  # Dataset to use for ablation study
 
 # Get project root directory
 cwd = os.path.dirname(os.path.abspath(__file__))

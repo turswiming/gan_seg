@@ -105,7 +105,7 @@ class FlowSmoothLoss():
         chamferDistanceLoss (ChamferDistanceLoss): For additional distance metrics
     """
 
-    def __init__(self, device):
+    def __init__(self, device,flow_smooth_loss_config):
         """
         Initialize the Flow Smoothness Loss.
         
@@ -113,8 +113,24 @@ class FlowSmoothLoss():
             device (torch.device): Device to perform computations on
         """
         self.device=device
-        self.criterionl2 = nn.MSELoss(reduction="mean").to(self.device)
-        self.criterionl1 = nn.L1Loss(reduction="mean").to(self.device)
+        each_mask_item_gradient = flow_smooth_loss_config.each_mask_item.relative_gradient
+        sum_mask_item_gradient = flow_smooth_loss_config.sum_mask_item.relative_gradient
+        self.each_mask_item_gradient = each_mask_item_gradient/(each_mask_item_gradient+sum_mask_item_gradient)
+        self.sum_mask_item_gradient = sum_mask_item_gradient/(each_mask_item_gradient+sum_mask_item_gradient)
+        self.each_mask_item_loss = flow_smooth_loss_config.each_mask_item.criterion
+        self.sum_mask_item_loss = flow_smooth_loss_config.sum_mask_item.criterion
+        if self.each_mask_item_loss in ["L1", "l1"]:
+            self.each_mask_criterion = nn.L1Loss(reduction="mean").to(self.device)
+        elif self.each_mask_item_loss in ["L2", "l2"]:
+            self.each_mask_criterion = nn.MSELoss(reduction="mean").to(self.device)
+        else:
+            raise ValueError(f"Invalid loss criterion: {self.each_mask_item_loss}")
+        if self.sum_mask_item_loss in ["L1", "l1"]:
+            self.sum_mask_criterion = nn.L1Loss(reduction="mean").to(self.device)
+        elif self.sum_mask_item_loss in ["L2", "l2"]:
+            self.sum_mask_criterion = nn.MSELoss(reduction="mean").to(self.device)
+        else:
+            raise ValueError(f"Invalid loss criterion: {self.sum_mask_item_loss}")
         self.chamferDistanceLoss = ChamferDistanceLoss()
         pass
 
@@ -190,17 +206,17 @@ class FlowSmoothLoss():
                 Fk_hat = Ek @ theta_k
                 flow_reconstruction += Fk_hat  # (N, 3)
 
-                reconstruction_loss = self.criterionl2(Fk_hat,Fk)
-                total_loss += reconstruction_loss
-            reconstruction_loss = self.criterionl2(scene_flow_b, flow_reconstruction)
-            total_loss += reconstruction_loss
+                reconstruction_loss = self.each_mask_criterion(Fk_hat,Fk)
+                total_loss += reconstruction_loss*self.each_mask_item_gradient
+            reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
+            total_loss += reconstruction_loss*self.sum_mask_item_gradient
             # Compute reconstruction loss
             # with torch.no_grad():
             #     flow_reconstruction = flow_reconstruction.detach()
             # reconstruction_loss = torch.pow(torch.log((scene_flow_b+1e8)/(flow_reconstruction+1e8)), 2).mean()
         
         # Return average loss
-        return total_loss / batch_size/2
+        return total_loss / batch_size
 
     @torch.no_grad()
     def construct_embedding(self, point_position):

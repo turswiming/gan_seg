@@ -108,7 +108,7 @@ def main(config, writer):
     # Initialize loss functions
     reconstructionLoss = ReconstructionLoss(device)
     chamferLoss = ChamferDistanceLoss()
-    flowSmoothLoss = FlowSmoothLoss(device)
+    flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
     pointsmoothloss = PointSmoothLoss()
     flowRecLoss = nn.MSELoss()
 

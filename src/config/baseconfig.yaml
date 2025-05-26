@@ -36,5 +36,15 @@ lr_multi:
   rec_flow_loss: 0.0
   point_smooth_loss: 0.001
 
+loss:
+  scene_flow_smoothness:
+    each_mask_item:
+      relative_gradient: 0.1
+      criterion: "L2"
+    sum_mask_item:
+      relative_gradient: 1
+      criterion: "L2"
+
+
 vis:
   show_window: true

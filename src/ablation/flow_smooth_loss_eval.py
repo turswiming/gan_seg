@@ -52,7 +52,7 @@ mask_noise = mask_noise.to(device)
 flow_noise = torch.randn(N, 3)
 flow_noise = flow_noise.to(device)
 
-cr = FlowSmoothLoss(device)
+cr = FlowSmoothLoss(device, config_obj.loss.scene_flow_smoothness)
 bucket_size = 100
 losses = []
 for i in range(bucket_size):
@@ -66,7 +66,6 @@ for i in range(bucket_size):
         flow = flow_Scaled + sample["flow"][0].to(device).squeeze(0) * (1-i/bucket_size)
         loss = cr(sample,[mask], [flow])
         loss_same_flow_noise.append(loss.item())
-    print(f"i: {i}, loss_same_flow_noise: {loss_same_flow_noise}")
     losses.append(loss_same_flow_noise)
 
 # Reshape losses into a 2D array for plotting
