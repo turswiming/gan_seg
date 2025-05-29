@@ -28,6 +28,29 @@ def compress_label_id(segms):
     segms_cpr = np.stack(segms_cpr, 0)
     return segms_cpr
 
+def random_sample_points(points, labels, flows, num_points):
+    """
+    Randomly sample a fixed number of points from point cloud.
+    
+    Args:
+        points (np.ndarray): Point cloud data [N, 3]
+        labels (np.ndarray): Point labels [N]
+        flows (np.ndarray): Flow vectors [N, 3]
+        num_points (int): Number of points to sample
+        
+    Returns:
+        tuple: (sampled_points, sampled_labels, sampled_flows)
+    """
+    num_total_points = points.shape[0]
+    if num_total_points > num_points:
+        # Random sampling
+        indices = np.random.choice(num_total_points, num_points, replace=False)
+    else:
+        # If we have fewer points, sample with replacement
+        indices = np.random.choice(num_total_points, num_points, replace=True)
+        
+    return points[indices], labels[indices], flows[indices]
+
 class KITTIPerSceneDataset(nn.Module):
     """
     Dataset class for loading and processing KITTI dataset.
@@ -41,9 +64,10 @@ class KITTIPerSceneDataset(nn.Module):
         point_cloud_second (torch.Tensor): Second frame point cloud
         flow (torch.Tensor): Ground truth flow vectors
         fixed_scene_id (str): If set, always return this specific scene
+        num_points (int): Number of points to sample from each point cloud
     """
     
-    def __init__(self, data_root, downsampled=False, fixed_scene_id=None):
+    def __init__(self, data_root, downsampled=False, fixed_scene_id=None, num_points=8192):
         """
         Initialize the KITTI dataset loader.
         
@@ -52,6 +76,7 @@ class KITTIPerSceneDataset(nn.Module):
             downsampled (bool): Whether to use downsampled version of the data
             fixed_scene_id (str, optional): If set, always return this specific scene.
                                           Format should be like "000000". Defaults to None.
+            num_points (int): Number of points to sample from each point cloud
         """
         super(KITTIPerSceneDataset, self).__init__()
         
@@ -62,6 +87,7 @@ class KITTIPerSceneDataset(nn.Module):
             self.data_root = osp.join(data_root, 'processed')
             
         self.fixed_scene_id = fixed_scene_id
+        self.num_points = num_points
         
         # Get all scene directories
         self.scene_dirs = []
@@ -129,6 +155,10 @@ class KITTIPerSceneDataset(nn.Module):
                 segm = np.load(osp.join(scene_path, 'segm.npy'))
                 segm1 = segm
                 flow = pc2 - pc1
+            
+            # Downsample points to fixed number
+            pc1, segm1, flow = random_sample_points(pc1, segm1, flow, self.num_points)
+            pc2 = pc2[np.random.choice(pc2.shape[0], self.num_points, replace=True)]  # Sample second frame independently
             
             # Convert to torch tensors
             self.point_cloud_first = torch.from_numpy(pc1).float()
