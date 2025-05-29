@@ -42,6 +42,7 @@ from losses.FlowSmoothLoss import FlowSmoothLoss
 from visualize.open3d_func import visualize_vectors, update_vector_visualization
 from visualize.pca import pca
 from Predictor import get_mask_predictor, get_scene_flow_predictor
+from alter_scheduler import AlterScheduler
 
 def evaluate_predictions(pred_flows, gt_flows, pred_masks, gt_masks, device, writer, step):
     """
@@ -103,8 +104,7 @@ def main(config, writer):
     optimizer_flow = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=config.model.flow.lr)
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
     
-    loop = 100
-    scene_flow_scheduler = lambda iter: iter%loop/loop
+    alter_scheduler = AlterScheduler(config.alternate)
     # Initialize loss functions
     reconstructionLoss = ReconstructionLoss(device)
     chamferLoss = ChamferDistanceLoss()
@@ -130,16 +130,9 @@ def main(config, writer):
             tqdm.write(f"epe: {epe.mean().item()}")
         
         step += 1
-        if step > config.training.max_iter:
-            break
-        if step // loop%2 == 0:
-            train_flow = True
-            train_mask = False
-        else:
-            train_flow = False
-            train_mask = True
-        train_flow = True
-        train_mask = True
+
+        train_flow = alter_scheduler.flow_train()
+        train_mask = alter_scheduler.mask_train()
         # Forward pass
         point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
         if train_flow:
@@ -234,7 +227,7 @@ def main(config, writer):
             
         optimizer_flow.step()
         optimizer_mask.step()
-        
+        alter_scheduler.step()
         # Evaluate predictions
         epe, miou = evaluate_predictions(
             pred_flow, 

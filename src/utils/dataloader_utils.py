@@ -1,7 +1,7 @@
 import torch
 from dataset.av2_dataset import AV2PerSceneDataset
 from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
-
+from dataset.kitti_dataset import KITTIPerSceneDataset
 def infinite_dataloader(dataloader):
     """
     Create an infinite iterator that cycles through a dataloader indefinitely.
@@ -53,6 +53,18 @@ def create_dataloaders(config):
         dataset = AV2PerSceneDataset()
     elif config.dataset.name == "MOVI_F":
         dataset = MOVIPerSceneDataset()
+    elif config.dataset.name == "KITTISF":
+        if config.dataset.KITTISF.fixed_scene_id is not None:
+            dataset = KITTIPerSceneDataset(
+                data_root=config.dataset.KITTISF.data_root, 
+                downsampled=config.dataset.KITTISF.downsampled, 
+                fixed_scene_id=config.dataset.KITTISF.fixed_scene_id
+                )
+        else:
+            dataset = KITTIPerSceneDataset(
+                data_root=config.dataset.KITTISF.data_root, 
+                downsampled=config.dataset.KITTISF.downsampled
+                )
     else:
         raise ValueError(f"Dataset {config.dataset.name} not supported")
     

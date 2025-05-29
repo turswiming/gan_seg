@@ -22,11 +22,7 @@ model:
 
 
 dataset:
-  name: "KITTISF" # MOVI_F or AV2 or KITTISF
-  KITTISF:
-    data_root: "/home/lzq/workspace/gan_seg/kittisf"
-    downsampled: false
-    fixed_scene_id: "000000"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
+  name: "AV2" # MOVI_F or AV2
 training:
   max_iter: 30000
 
@@ -34,8 +30,10 @@ dataloader:
   batchsize: 1
 
 alternate:
-  flow: [[100,true],[100,true]]
-  mask: [[100,true],[100,true]]
+  flow: [100,100]
+  mask: [100,100]
+  flow_training: [true, false]
+  mask_training: [false, true]
 
 lr_multi:
   rec_loss: 0.0
