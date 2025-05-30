@@ -22,25 +22,28 @@ model:
 
 
 dataset:
-  name: "AV2" # MOVI_F or AV2
+  name: "KITTISF" # MOVI_F or AV2 or KITTISF
+  KITTISF:
+    data_root: "/workspace/gan_seg/kittisf"
+    downsampled: false
+    fixed_scene_id: "000000"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
+    num_points: 8192  # Number of points to sample from each point cloud
 training:
-  max_iter: 30000
+  max_iter: 2000
 
 dataloader:
   batchsize: 1
 
 alternate:
-  flow: [100,100]
-  mask: [100,100]
-  flow_training: [true, false]
-  mask_training: [false, true]
+  flow: [[100,true],[100,true]]
+  mask: [[100,true],[100,true]]
 
 lr_multi:
   rec_loss: 0.0
   flow_loss: 1
   scene_flow_smoothness: 0.01
   rec_flow_loss: 0.0
-  point_smooth_loss: 0.001
+  point_smooth_loss: 0.0
 
 loss:
   scene_flow_smoothness:
@@ -53,4 +56,4 @@ loss:
 
 
 vis:
-  show_window: true
+  show_window: false

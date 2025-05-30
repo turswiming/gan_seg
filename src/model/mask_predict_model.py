@@ -117,7 +117,7 @@ class Neural_Mask_Prior(torch.nn.Module):
         layer_num = 0
         for layer in self.nn_layers:
             layer_num += 1
-            print(f"layer_num: {layer_num}, x_std{x.std()}, x_mean: {x.mean()}")
+            # print(f"layer_num: {layer_num}, x_std{x.std()}, x_mean: {x.mean()}")
             x = layer(x)
         x = F.softmax(x, dim=0)
         return x.permute(1, 0)

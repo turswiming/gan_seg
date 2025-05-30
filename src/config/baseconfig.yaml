@@ -24,7 +24,7 @@ model:
 dataset:
   name: "KITTISF" # MOVI_F or AV2 or KITTISF
   KITTISF:
-    data_root: "/home/lzq/workspace/gan_seg/kittisf"
+    data_root: "/workspace/gan_seg/kittisf"
     downsampled: false
     fixed_scene_id: "000000"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
     num_points: 8192  # Number of points to sample from each point cloud
@@ -43,7 +43,7 @@ lr_multi:
   flow_loss: 1
   scene_flow_smoothness: 0.01
   rec_flow_loss: 0.0
-  point_smooth_loss: 0.001
+  point_smooth_loss: 0.0
 
 loss:
   scene_flow_smoothness:

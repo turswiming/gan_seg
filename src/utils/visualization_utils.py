@@ -27,7 +27,7 @@ def remap_instance_labels(labels):
     """
     unique_labels = torch.unique(labels)
     mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
-    print(f"remap {mapping}")
+    # print(f"remap {mapping}")
     # Create new label tensor
     remapped = torch.zeros_like(labels)
     for old_label, new_label in mapping.items():
