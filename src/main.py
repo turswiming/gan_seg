@@ -136,6 +136,14 @@ def main(config, writer):
                 break
             train_flow = alter_scheduler.flow_train()
             train_mask = alter_scheduler.mask_train()
+            if train_flow:
+                scene_flow_predictor.train()
+            else:
+                scene_flow_predictor.eval()
+            if train_mask:
+                mask_predictor.train()
+            else:
+                mask_predictor.eval()
             # Forward pass
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
             if train_flow:
@@ -221,7 +229,10 @@ def main(config, writer):
             optimizer_flow.zero_grad()
             optimizer_mask.zero_grad()
             loss.backward()
-            
+            if not train_flow:
+                optimizer_flow.zero_grad(set_to_none=True)
+            if not train_mask:
+                optimizer_mask.zero_grad(set_to_none=True)
             # Log gradients if needed
             if hasattr(pred_flow, 'grad') and pred_flow.grad is not None:
                 tqdm.write(f"pred_flow.grad {pred_flow.grad.std().item()}")
@@ -244,7 +255,9 @@ def main(config, writer):
             postfix = {
                 "EPE": f"{epe.mean().item():.4f}",
                 "mIoU": f"{miou.item():.4f}",
-                "Loss": f"{loss.item():.4f}"
+                "Loss": f"{loss.item():.4f}",
+                "t_flow": train_flow,
+                "t_mask": train_mask,
             }
             infinite_loader.set_postfix(postfix)
             # Visualization

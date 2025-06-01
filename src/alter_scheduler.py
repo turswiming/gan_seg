@@ -15,9 +15,10 @@ class AlterScheduler:
         :return: isflowtrain: bool
         """
         step = self.iter % self.flow_stepsum
-        for flow, step_num in self.flow_list:
+        for step_num, train  in self.flow_list:
+            # print("step_num", step_num, "train", train)
             if step < step_num:
-                return flow
+                return train
             step -= step_num
         return self.flow_list[-1][1]
     
@@ -26,8 +27,9 @@ class AlterScheduler:
         :return: ismasktrain: bool
         """
         step = self.iter % self.mask_stepsum
-        for mask, step_num in self.mask_list:
+        for step_num, train in self.mask_list:
+            # print("step_num", step_num, "train", train)
             if step < step_num:
-                return mask
+                return train
             step -= step_num
         return self.mask_list[-1][1]
