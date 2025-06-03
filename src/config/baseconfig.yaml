@@ -16,7 +16,7 @@ model:
     lr: 0.01
     name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
     slot_num: 5
-    num_layers: 2
+    num_layers: 8
     num_hidden: 128
     activation: "relu"
 
@@ -48,7 +48,7 @@ lr_multi:
 loss:
   scene_flow_smoothness:
     each_mask_item:
-      relative_gradient: 0.1
+      relative_gradient: 1
       criterion: "L2"
     sum_mask_item:
       relative_gradient: 1
