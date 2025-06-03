@@ -30,7 +30,7 @@ def compress_label_id(segms):
 
 def random_sample_points(points, labels, flows, num_points):
     """
-    Randomly sample a fixed number of points from point cloud.
+    Perform voxel downsampling followed by random sampling to obtain a fixed number of points.
     
     Args:
         points (np.ndarray): Point cloud data [N, 3]
@@ -41,12 +41,20 @@ def random_sample_points(points, labels, flows, num_points):
     Returns:
         tuple: (sampled_points, sampled_labels, sampled_flows)
     """
+    # Voxel downsampling
+    voxel_size = 0.1  # Define voxel size
+    voxel_indices = np.floor(points / voxel_size).astype(np.int32)
+    _, unique_indices = np.unique(voxel_indices, axis=0, return_index=True)
+    
+    points = points[unique_indices]
+    labels = labels[unique_indices]
+    flows = flows[unique_indices]
+    
+    # Random sampling
     num_total_points = points.shape[0]
     if num_total_points > num_points:
-        # Random sampling
         indices = np.random.choice(num_total_points, num_points, replace=False)
     else:
-        # If we have fewer points, sample with replacement
         indices = np.random.choice(num_total_points, num_points, replace=True)
         
     return points[indices], labels[indices], flows[indices]

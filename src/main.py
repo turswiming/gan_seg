@@ -91,7 +91,7 @@ def main(config, writer):
         writer: TensorBoard SummaryWriter for logging
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+    torch.autograd.set_detect_anomaly(True)
     # Create dataloaders
     dataloader, infinite_loader, batch_size, N = create_dataloaders(config)
     
@@ -225,22 +225,80 @@ def main(config, writer):
                 "total_loss": loss.item(),
             }, step)
             
-            # Backward pass
+            def compute_individual_gradients(loss_dict, model, retain_graph=False):
+                grad_contributions = {}
+                
+                for name, loss in loss_dict.items():
+                    # 确保loss是计算图的一部分
+                    if not loss.requires_grad:
+                        loss = loss.clone().requires_grad_(True)
+                        
+                    model.zero_grad()
+                    
+                    # 添加梯度检查
+                    try:
+                        loss.backward(retain_graph=retain_graph)
+                    except RuntimeError as e:
+                        print(f"Error computing gradient for {name}: {str(e)}")
+                        print(f"Loss value: {loss.item()}")
+                        continue
+                        
+                    grad_norms = {}
+                    for param_name, param in model.named_parameters():
+                        if param.grad is not None:
+                            grad_norms[param_name] = torch.norm(param.grad).item()
+                            param.grad = None  # 立即清除梯度
+                    
+                    grad_contributions[name] = grad_norms
+                
+                return grad_contributions
+            
+            loss_dict = {
+                "rec_loss": rec_loss,
+                "flow_loss": flow_loss,
+                "scene_flow_smooth_loss": scene_flow_smooth_loss,
+                "rec_flow_loss": rec_flow_loss,
+                "point_smooth_loss": point_smooth_loss,
+            }
+
+            # --- 步骤1：单独计算并记录每个loss的梯度 ---
+            if config.vis.debug_grad:
+                with torch.no_grad():  # 避免影响实际梯度计算
+                    flow_grads = compute_individual_gradients(
+                        loss_dict, scene_flow_predictor, retain_graph=True
+                    )
+                    mask_grads = compute_individual_gradients(
+                        loss_dict, mask_predictor, retain_graph=True
+                    )
+
+                # 记录到TensorBoard
+                for loss_name in loss_dict:
+                    if loss_dict[loss_name].item() == 0:
+                        continue
+                    writer.add_scalar(
+                        f"grad_norm/flow_{loss_name}", 
+                        sum(flow_grads[loss_name].values()),  # 所有层梯度范数和
+                        step
+                    )
+                    writer.add_scalar(
+                        f"grad_norm/mask_{loss_name}", 
+                        sum(mask_grads[loss_name].values()), 
+                        step
+                    )
+
+            # --- 步骤2：正常训练（统一计算总loss并更新） ---
+            total_loss = sum(loss_dict.values())
             optimizer_flow.zero_grad()
             optimizer_mask.zero_grad()
-            loss.backward()
+            total_loss.backward()  # 实际参数更新只用总loss的梯度
             if not train_flow:
-                optimizer_flow.zero_grad(set_to_none=True)
+                optimizer_flow.zero_grad()
             if not train_mask:
-                optimizer_mask.zero_grad(set_to_none=True)
-            # Log gradients if needed
-            if hasattr(pred_flow, 'grad') and pred_flow.grad is not None:
-                tqdm.write(f"pred_flow.grad {pred_flow.grad.std().item()}")
-            if hasattr(pred_mask, 'grad') and pred_mask.grad is not None:
-                tqdm.write(f"pred_mask.grad {pred_mask.grad.std().item()}")
-                
+                optimizer_mask.zero_grad()
             optimizer_flow.step()
             optimizer_mask.step()
+
+
             alter_scheduler.step()
             # Evaluate predictions
             epe, miou = evaluate_predictions(
