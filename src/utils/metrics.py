@@ -51,7 +51,6 @@ def calculate_miou(pred_mask, gt_mask):
             if iou > max_iou:
                 max_iou = iou
         max_iou_list.append(max_iou)
-        print(f"Instance {j} - Max IoU: {max_iou:.4f}, Size: {gt_mask_size[j].item()}")
     mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
     return mean_iou
 
