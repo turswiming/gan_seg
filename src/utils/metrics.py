@@ -38,9 +38,11 @@ def calculate_miou(pred_mask, gt_mask):
     gt_mask_size = torch.sum(gt_mask, dim=1)
     pred_mask_size = torch.sum(pred_mask, dim=1)
     for j in range(gt_mask.shape[0]):
-        if j == 0:
-            continue#skip the background
         max_iou = 0
+        if j == 0:
+            continue
+        if gt_mask_size[j] <= 10:
+            continue  # Skip small masks to avoid noise in IoU calculation
         for i in range(pred_mask.shape[0]):
         
             intersection = torch.sum(pred_mask[i] * gt_mask[j])
@@ -49,6 +51,7 @@ def calculate_miou(pred_mask, gt_mask):
             if iou > max_iou:
                 max_iou = iou
         max_iou_list.append(max_iou)
+        print(f"Instance {j} - Max IoU: {max_iou:.4f}, Size: {gt_mask_size[j].item()}")
     mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
     return mean_iou
 
