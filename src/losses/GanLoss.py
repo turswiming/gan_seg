@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-import open3d as o3d
 # this loss is not used in the final version
 
 
@@ -96,6 +95,8 @@ class GanLoss():
         Returns:
             torch.Tensor: Aggregated mask values for each target point [num_tracks]
         """
+        import open3d as o3d
+
         # 确保输入形状正确
         if len(point_position.shape) == 3:
             point_position = point_position.squeeze(0)  # 去掉批次维度

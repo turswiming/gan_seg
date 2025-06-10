@@ -23,7 +23,6 @@ from torch.utils.tensorboard import SummaryWriter
 from omegaconf import OmegaConf
 from config.config import print_config
 from tqdm import tqdm
-import open3d as o3d
 
 # Local imports
 from eval import evaluate_predictions
@@ -78,6 +77,9 @@ def main(config, writer):
 
     # Initialize visualization if enabled
     if config.vis.show_window:
+        
+        import open3d as o3d
+
         vis = o3d.visualization.Visualizer()
         vis.create_window()
         pcd = o3d.geometry.PointCloud()

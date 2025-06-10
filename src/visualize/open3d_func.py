@@ -1,5 +1,4 @@
 from typing import Optional
-import open3d as o3d
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -19,6 +18,8 @@ def visualize_vectors(points, vectors, vis=None, color=None, scale=1.0):
     Returns:
         tuple: (visualizer, line_set) - The visualizer and the created line set
     """
+    import open3d as o3d
+
     if color is None:
         color = [1, 0, 0]  # Default red color
         
@@ -60,6 +61,8 @@ def update_vector_visualization(line_set, points, vectors, scale=1.0, color=None
     Returns:
         o3d.geometry.LineSet: The updated line set
     """
+    import open3d as o3d
+
     # Generate points
     end_points = points + vectors * scale
     all_points = np.vstack((points, end_points))

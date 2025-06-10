@@ -35,8 +35,8 @@ dataloader:
   batchsize: 1
 
 alternate:
-  flow: [[1000,true],[1000,false]]
-  mask: [[1000,false],[1000,true]]
+  flow: [[1000,true],[1000,true]]
+  mask: [[1000,true],[1000,true]]
 
 lr_multi:
   rec_loss: 0.0

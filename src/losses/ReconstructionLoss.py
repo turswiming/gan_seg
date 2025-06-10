@@ -7,7 +7,6 @@ and their flow vectors.
 """
 
 import torch
-import open3d as o3d
 from torch import nn
 from torch.nn import functional as F
 from losses.loss_chamfer import my_chamfer_fn

@@ -3,7 +3,7 @@
 from typing import Union
 import torch
 import torch.nn.functional as F
-from pointnet2.pointnet2 import KNN, knn, gather_operation
+from pointnet2 import KNN, knn, gather_operation
 
 
 def _validate_chamfer_reduction_inputs(

@@ -41,14 +41,6 @@ def random_sample_points(points, labels, flows, num_points):
     Returns:
         tuple: (sampled_points, sampled_labels, sampled_flows)
     """
-    # Voxel downsampling
-    voxel_size = 0.1  # Define voxel size
-    voxel_indices = np.floor(points / voxel_size).astype(np.int32)
-    _, unique_indices = np.unique(voxel_indices, axis=0, return_index=True)
-    
-    points = points[unique_indices]
-    labels = labels[unique_indices]
-    flows = flows[unique_indices]
     
     # Random sampling
     num_total_points = points.shape[0]
@@ -142,8 +134,9 @@ class KITTIPerSceneDataset(nn.Module):
                 - flow (torch.Tensor): Ground truth flow vectors [N, 3]
                 - dynamic_instance_mask (torch.Tensor): Instance segmentation mask [N]
         """
-        if self.point_cloud_first is None or (idx % 10 == 0 and self.fixed_scene_id is None):
+        if self.point_cloud_first is None or self.fixed_scene_id is None:
             # Select scene - either fixed or random
+            print(f"Loading scene {self.current_scene} from {self.data_root}")
             if self.fixed_scene_id is not None:
                 self.current_scene = self.fixed_scene_id
             else:
@@ -177,6 +170,11 @@ class KITTIPerSceneDataset(nn.Module):
             segm1 = np.reshape(segm1, -1)
             segm1 = compress_label_id(segm1[None, :])[0]  # Add and remove batch dimension
             self.dynamic_instance_mask = torch.from_numpy(segm1).long()
+            if self.fixed_scene_id is not None:
+                self.point_cloud_first = self.point_cloud_first.to('cuda')
+                self.point_cloud_second = self.point_cloud_second.to('cuda')
+                self.flow = self.flow.to('cuda')
+                self.dynamic_instance_mask = self.dynamic_instance_mask.to('cuda')
             
         # Prepare sample dictionary
         sample = {

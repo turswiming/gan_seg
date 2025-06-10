@@ -8,7 +8,7 @@ from torch.autograd import Function
 import torch.nn as nn
 from typing import Tuple
 
-from pointnet2.pointnet2 import *
+from pointnet2 import *
 
 """
 Point Smoothness Loss implementation for point cloud segmentation.

@@ -1,6 +1,7 @@
 import numpy as np
-import open3d as o3d
 def visualize_scene_flow(camera_space_points, camera_space_points_next, scene_flow):
+    import open3d as o3d
+
     obj = gen_scene_flow_visualize_object(camera_space_points, camera_space_points_next, scene_flow)
     o3d.visualization.draw_geometries(obj, window_name="Scene Flow Visualization")
 
