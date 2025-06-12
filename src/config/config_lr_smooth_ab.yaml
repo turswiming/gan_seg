@@ -16,9 +16,10 @@ model:
     lr: 0.3
     name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
     slot_num: 15
-    num_layers: 2
-    num_hidden: 128
-    activation: "relu"
+    NMP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "sigmoid"
 
 
 dataset:

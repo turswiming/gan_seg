@@ -190,7 +190,8 @@ def main(config, writer):
                 "point_smooth_loss": point_smooth_loss.item(),
                 "total_loss": loss.item(),
             }, step)
-            
+            writer.add_histogram("pred_mask",
+                torch.stack(pred_mask).cpu().detach().numpy(), step)
             def compute_individual_gradients(loss_dict, model, retain_graph=False):
                 grad_contributions = {}
                 

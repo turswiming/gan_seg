@@ -12,6 +12,10 @@ model:
     lr: 1.0
     name: "OptimizedMask"
     slot_num: 6
+    NMP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "sigmoid"
 dataset:
   name: "MOVI_F" # MOVI_F or AV2
 

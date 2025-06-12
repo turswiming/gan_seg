@@ -57,10 +57,11 @@ def get_mask_predictor(mask_model_config,N):
         return OptimizedMaskPredictor(slot_num=mask_model_config.slot_num,
                              point_length=N).to(device)
     elif mask_model_config.name == "NMP":#short for NeuralMaskPrior
+        model_detail = mask_model_config.NMP
         return Neural_Mask_Prior(dim_x=3,
                             slot_num=mask_model_config.slot_num,
-                            filter_size=mask_model_config.num_hidden,
-                            act_fn=mask_model_config.activation,
-                            layer_size=mask_model_config.num_layers).to(device)
+                            filter_size=model_detail.num_hidden,
+                            act_fn=model_detail.activation,
+                            layer_size=model_detail.num_layers).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")

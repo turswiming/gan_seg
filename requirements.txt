@@ -69,7 +69,7 @@ pexpect
 pillow
 platformdirs
 plotly
--e git+https://github.com/turswiming/gan_seg.git@f66438b21be47bd4abe99922c9d0fb32f7426f31#egg=pointnet2&subdirectory=src/pointnet2
+-e git+https://github.com/turswiming/gan_seg.git@401e58f0e56ff4f7c5d745157800fddbec30c141#egg=pointnet2&subdirectory=src/pointnet2
 prompt_toolkit
 protobuf
 ptyprocess

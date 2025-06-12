@@ -94,6 +94,8 @@ class Neural_Mask_Prior(torch.nn.Module):
                 self.nn_layers.append(torch.nn.ReLU())
             elif act_fn == 'sigmoid':
                 self.nn_layers.append(torch.nn.Sigmoid())
+                #add normalization
+            self.nn_layers.append(torch.nn.BatchNorm1d(filter_size))
             for _ in range(layer_size-1):
                 self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(filter_size, filter_size)))
                 if act_fn == 'relu':
@@ -119,6 +121,6 @@ class Neural_Mask_Prior(torch.nn.Module):
             layer_num += 1
             # print(f"layer_num: {layer_num}, x_std{x.std()}, x_mean: {x.mean()}")
             x = layer(x)
-        x = F.softmax(x, dim=0)
+        x = F.softmax(x, dim=1)
         return x.permute(1, 0)
     
