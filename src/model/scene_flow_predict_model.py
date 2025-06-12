@@ -103,12 +103,16 @@ class Neural_Prior(torch.nn.Module):
                 self.nn_layers.append(torch.nn.ReLU())
             elif act_fn == 'sigmoid':
                 self.nn_layers.append(torch.nn.Sigmoid())
+            elif act_fn == "leakyrelu":
+                self.nn_layers.append(torch.nn.LeakyReLU())
             for _ in range(layer_size-1):
                 self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(filter_size, filter_size)))
                 if act_fn == 'relu':
                     self.nn_layers.append(torch.nn.ReLU())
                 elif act_fn == 'sigmoid':
                     self.nn_layers.append(torch.nn.Sigmoid())
+                elif act_fn == "leakyrelu":
+                    self.nn_layers.append(torch.nn.LeakyReLU())
             self.nn_layers.append(torch.nn.Linear(filter_size, dim_x))
         else:
             self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, dim_x)))

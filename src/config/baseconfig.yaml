@@ -11,15 +11,15 @@ model:
     NSFP:
       num_layers: 8
       num_hidden: 128
-      activation: "relu"
+      activation: "leakyrelu"
   mask:
-    lr : 0.00001
+    lr : 0.01
     name: "NMP" #OptimizedMask or NMP #short for NeuralMaskPrior
     slot_num: 10
     NMP:
       num_layers: 8
       num_hidden: 128
-      activation: "sigmoid"
+      activation: "leakyrelu"
 
 
 dataset:
@@ -42,7 +42,7 @@ alternate:
 lr_multi:
   rec_loss: 0.0
   flow_loss: 1
-  scene_flow_smoothness: 10
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
 

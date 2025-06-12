@@ -94,6 +94,8 @@ class Neural_Mask_Prior(torch.nn.Module):
                 self.nn_layers.append(torch.nn.ReLU())
             elif act_fn == 'sigmoid':
                 self.nn_layers.append(torch.nn.Sigmoid())
+            elif act_fn == "leakyrelu":
+                self.nn_layers.append(torch.nn.LeakyReLU())
                 #add normalization
             self.nn_layers.append(torch.nn.BatchNorm1d(filter_size))
             for _ in range(layer_size-1):
@@ -102,6 +104,8 @@ class Neural_Mask_Prior(torch.nn.Module):
                     self.nn_layers.append(torch.nn.ReLU())
                 elif act_fn == 'sigmoid':
                     self.nn_layers.append(torch.nn.Sigmoid())
+                elif act_fn == "leakyrelu":
+                    self.nn_layers.append(torch.nn.LeakyReLU())
             self.nn_layers.append(torch.nn.Linear(filter_size, slot_num))
         else:
             self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, slot_num)))
