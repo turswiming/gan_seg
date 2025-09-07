@@ -198,7 +198,7 @@ class FlowSmoothLoss():
                 
                 Ek = coords * mk  # Apply mask to embedding
                 Fk = scene_flow_b * mk  # Apply mask to flow
-                
+                # print(f"Ek {Ek.shape}, Fk {Fk.shape}")
                 # Solve for parameters
                 theta_k = torch.linalg.lstsq(Ek, Fk).solution
                 
