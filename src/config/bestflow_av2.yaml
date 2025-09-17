@@ -33,12 +33,12 @@ dataloader:
 
 alternate:
   flow: [[100,true],[100,true]]
-  mask: [[100,false],[100,false]]
+  mask: [[100,true],[100,true]]
 
 lr_multi:
   rec_loss: 0.0
   flow_loss: 1
-  scene_flow_smoothness: 0
+  scene_flow_smoothness: 1
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
 

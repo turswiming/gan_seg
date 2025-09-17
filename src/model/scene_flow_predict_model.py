@@ -9,67 +9,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-class SceneFlowPredictor(nn.Module):
-    """
-    Neural network based scene flow predictor.
-    
-    This model uses a residual multi-layer perceptron to predict 3D flow vectors
-    for each point in a point cloud. The architecture includes skip connections
-    to help preserve spatial information through the network.
-    
-    Attributes:
-        hidden_dim (int): Dimension of hidden layers
-        layer_num (int): Number of hidden layers
-        device (torch.device): Device to perform computations on
-    """
-    
-    def __init__(self, hidden_dim=256, layer_num=2):
-        """
-        Initialize the scene flow predictor.
-        
-        Args:
-            hidden_dim (int): Dimension of hidden layers
-            layer_num (int): Number of hidden layers
-        """
-        super(SceneFlowPredictor, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.layer_num = layer_num
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.input_dim = 3
-        self.output_dim = 3
-        self.input_layer = nn.Linear(self.input_dim, hidden_dim, device=self.device)
-        self.activation_input = nn.ReLU()
-        for i in range(layer_num):
-            setattr(self, f"linear{i}", nn.Linear(hidden_dim, hidden_dim, device=self.device))
-            setattr(self, f"relu{i}", nn.ReLU())
-        self.output_layer = nn.Linear(hidden_dim, self.output_dim, device=self.device)
-        self.activation_output = nn.ReLU()
-
-    def forward(self, inputs):
-        """
-        Forward pass of the network.
-        
-        Args:
-            inputs (torch.Tensor): Input point cloud coordinates [B, N, 3]
-            
-        Returns:
-            torch.Tensor: Predicted flow vectors [B, N, 3]
-        """
-        point_cloud = inputs.to(self.device)
-        point_cloud = point_cloud.view(-1, self.input_dim)
-        point_cloud = self.input_layer(point_cloud)
-        point_cloud = self.activation_input(point_cloud)
-        for i in range(self.layer_num):
-            linear = getattr(self, f"linear{i}")
-            tanh = getattr(self, f"relu{i}")
-            point_cloud_linear = linear(point_cloud)
-            point_cloud = tanh(point_cloud_linear) + point_cloud
-        point_cloud = point_cloud.view(-1, self.hidden_dim)
-        point_cloud = self.output_layer(point_cloud)
-        point_cloud = self.activation_output(point_cloud)
-        point_cloud = point_cloud.view(-1, self.output_dim)
-        flow = point_cloud
-        return flow
     
 class Neural_Prior(torch.nn.Module):
     """
