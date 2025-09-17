@@ -21,8 +21,8 @@ class Neural_Prior(torch.nn.Module):
         layer_size (int): Number of hidden layers
         nn_layers (nn.ModuleList): List of neural network layers
     """
-    
-    def __init__(self, dim_x=3, filter_size=128, act_fn='relu', layer_size=8):
+
+    def __init__(self, input_dim=3, output_dim=3, filter_size=128, act_fn='relu', layer_size=8):
         """
         Initialize the neural prior model.
         
@@ -37,7 +37,7 @@ class Neural_Prior(torch.nn.Module):
         
         self.nn_layers = torch.nn.ModuleList([])
         if layer_size >= 1:
-            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, filter_size)))
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(input_dim, filter_size)))
             if act_fn == 'relu':
                 self.nn_layers.append(torch.nn.ReLU())
             elif act_fn == 'sigmoid':
@@ -52,9 +52,9 @@ class Neural_Prior(torch.nn.Module):
                     self.nn_layers.append(torch.nn.Sigmoid())
                 elif act_fn == "leakyrelu":
                     self.nn_layers.append(torch.nn.LeakyReLU())
-            self.nn_layers.append(torch.nn.Linear(filter_size, dim_x))
+            self.nn_layers.append(torch.nn.Linear(filter_size, output_dim))
         else:
-            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, dim_x)))
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(input_dim, output_dim)))
 
     def forward(self, x):
         """

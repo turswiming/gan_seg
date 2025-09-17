@@ -70,8 +70,8 @@ class Neural_Mask_Prior(torch.nn.Module):
         layer_size (int): Number of hidden layers
         nn_layers (nn.ModuleList): List of neural network layers
     """
-    
-    def __init__(self, dim_x=3, slot_num=10, filter_size=128, act_fn='sigmoid', layer_size=8, dropout=0.2):
+
+    def __init__(self, input_dim=3, slot_num=10, filter_size=128, act_fn='sigmoid', layer_size=8, dropout=0.2):
         """
         Initialize the neural mask predictor.
         
@@ -89,7 +89,7 @@ class Neural_Mask_Prior(torch.nn.Module):
         self.nn_layers = torch.nn.ModuleList([])
         # input layer (default: xyz -> 128)
         if layer_size >= 1:
-            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, filter_size)))
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(input_dim, filter_size)))
             if act_fn == 'relu':
                 self.nn_layers.append(torch.nn.ReLU())
             elif act_fn == 'sigmoid':
@@ -108,7 +108,7 @@ class Neural_Mask_Prior(torch.nn.Module):
                     self.nn_layers.append(torch.nn.LeakyReLU())
             self.nn_layers.append(torch.nn.Linear(filter_size, slot_num))
         else:
-            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(dim_x, slot_num)))
+            self.nn_layers.append(torch.nn.Sequential(torch.nn.Linear(input_dim, slot_num)))
 
     def forward(self, x):
         """

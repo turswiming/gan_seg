@@ -25,25 +25,19 @@ from config.config import print_config
 from tqdm import tqdm
 
 # Local imports
-from eval import evaluate_predictions
-from dataset.av2_dataset import AV2PerSceneDataset
-from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
+from eval import evaluate_predictions, eval_model
 from utils.config_utils import load_config_with_inheritance, save_config_and_code
 from utils.dataloader_utils import create_dataloaders
-from utils.visualization_utils import remap_instance_labels, create_label_colormap, color_mask
-from utils.optimizer_utils import ProximalOptimizer
-from model.scene_flow_predict_model import OptimizedFLowPredictor, Neural_Prior, SceneFlowPredictor
-from model.mask_predict_model import OptimizedMaskPredictor
+from utils.visualization_utils import remap_instance_labels, color_mask
 from losses.ChamferDistanceLoss import ChamferDistanceLoss
 from losses.ReconstructionLoss import ReconstructionLoss
 from losses.PointSmoothLoss import PointSmoothLoss
 from losses.FlowSmoothLoss import FlowSmoothLoss
 from visualize.open3d_func import visualize_vectors, update_vector_visualization
-from visualize.pca import pca
 from Predictor import get_mask_predictor, get_scene_flow_predictor
 from alter_scheduler import AlterScheduler
 from config.config import correct_datatype
-
+from model.eulerflow_raw_mlp import QueryDirection
 
 def main(config, writer):
     """
@@ -112,10 +106,13 @@ def main(config, writer):
                 mask_predictor.eval()
             # Forward pass
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
-            if train_flow:
+            if train_flow:                    
                 pred_flow = []
                 for i in range(len(point_cloud_firsts)):
-                    pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
+                    if config.model.flow.name == "EulerFlowMLP":
+                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [B, N, 3]
+                    else:
+                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
                 gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
             else:
                 with torch.no_grad():
@@ -149,7 +146,7 @@ def main(config, writer):
             if config.lr_multi.rec_flow_loss > 0:
                 rec_flow_loss = torch.tensor(0.0, device=device)
                 for i in range(len(point_cloud_firsts)):
-                    pred_second_point = point_cloud_firsts[i] + pred_flow[i]
+                    pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
                     rec_flow_loss += flowRecLoss(pred_second_point, reconstructed_points[i])
                 rec_flow_loss = rec_flow_loss * config.lr_multi.rec_flow_loss
             else:
@@ -158,8 +155,8 @@ def main(config, writer):
             if config.lr_multi.flow_loss > 0:
                 flow_loss = torch.tensor(0.0, device=device)
                 for i in range(len(point_cloud_firsts)):
-                    pred_second_points = point_cloud_firsts[i] + pred_flow[i]
-                    flow_loss += chamferLoss(pred_second_points.unsqueeze(0), sample["point_cloud_second"][i].to(device).unsqueeze(0))
+                    pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    flow_loss += chamferLoss(pred_second_points.unsqueeze(0), sample["point_cloud_second"][i][:, :3].to(device).unsqueeze(0))
                 flow_loss = flow_loss * config.lr_multi.flow_loss
             else:
                 flow_loss = torch.tensor(0.0, device=device)
@@ -170,8 +167,16 @@ def main(config, writer):
             else:
                 point_smooth_loss = torch.tensor(0.0, device=device)
 
+            eular_flow_loss = torch.tensor(0.0, device=device)
+            if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP":
+                for i in range(len(point_cloud_firsts)):
+                    reverse_reverse_pc = scene_flow_predictor(pred_flow[i], sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
+                    l2_error = torch.norm(reverse_reverse_pc - point_cloud_firsts[i], dim=1)
+                    sigmoid_l2_error = torch.sigmoid(l2_error)
+                    eular_flow_loss += torch.mean(sigmoid_l2_error)
+                eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
             # Combine losses
-            loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss
+            loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss
 
             # Log losses
             # tqdm.write(f"rec_loss: {rec_loss.item()}")
@@ -188,10 +193,11 @@ def main(config, writer):
                 "scene_flow_smooth_loss": scene_flow_smooth_loss.item(),
                 "rec_flow_loss": rec_flow_loss.item(),
                 "point_smooth_loss": point_smooth_loss.item(),
+                "eular_flow_loss": eular_flow_loss.item(),
                 "total_loss": loss.item(),
             }, step)
             writer.add_histogram("pred_mask",
-                torch.stack(pred_mask).cpu().detach().numpy(), step)
+                torch.stack([pred_mask[0]]).cpu().detach().numpy(), step)
             def compute_individual_gradients(loss_dict, model, retain_graph=False):
                 grad_contributions = {}
                 
@@ -274,9 +280,9 @@ def main(config, writer):
                 pred_mask, 
                 sample["dynamic_instance_mask"], 
                 device, 
-                writer, 
-                step,
-                argoverse2=config.dataset.name=="AV2",
+                writer=writer, 
+                step=step,
+                argoverse2=config.dataset.name in ["AV2","AV2Sequence"],
                 background_static_mask=sample['background_static_mask'],
                 foreground_static_mask=sample['foreground_static_mask'],
                 foreground_dynamic_mask=sample['foreground_dynamic_mask']
@@ -288,7 +294,20 @@ def main(config, writer):
                 "t_flow": train_flow,
                 "t_mask": train_mask,
             }
+                
             infinite_loader.set_postfix(postfix)
+            if step % config.training.eval_loop == 0:
+                epe, miou = eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
+                writer.add_scalar(
+                    "val_epe",
+                    epe.mean().item(),
+                    step
+                )
+                writer.add_scalar(
+                    "val_miou",
+                    miou.item(),
+                    step
+                )
             # Visualization
             if config.vis.show_window and point_cloud_firsts[0].shape[0] > 0:
                 batch_idx = 0

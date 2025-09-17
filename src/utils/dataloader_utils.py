@@ -1,5 +1,5 @@
 import torch
-from dataset.av2_dataset import AV2PerSceneDataset
+from dataset.av2_dataset import AV2PerSceneDataset,AV2SequenceDataset
 from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
 from dataset.kitti_dataset import KITTIPerSceneDataset
 def infinite_dataloader(dataloader):
@@ -51,6 +51,8 @@ def create_dataloaders(config):
     # Create dataset based on config
     if config.dataset.name == "AV2":
         dataset = AV2PerSceneDataset()
+    elif config.dataset.name == "AV2Sequence":
+        dataset = AV2SequenceDataset()
     elif config.dataset.name == "MOVI_F":
         dataset = MOVIPerSceneDataset()
     elif config.dataset.name == "KITTISF":
@@ -73,6 +75,7 @@ def create_dataloaders(config):
         dataset, 
         batch_size=config.dataloader.batchsize, 
         shuffle=True,
+        num_workers=config.dataloader.num_workers,
         collate_fn=lambda batch: {
             "point_cloud_first": [item["point_cloud_first"] for item in batch],
             "point_cloud_second": [item["point_cloud_second"] for item in batch],
@@ -81,6 +84,8 @@ def create_dataloaders(config):
             "background_static_mask": [item["background_static_mask"] for item in batch if "background_static_mask" in item],
             "foreground_static_mask": [item["foreground_static_mask"] for item in batch if "foreground_static_mask" in item],
             "foreground_dynamic_mask": [item["foreground_dynamic_mask"] for item in batch if "foreground_dynamic_mask" in item],
+            "idx": [item["idx"] for item in batch if "idx" in item],
+            "total_frames": [item["total_frames"] for item in batch if "total_frames" in item],
         }
     )
     
