@@ -4,3 +4,5 @@ outputs/*
 demo_data/*
 kittisf/*
 *.zip
+.github
+.venv

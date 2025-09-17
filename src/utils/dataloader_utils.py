@@ -78,6 +78,9 @@ def create_dataloaders(config):
             "point_cloud_second": [item["point_cloud_second"] for item in batch],
             "flow": [item["flow"] for item in batch],
             "dynamic_instance_mask": [item["dynamic_instance_mask"] for item in batch if "dynamic_instance_mask" in item],
+            "background_static_mask": [item["background_static_mask"] for item in batch if "background_static_mask" in item],
+            "foreground_static_mask": [item["foreground_static_mask"] for item in batch if "foreground_static_mask" in item],
+            "foreground_dynamic_mask": [item["foreground_dynamic_mask"] for item in batch if "foreground_dynamic_mask" in item],
         }
     )
     

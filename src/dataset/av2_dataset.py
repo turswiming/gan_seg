@@ -85,17 +85,32 @@ class AV2PerSceneDataset(nn.Module):
 
             self.flow = first_value["flow"]
             self.flow = torch.matmul(self.flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
-            motion_mask = torch.sum(self.flow, dim=1) >= 0.01
+            motion_mask = torch.linalg.norm(self.flow, dim=1) > 0.05
 
             self.flow = self.flow[valid_mask]
-            # Apply ego motion to flow
             self.dynamic_instance_mask = (motion_mask*first_value["label"])[valid_mask]
+            """
+
+            Category	Description
+            Foreground/Background	A point belongs to the foreground if it is contained in the bounding box of any tracked object.
+            Dynamic/Static	A point is dynamic if it is moving faster than 0.5 m/s in the world frame. Since each pair of sweeps spans 0.1s, this is equivalent to a point having a flow vector with a norm of at least 0.05m once ego-motion has been removed.
+            """
+            self.background_static_mask = first_value["label"] == 0
+            self.foreground_static_mask = (first_value["label"] != 0) & (~motion_mask)
+            self.foreground_dynamic_mask = (first_value["label"] != 0) & motion_mask
+            self.background_static_mask = self.background_static_mask[valid_mask]
+            self.foreground_static_mask = self.foreground_static_mask[valid_mask]
+            self.foreground_dynamic_mask = self.foreground_dynamic_mask[valid_mask]
+
         # Prepare sample
         sample = {
             "point_cloud_first": self.point_cloud_first,
             "point_cloud_second": self.point_cloud_second,
             "flow": self.flow,
             'dynamic_instance_mask': self.dynamic_instance_mask,
+            'background_static_mask': self.background_static_mask,
+            'foreground_static_mask': self.foreground_static_mask,
+            'foreground_dynamic_mask': self.foreground_dynamic_mask,
         }
 
         return sample

@@ -1,0 +1,55 @@
+log:
+  name: "defaultname"
+  dir: "" #default save to /output/exp
+model:
+  flow:
+    name: "NSFP" # NSFP or OptimizedFlow
+    lr : 0.0001
+    lambda_reg: 0.1
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "leakyrelu"
+  mask:
+    lr : 0.03
+    name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
+    slot_num: 10
+    NMP:
+      num_layers: 4
+      num_hidden: 64
+      activation: "leakyrelu"
+dataset:
+  name: "AV2" # MOVI_F or AV2 or KITTISF
+  KITTISF:
+    data_root: "../kittisf"
+    downsampled: false
+    fixed_scene_id: "000001"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
+    num_points: 8192  # Number of points to sample from each point cloud
+training:
+  max_iter: 30000
+
+dataloader:
+  batchsize: 1
+
+alternate:
+  flow: [[100,true],[100,true]]
+  mask: [[100,false],[100,false]]
+
+lr_multi:
+  rec_loss: 0.0
+  flow_loss: 1
+  scene_flow_smoothness: 0
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.0
+
+loss:
+  scene_flow_smoothness:
+    each_mask_item:
+      relative_gradient: 0
+      criterion: "L1"
+    sum_mask_item:
+      relative_gradient: 1
+      criterion: "L2"
+vis:
+  show_window: false
+  debug_grad: false

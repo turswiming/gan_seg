@@ -3,7 +3,19 @@ import torch
 import torch.nn.functional as F
 from utils.visualization_utils import remap_instance_labels, create_label_colormap, color_mask
 from torch.utils.tensorboard import SummaryWriter
-def evaluate_predictions(pred_flows, gt_flows, pred_masks, gt_masks, device, writer, step):
+def evaluate_predictions(
+        pred_flows, 
+        gt_flows, 
+        pred_masks, 
+        gt_masks, 
+        device, 
+        writer, 
+        step,
+        argoverse2=False,
+        background_static_mask=None,
+        foreground_static_mask=None,
+        foreground_dynamic_mask=None
+        ):
     """
     Evaluate model predictions by computing EPE and mIoU metrics.
     
@@ -39,4 +51,28 @@ def evaluate_predictions(pred_flows, gt_flows, pred_masks, gt_masks, device, wri
     # tqdm.write(f"miou {miou_mean.item()}")
     writer.add_scalar("miou", miou_mean.item(), step)
     
+    if argoverse2:
+        #calculate epe in three different masks
+        if background_static_mask is not None:
+            bg_epe = calculate_epe(
+                [pred_flows[i][background_static_mask[i]] for i in range(len(pred_flows))],
+                [gt_flows[i][background_static_mask[i]] for i in range(len(gt_flows))]
+            )
+            writer.add_scalar("epe_bg", bg_epe.item(), step)
+        if foreground_static_mask is not None:
+            fg_static_epe = calculate_epe(
+                [pred_flows[i][foreground_static_mask[i]] for i in range(len(pred_flows))],
+                [gt_flows[i][foreground_static_mask[i]] for i in range(len(gt_flows))]
+            )
+            writer.add_scalar("epe_fg_static", fg_static_epe.item(), step)
+        if foreground_dynamic_mask is not None:
+            fg_dynamic_epe = calculate_epe(
+                [pred_flows[i][foreground_dynamic_mask[i]] for i in range(len(pred_flows))],
+                [gt_flows[i][foreground_dynamic_mask[i]] for i in range(len(gt_flows))]
+            )
+            writer.add_scalar("epe_fg_dynamic", fg_dynamic_epe.item(), step)
+
+        if foreground_dynamic_mask is not None and background_static_mask is not None and foreground_static_mask is not None:
+            threeway_mean = (fg_dynamic_epe + fg_static_epe + bg_epe) / 3.0
+            writer.add_scalar("epe_threeway_mean", threeway_mean.item(), step)
     return epe_mean, miou_mean

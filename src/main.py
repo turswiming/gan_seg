@@ -275,7 +275,11 @@ def main(config, writer):
                 sample["dynamic_instance_mask"], 
                 device, 
                 writer, 
-                step
+                step,
+                argoverse2=config.dataset.name=="AV2",
+                background_static_mask=sample['background_static_mask'],
+                foreground_static_mask=sample['foreground_static_mask'],
+                foreground_dynamic_mask=sample['foreground_dynamic_mask']
             )
             postfix = {
                 "EPE": f"{epe.mean().item():.4f}",

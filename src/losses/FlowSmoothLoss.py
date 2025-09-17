@@ -120,15 +120,15 @@ class FlowSmoothLoss():
         self.each_mask_item_loss = flow_smooth_loss_config.each_mask_item.criterion
         self.sum_mask_item_loss = flow_smooth_loss_config.sum_mask_item.criterion
         if self.each_mask_item_loss in ["L1", "l1"]:
-            self.each_mask_criterion = nn.L1Loss(reduction="mean").to(self.device)
+            self.each_mask_criterion = nn.L1Loss(reduction="sum").to(self.device)
         elif self.each_mask_item_loss in ["L2", "l2"]:
-            self.each_mask_criterion = nn.MSELoss(reduction="mean").to(self.device)
+            self.each_mask_criterion = nn.MSELoss(reduction="sum").to(self.device)
         else:
             raise ValueError(f"Invalid loss criterion: {self.each_mask_item_loss}")
         if self.sum_mask_item_loss in ["L1", "l1"]:
-            self.sum_mask_criterion = nn.L1Loss(reduction="mean").to(self.device)
+            self.sum_mask_criterion = nn.L1Loss(reduction="sum").to(self.device)
         elif self.sum_mask_item_loss in ["L2", "l2"]:
-            self.sum_mask_criterion = nn.MSELoss(reduction="mean").to(self.device)
+            self.sum_mask_criterion = nn.MSELoss(reduction="sum").to(self.device)
         else:
             raise ValueError(f"Invalid loss criterion: {self.sum_mask_item_loss}")
         self.chamferDistanceLoss = ChamferDistanceLoss()
@@ -171,6 +171,8 @@ class FlowSmoothLoss():
         
         total_loss = 0.0
         for b in range(batch_size):
+            one_batch_loss = 0.0
+            N = point_position[b].shape[0]
             # Get batch data
             point_position_b = point_position[b]  # (N, 3)
             scene_flow_b = scene_flows[b]  # (N, 3)
@@ -182,7 +184,7 @@ class FlowSmoothLoss():
             
             # Normalize flow
             scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
-            
+            scene_flow_b = ScaleGradient.apply(scene_flow_b, 1)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             
@@ -200,16 +202,23 @@ class FlowSmoothLoss():
                 Fk = scene_flow_b * mk  # Apply mask to flow
                 # print(f"Ek {Ek.shape}, Fk {Fk.shape}")
                 # Solve for parameters
-                theta_k = torch.linalg.lstsq(Ek, Fk).solution
-                
+                try:
+                    theta_k = torch.linalg.lstsq(Ek, Fk,driver="gels").solution  # (5, 3)
+                except:
+                    continue
+                if torch.isnan(theta_k).any():
+                    print("NaN in theta_k")
+                    continue
                 # Reconstruct flow
                 Fk_hat = Ek @ theta_k
                 flow_reconstruction += Fk_hat  # (N, 3)
 
                 reconstruction_loss = self.each_mask_criterion(Fk_hat,Fk)
-                total_loss += reconstruction_loss*self.each_mask_item_gradient
+                one_batch_loss += reconstruction_loss*self.each_mask_item_gradient
             reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
-            total_loss += reconstruction_loss*self.sum_mask_item_gradient
+            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient
+            one_batch_loss /= N
+            total_loss += one_batch_loss
             # Compute reconstruction loss
             # with torch.no_grad():
             #     flow_reconstruction = flow_reconstruction.detach()
