@@ -131,7 +131,8 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
                     flow_pred = scene_flow_predictor(point_cloud_firsts[i])
                     pred_flows.extend([flow_pred])
                 except Exception as e:
-                    pred_flows.append(scene_flow_predictor(point_cloud_firsts[i], batch["idx"][i], batch["total_frames"][i]))  # Shape: [B, N, 3]
+                    from model.eulerflow_raw_mlp import QueryDirection
+                    pred_flows.append(scene_flow_predictor(point_cloud_firsts[i], batch["idx"][i], batch["total_frames"][i], QueryDirection.FORWARD))  # Shape: [B, N, 3]
 
             gt_flows.extend(flow_gt)
 

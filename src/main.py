@@ -110,7 +110,7 @@ def main(config, writer):
                 pred_flow = []
                 for i in range(len(point_cloud_firsts)):
                     if config.model.flow.name == "EulerFlowMLP":
-                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [B, N, 3]
+                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [N, 3]
                     else:
                         pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
                 gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
@@ -134,23 +134,23 @@ def main(config, writer):
                 rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
                 rec_loss = rec_loss * config.lr_multi.rec_loss
             else:
-                rec_loss = torch.tensor(0.0, device=device)
+                rec_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.scene_flow_smoothness > 0:
                 scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
                 scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
                 # scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_scheduler(step)
             else:
-                scene_flow_smooth_loss = torch.tensor(0.0, device=device)
+                scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.rec_flow_loss > 0:
-                rec_flow_loss = torch.tensor(0.0, device=device)
+                rec_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
                     rec_flow_loss += flowRecLoss(pred_second_point, reconstructed_points[i])
                 rec_flow_loss = rec_flow_loss * config.lr_multi.rec_flow_loss
             else:
-                rec_flow_loss = torch.tensor(0.0, device=device)
+                rec_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.flow_loss > 0:
                 flow_loss = torch.tensor(0.0, device=device)
@@ -165,16 +165,18 @@ def main(config, writer):
                 point_smooth_loss = pointsmoothloss(point_cloud_firsts, pred_mask)
                 point_smooth_loss = point_smooth_loss * config.lr_multi.point_smooth_loss
             else:
-                point_smooth_loss = torch.tensor(0.0, device=device)
+                point_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
-            eular_flow_loss = torch.tensor(0.0, device=device)
             if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP":
+                eular_flow_loss = torch.tensor(0.0, device=device)
                 for i in range(len(point_cloud_firsts)):
-                    reverse_reverse_pc = scene_flow_predictor(pred_flow[i], sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
-                    l2_error = torch.norm(reverse_reverse_pc - point_cloud_firsts[i], dim=1)
+                    reverse_reverse = scene_flow_predictor(point_cloud_firsts[i][:, :3] + pred_flow[i], sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
+                    l2_error = torch.norm(pred_flow[i] + reverse_reverse, dim=1)
                     sigmoid_l2_error = torch.sigmoid(l2_error)
-                    eular_flow_loss += torch.mean(sigmoid_l2_error)
+                    eular_flow_loss += sigmoid_l2_error.mean()
                 eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
+            else:
+                eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
             # Combine losses
             loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss
 

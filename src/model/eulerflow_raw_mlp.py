@@ -138,7 +138,7 @@ class EulerFlowMLP(NSFPRawMLP):
         pc: torch.Tensor,
         idx: int,
         total_entries: int,
-        query_direction: QueryDirection = QueryDirection.FORWARD,
+        query_direction: QueryDirection,
     ) -> torch.tensor:
         entries = (pc, idx, total_entries, query_direction)
         res = self.nn_layers(entries)
