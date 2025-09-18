@@ -29,10 +29,10 @@ from eval import evaluate_predictions, eval_model
 from utils.config_utils import load_config_with_inheritance, save_config_and_code
 from utils.dataloader_utils import create_dataloaders
 from utils.visualization_utils import remap_instance_labels, color_mask
-from losses.ChamferDistanceLoss import ChamferDistanceLoss
-from losses.ReconstructionLoss import ReconstructionLoss
-from losses.PointSmoothLoss import PointSmoothLoss
-from losses.FlowSmoothLoss import FlowSmoothLoss
+# from losses.ChamferDistanceLoss import ChamferDistanceLoss
+# from losses.ReconstructionLoss import ReconstructionLoss
+# from losses.PointSmoothLoss import PointSmoothLoss
+# from losses.FlowSmoothLoss import FlowSmoothLoss
 from visualize.open3d_func import visualize_vectors, update_vector_visualization
 from Predictor import get_mask_predictor, get_scene_flow_predictor
 from alter_scheduler import AlterScheduler
@@ -63,11 +63,31 @@ def main(config, writer):
     
     alter_scheduler = AlterScheduler(config.alternate)
     # Initialize loss functions
-    reconstructionLoss = ReconstructionLoss(device)
-    chamferLoss = ChamferDistanceLoss()
-    flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
-    pointsmoothloss = PointSmoothLoss()
-    flowRecLoss = nn.MSELoss()
+    if config.lr_multi.rec_loss > 0:
+        from losses.ReconstructionLoss import ReconstructionLoss
+        reconstructionLoss = ReconstructionLoss(device)
+    else:
+        reconstructionLoss = None
+    if config.lr_multi.flow_loss > 0:
+        from losses.ChamferDistanceLoss import ChamferDistanceLoss
+        chamferLoss = ChamferDistanceLoss()
+    else:
+        chamferLoss = None
+    if config.lr_multi.scene_flow_smoothness > 0:
+        from losses.FlowSmoothLoss import FlowSmoothLoss
+        flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
+    else:
+        flowSmoothLoss = None
+    if config.lr_multi.rec_flow_loss > 0:
+        flowRecLoss = nn.MSELoss()
+    else:
+        flowRecLoss = None
+    if config.lr_multi.point_smooth_loss > 0:
+        from losses.PointSmoothLoss import PointSmoothLoss
+        pointsmoothloss = PointSmoothLoss()
+    else:
+        pointsmoothloss = None
+    # pointsmoothloss = PointSmoothLoss()
 
     # Initialize visualization if enabled
     if config.vis.show_window:
