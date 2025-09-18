@@ -87,6 +87,10 @@ def main(config, writer):
         pointsmoothloss = PointSmoothLoss()
     else:
         pointsmoothloss = None
+    if config.lr_multi.KDTree_loss > 0:
+        from losses.KTTreeDistanceLoss import KTTreeDistanceLoss
+        kdtree_loss = KTTreeDistanceLoss(max_distance=1.0, reduction="mean")
+        kdtree_loss.to(device)
     # pointsmoothloss = PointSmoothLoss()
 
     # Initialize visualization if enabled
@@ -197,6 +201,13 @@ def main(config, writer):
                 eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
             else:
                 eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
+
+            if config.lr_multi.KDTree_loss > 0:
+                kdtree_dist_loss = torch.tensor(0.0, device=device)
+                for i in range(len(point_cloud_firsts)):
+                    pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    kdtree_dist_loss += kdtree_loss(pred_second_points, sample["idx"][i]+1, sample["point_cloud_second"][i][:, :3].to(device))
+                kdtree_dist_loss = kdtree_dist_loss * config.lr_multi.KDTree_loss
             # Combine losses
             loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss
 
