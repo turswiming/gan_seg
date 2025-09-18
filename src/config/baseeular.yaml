@@ -3,9 +3,9 @@ __base__: "baseconfig.yaml"
 model:
   flow:
     name: "EulerFlowMLP"
-    lr: 0.0001
+    lr: 0.001
     NSFP:
-      num_layers: 16
+      num_layers: 8
       num_hidden: 128
       activation: "leakyrelu"
   mask:
@@ -23,4 +23,4 @@ lr_multi:
   scene_flow_smoothness: 0
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
-  eular_flow_loss: 1.0
+  eular_flow_loss: 0.01
