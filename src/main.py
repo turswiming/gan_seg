@@ -50,7 +50,7 @@ def main(config, writer):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.autograd.set_detect_anomaly(True)
     # Create dataloaders
-    dataloader, infinite_loader, batch_size, N = create_dataloaders(config)
+    dataloader, infinite_loader, val_dataloader, batch_size, N = create_dataloaders(config)
     
     # Initialize models
     mask_predictor = get_mask_predictor(config.model.mask, N)
@@ -88,9 +88,13 @@ def main(config, writer):
     else:
         pointsmoothloss = None
     if config.lr_multi.KDTree_loss > 0:
-        from losses.KTTreeDistanceLoss import KTTreeDistanceLoss
-        kdtree_loss = KTTreeDistanceLoss(max_distance=1.0, reduction="mean")
+        from losses.KDTreeDistanceLoss import KDTreeDistanceLoss
+        kdtree_loss = KDTreeDistanceLoss(max_distance=1.0, reduction="mean")
         kdtree_loss.to(device)
+
+    if config.lr_multi.KNN_loss > 0:
+        from losses.KNNDistanceLoss import TruncatedKNNDistanceLoss
+        knn_loss = TruncatedKNNDistanceLoss(k=1, reduction="mean")
     # pointsmoothloss = PointSmoothLoss()
 
     # Initialize visualization if enabled
@@ -168,7 +172,7 @@ def main(config, writer):
                 scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.rec_flow_loss > 0:
-                rec_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
+                rec_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
                     rec_flow_loss += flowRecLoss(pred_second_point, reconstructed_points[i])
@@ -177,7 +181,7 @@ def main(config, writer):
                 rec_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.flow_loss > 0:
-                flow_loss = torch.tensor(0.0, device=device)
+                flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
                     flow_loss += chamferLoss(pred_second_points.unsqueeze(0), sample["point_cloud_second"][i][:, :3].to(device).unsqueeze(0))
@@ -192,9 +196,9 @@ def main(config, writer):
                 point_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP":
-                eular_flow_loss = torch.tensor(0.0, device=device)
+                eular_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
-                    reverse_reverse = scene_flow_predictor(point_cloud_firsts[i][:, :3] + pred_flow[i], sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
+                    reverse_reverse = scene_flow_predictor(point_cloud_firsts[i][:, :3] + pred_flow[i], sample["idx2"][i], sample["total_frames"][i], QueryDirection.REVERSE)
                     l2_error = torch.norm(pred_flow[i] + reverse_reverse, dim=1)
                     sigmoid_l2_error = torch.sigmoid(l2_error)
                     eular_flow_loss += sigmoid_l2_error.mean()
@@ -203,13 +207,24 @@ def main(config, writer):
                 eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
             if config.lr_multi.KDTree_loss > 0:
-                kdtree_dist_loss = torch.tensor(0.0, device=device)
+                kdtree_dist_loss = 0
                 for i in range(len(point_cloud_firsts)):
-                    pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
-                    kdtree_dist_loss += kdtree_loss(pred_second_points, sample["idx"][i]+1, sample["point_cloud_second"][i][:, :3].to(device))
+                    pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    kdtree_dist_loss += kdtree_loss(pred_second_point, sample["idx2"][i], sample["point_cloud_second"][i][:, :3].to(device))
                 kdtree_dist_loss = kdtree_dist_loss * config.lr_multi.KDTree_loss
+            else:
+                kdtree_dist_loss = torch.tensor(0.0, device=device)
+
+            if config.lr_multi.KNN_loss > 0:
+                knn_dist_loss = 0
+                for i in range(len(point_cloud_firsts)):
+                    pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    knn_dist_loss += knn_loss(sample["point_cloud_second"][i][:, :3].to(device),pred_second_point)
+                knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
+            else:
+                knn_dist_loss = torch.tensor(0.0, device=device)
             # Combine losses
-            loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss
+            loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss + kdtree_dist_loss + knn_dist_loss
 
             # Log losses
             # tqdm.write(f"rec_loss: {rec_loss.item()}")
@@ -227,6 +242,8 @@ def main(config, writer):
                 "rec_flow_loss": rec_flow_loss.item(),
                 "point_smooth_loss": point_smooth_loss.item(),
                 "eular_flow_loss": eular_flow_loss.item(),
+                "kdtree_dist_loss": kdtree_dist_loss.item(),
+                "knn_dist_loss": knn_dist_loss.item(),
                 "total_loss": loss.item(),
             }, step)
             writer.add_histogram("pred_mask",
@@ -265,6 +282,9 @@ def main(config, writer):
                 "scene_flow_smooth_loss": scene_flow_smooth_loss,
                 "rec_flow_loss": rec_flow_loss,
                 "point_smooth_loss": point_smooth_loss,
+                "eular_flow_loss": eular_flow_loss,
+                "kdtree_dist_loss": kdtree_dist_loss,
+                "knn_dist_loss": knn_dist_loss,
             }
 
             # --- 步骤1：单独计算并记录每个loss的梯度 ---
@@ -307,30 +327,8 @@ def main(config, writer):
 
             alter_scheduler.step()
             # Evaluate predictions
-            epe, miou = evaluate_predictions(
-                pred_flow, 
-                gt_flow, 
-                pred_mask, 
-                sample["dynamic_instance_mask"], 
-                device, 
-                writer=writer, 
-                step=step,
-                argoverse2=config.dataset.name in ["AV2","AV2Sequence"],
-                background_static_mask=sample['background_static_mask'],
-                foreground_static_mask=sample['foreground_static_mask'],
-                foreground_dynamic_mask=sample['foreground_dynamic_mask']
-            )
-            postfix = {
-                "EPE": f"{epe.mean().item():.4f}",
-                "mIoU": f"{miou.item():.4f}",
-                "Loss": f"{loss.item():.4f}",
-                "t_flow": train_flow,
-                "t_mask": train_mask,
-            }
-                
-            infinite_loader.set_postfix(postfix)
             if step % config.training.eval_loop == 0:
-                epe, miou = eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
+                epe, miou, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
                 writer.add_scalar(
                     "val_epe",
                     epe.mean().item(),
@@ -341,6 +339,30 @@ def main(config, writer):
                     miou.item(),
                     step
                 )
+                if bg_epe is not None:
+                    writer.add_scalar(
+                        "val_bg_epe",
+                        bg_epe.mean().item(),
+                        step
+                    )
+                if fg_static_epe is not None:
+                    writer.add_scalar(
+                        "val_fg_static_epe",
+                        fg_static_epe.mean().item(),
+                        step
+                    )
+                if fg_dynamic_epe is not None:
+                    writer.add_scalar(
+                        "val_fg_dynamic_epe",
+                        fg_dynamic_epe.mean().item(),
+                        step
+                    )
+                if threeway_mean is not None:
+                    writer.add_scalar(
+                        "val_threeway_mean",
+                        threeway_mean.mean().item(),
+                        step
+                    )
             # Visualization
             if config.vis.show_window and point_cloud_firsts[0].shape[0] > 0:
                 batch_idx = 0

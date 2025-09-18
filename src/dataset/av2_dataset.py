@@ -10,7 +10,7 @@ from torch import nn
 from torch.nn import functional as F
 from .gen_point_traj_flow import process_one_sample
 from .datasetutil.av2 import read_av2_scene
-
+import random
 class AV2PerSceneDataset(nn.Module):
     """
     Dataset class for loading and processing AV2 dataset.
@@ -130,16 +130,18 @@ class AV2SequenceDataset(nn.Module):
         flow (torch.Tensor): Ground truth flow vectors
     """
     
-    def __init__(self):
+    def __init__(self, fix_ego_motion=True,max_k=1):
         """
         Initialize the AV2 dataset loader.
         """
         super(AV2SequenceDataset, self).__init__()
         self.point_cloud_first = None
-        self.av2_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
-        self.av2_test_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
+        self.av2_scene_path = "/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
+        self.av2_test_scene_path = "/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
         self.av2_dataset = read_av2_scene(self.av2_scene_path)
         self.sequence_length = len(list(self.av2_dataset.keys()))
+        self.fix_ego_motion = fix_ego_motion
+        self.max_k = max_k
 
     def __len__(self):
         """
@@ -148,7 +150,7 @@ class AV2SequenceDataset(nn.Module):
         Returns:
             int: Number of samples in the dataset
         """
-        return self.sequence_length - 2
+        return self.sequence_length - self.max_k-1
 
     def __getitem__(self, idx):
         """
@@ -164,10 +166,7 @@ class AV2SequenceDataset(nn.Module):
                 - flow (torch.Tensor): Ground truth flow vectors [N, 3]
         """
 
-        
-        # Process first frame
-        if idx in cache.keys():
-            return cache[idx]
+        k = random.randint(1, self.max_k)
         keys = list(self.av2_dataset.keys())
         first_key = keys[idx]
         first_value = self.av2_dataset[first_key]
@@ -179,7 +178,7 @@ class AV2SequenceDataset(nn.Module):
         ego_motion = first_value["ego_motion"]
         
         # Process second frame
-        second_key = keys[idx+1]
+        second_key = keys[idx+k]
         second_value = self.av2_dataset[second_key]
         valid_mask_second = second_value["flow_is_valid"]
         dynamic_mask_second = second_value["flow_category"] != 0
@@ -187,12 +186,16 @@ class AV2SequenceDataset(nn.Module):
         valid_mask_second = valid_mask_second & dynamic_mask_second & (~ ground_mask_second)
         point_cloud_second = second_value["point_cloud_first"][valid_mask_second]
         #apply ego motion
-        point_cloud_second = torch.matmul(point_cloud_second - ego_motion[:3, 3], ego_motion[:3, :3].T)
+        if self.fix_ego_motion:
+            point_cloud_second = torch.matmul(point_cloud_second - ego_motion[:3, 3], ego_motion[:3, :3].T)
 
         flow = first_value["flow"]
         flow = torch.matmul(flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
         motion_mask = torch.linalg.norm(flow, dim=1) > 0.05
-
+        if self.fix_ego_motion:
+            pass
+        else:
+            flow = first_value["flow"]
         flow = flow[valid_mask]
         dynamic_instance_mask = (motion_mask*first_value["label"])[valid_mask]
         """
@@ -218,9 +221,9 @@ class AV2SequenceDataset(nn.Module):
             'foreground_static_mask': foreground_static_mask,
             'foreground_dynamic_mask': foreground_dynamic_mask,
             "idx": idx,
-            "total_frames": self.sequence_length - 1,
+            "idx2": idx+k,
+            "total_frames": self.sequence_length - self.max_k-1,
 
         }
-        cache[idx] = sample
         return sample
     

@@ -13,7 +13,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from .ChamferDistanceLoss import ChamferDistanceLoss
 
 class ScaleGradient(torch.autograd.Function):
     """
@@ -102,7 +101,6 @@ class FlowSmoothLoss():
     Attributes:
         device (torch.device): Device to perform computations on
         criterion (nn.Module): MSE loss function for reconstruction error
-        chamferDistanceLoss (ChamferDistanceLoss): For additional distance metrics
     """
 
     def __init__(self, device,flow_smooth_loss_config):
@@ -131,7 +129,6 @@ class FlowSmoothLoss():
             self.sum_mask_criterion = nn.MSELoss(reduction="sum").to(self.device)
         else:
             raise ValueError(f"Invalid loss criterion: {self.sum_mask_item_loss}")
-        self.chamferDistanceLoss = ChamferDistanceLoss()
         pass
 
     def __call__(self, sample, mask, flow):

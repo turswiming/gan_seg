@@ -74,7 +74,10 @@ def calculate_epe(pred_flows, gt_flows):
     for pred_flow, gt_flow in zip(pred_flows, gt_flows):
         # Calculate Euclidean distance between predicted and ground truth flows
         epe = torch.norm(pred_flow - gt_flow, dim=1, p=2)  # Shape: [N]
-        epe_list.append(torch.mean(epe))
+        mean_epe = torch.mean(epe)
+        if torch.isnan(mean_epe):
+            mean_epe = torch.zeros_like(mean_epe)
+        epe_list.append(mean_epe)
     
     # Average across batch
     epe_mean = torch.mean(torch.stack(epe_list))

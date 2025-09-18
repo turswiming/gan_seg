@@ -29,6 +29,7 @@ dataset:
     downsampled: false
     fixed_scene_id: "000001"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
     num_points: 8192  # Number of points to sample from each point cloud
+    val_name: "KITTISF"
 training:
   max_iter: 30000
   eval_loop: 100
@@ -43,12 +44,13 @@ alternate:
 
 lr_multi:
   rec_loss: 0.0
-  flow_loss: 1.0
+  flow_loss: 0.0
   scene_flow_smoothness: 1.0
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
+  KNN_loss: 1.0
 
 loss:
   scene_flow_smoothness:

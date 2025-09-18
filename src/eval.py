@@ -82,7 +82,11 @@ def evaluate_predictions(
             threeway_mean = (fg_dynamic_epe + fg_static_epe + bg_epe) / 3.0
             if writer is not None:
                 writer.add_scalar("epe_threeway_mean", threeway_mean.item(), step)
-    return epe_mean, miou_mean
+
+    if argoverse2:
+        return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
+    else:
+        return epe_mean, miou_mean, None, None, None, None
 
 def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step):
     """
@@ -158,7 +162,7 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
     fg_dynamic_masks = foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
 
     # Evaluate predictions and log metrics
-    epe_mean, miou_mean = evaluate_predictions(
+    epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = evaluate_predictions(
         pred_flows,
         gt_flows,
         pred_masks,
@@ -166,10 +170,10 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
         device,
         writer=writer,
         step=step,
-        argoverse2=(getattr(config, "dataset", {}).get("name", None) == "AV2") if hasattr(config, 'dataset') else False,
+        argoverse2=config.dataset.name in ["AV2","AV2Sequence"],
         background_static_mask=bg_masks,
         foreground_static_mask=fg_static_masks,
         foreground_dynamic_mask=fg_dynamic_masks,
     )
 
-    return epe_mean, miou_mean
+    return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean

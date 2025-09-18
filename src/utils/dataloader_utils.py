@@ -69,14 +69,16 @@ def create_dataloaders(config):
                 )
     else:
         raise ValueError(f"Dataset {config.dataset.name} not supported")
-    
+    if config.dataset.val_name == "AV2Sequence":
+        val_dataset = AV2SequenceDataset(max_k=3)
+    elif config.dataset.val_name == "AV2Sequence_val":
+        val_dataset = AV2SequenceDataset(max_k=1)
+    elif config.dataset.val_name == "KITTISF":
+        val_dataset = KITTIPerSceneDataset(data_root=config.dataset.KITTISF.data_root, downsampled=config.dataset.KITTISF.downsampled, fixed_scene_id=config.dataset.KITTISF.fixed_scene_id)
+    else:
+        raise ValueError(f"Dataset {config.dataset.val_name} not supported")
     # Create dataloader with batch dimension handling
-    dataloader = torch.utils.data.DataLoader(
-        dataset, 
-        batch_size=config.dataloader.batchsize, 
-        shuffle=True,
-        num_workers=config.dataloader.num_workers,
-        collate_fn=lambda batch: {
+    collate_fn_lambda = lambda batch: {
             "point_cloud_first": [item["point_cloud_first"] for item in batch],
             "point_cloud_second": [item["point_cloud_second"] for item in batch],
             "flow": [item["flow"] for item in batch],
@@ -85,10 +87,23 @@ def create_dataloaders(config):
             "foreground_static_mask": [item["foreground_static_mask"] for item in batch if "foreground_static_mask" in item],
             "foreground_dynamic_mask": [item["foreground_dynamic_mask"] for item in batch if "foreground_dynamic_mask" in item],
             "idx": [item["idx"] for item in batch if "idx" in item],
+            "idx2": [item["idx2"] for item in batch if "idx2" in item],
             "total_frames": [item["total_frames"] for item in batch if "total_frames" in item],
         }
+    dataloader = torch.utils.data.DataLoader(
+        dataset, 
+        batch_size=config.dataloader.batchsize, 
+        shuffle=True,
+        num_workers=config.dataloader.num_workers,
+        collate_fn=collate_fn_lambda
     )
-    
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset, 
+        batch_size=config.dataloader.batchsize, 
+        shuffle=False,
+        num_workers=config.dataloader.num_workers,
+        collate_fn=collate_fn_lambda
+    )
     # Create infinite dataloader
     infinite_loader = infinite_dataloader(dataloader)
     
@@ -97,4 +112,4 @@ def create_dataloaders(config):
     batch_size = len(sample["point_cloud_first"])
     N = sample["point_cloud_first"][0].shape[0]
     
-    return dataloader, infinite_loader, batch_size, N 
+    return dataloader, infinite_loader, val_dataloader, batch_size, N 

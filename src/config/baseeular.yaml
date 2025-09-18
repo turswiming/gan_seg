@@ -12,6 +12,7 @@ model:
     name: "NMP"
 dataset:
   name: "AV2Sequence"
+  val_name: "AV2Sequence_val"
 
 dataloader:
   batchsize: 4
@@ -19,9 +20,15 @@ dataloader:
 
 lr_multi:
   rec_loss: 0.0
-  flow_loss: 1.0
+  flow_loss: 0.0
   scene_flow_smoothness: 0
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
+  KNN_loss: 1.0
+
+
+vis:
+  show_window: false
+  debug_grad: false
