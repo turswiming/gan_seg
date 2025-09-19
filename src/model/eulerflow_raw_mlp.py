@@ -130,7 +130,9 @@ class EulerFlowMLP(NSFPRawMLP):
             act_fn=act_fn,
             num_layers=num_layers,
         )
-        self.nn_layers = torch.compile(torch.nn.Sequential(encoder, self.nn_layers))
+        # 暂时禁用 torch.compile 以避免兼容性问题
+        # self.nn_layers = torch.compile(torch.nn.Sequential(encoder, self.nn_layers))
+        self.nn_layers = torch.nn.Sequential(encoder, self.nn_layers)
 
     @typing.no_type_check
     def forward(
@@ -166,7 +168,9 @@ class EulerFlowOccFlowMLP(NSFPRawMLP):
         )
         self.nn_layers = torch.nn.Sequential(encoder, self.nn_layers)
         if with_compile:
-            self.nn_layers = torch.compile(self.nn_layers)
+            # 暂时禁用 torch.compile 以避免兼容性问题
+            # self.nn_layers = torch.compile(self.nn_layers)
+            pass
 
     @typing.no_type_check
     def forward(

@@ -150,22 +150,13 @@ class AV2SequenceDataset(nn.Module):
         Returns:
             int: Number of samples in the dataset
         """
-        return self.sequence_length - self.max_k-1
+        return self.sequence_length - 1 - self.max_k
+    def get_item(self, idx):
+        return self.prepare_item(idx,from_manual=True)
 
-    def __getitem__(self, idx):
-        """
-        Get a sample from the dataset.
-        
-        Args:
-            idx (int): Index of the sample to get
-            
-        Returns:
-            dict: A dictionary containing:
-                - point_cloud_first (torch.Tensor): First frame point cloud [N, 3]
-                - point_cloud_second (torch.Tensor): Second frame point cloud [N, 3]
-                - flow (torch.Tensor): Ground truth flow vectors [N, 3]
-        """
-
+    def prepare_item(self, idx,from_manual=False):
+        if idx < self.max_k and not from_manual:
+            return {}
         k = random.randint(1, self.max_k)
         keys = list(self.av2_dataset.keys())
         first_key = keys[idx]
@@ -178,7 +169,7 @@ class AV2SequenceDataset(nn.Module):
         ego_motion = first_value["ego_motion"]
         
         # Process second frame
-        second_key = keys[idx+k]
+        second_key = keys[idx+1]
         second_value = self.av2_dataset[second_key]
         valid_mask_second = second_value["flow_is_valid"]
         dynamic_mask_second = second_value["flow_category"] != 0
@@ -221,9 +212,28 @@ class AV2SequenceDataset(nn.Module):
             'foreground_static_mask': foreground_static_mask,
             'foreground_dynamic_mask': foreground_dynamic_mask,
             "idx": idx,
-            "idx2": idx+k,
-            "total_frames": self.sequence_length - self.max_k-1,
+            "idx2": idx+1,
+            "total_frames": self.sequence_length - 2,
+            "self": self,
+            "k": k,
 
         }
         return sample
+
+
+    def __getitem__(self, idx):
+        """
+        Get a sample from the dataset.
+        
+        Args:
+            idx (int): Index of the sample to get
+            
+        Returns:
+            dict: A dictionary containing:
+                - point_cloud_first (torch.Tensor): First frame point cloud [N, 3]
+                - point_cloud_second (torch.Tensor): Second frame point cloud [N, 3]
+                - flow (torch.Tensor): Ground truth flow vectors [N, 3]
+        """
+        
+        return self.prepare_item(idx,from_manual=False)
     

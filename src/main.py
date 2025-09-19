@@ -134,19 +134,41 @@ def main(config, writer):
                 mask_predictor.eval()
             # Forward pass
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
+            point_cloud_seconds = [item.to(device) for item in sample["point_cloud_second"]]
+            pred_flow = []
+            reverse_pred_flow = []
+            longterm_pred_flow = {}
             if train_flow:                    
-                pred_flow = []
                 for i in range(len(point_cloud_firsts)):
                     if config.model.flow.name == "EulerFlowMLP":
-                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [N, 3]
+                        if sample["k"][i] ==1:
+                            pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [N, 3]
+                            reverse_pred_flow.append(scene_flow_predictor(point_cloud_seconds[i], sample["idx2"][i], sample["total_frames"][i],QueryDirection.REVERSE))  # Shape: [N, 3]
+                        else:
+                            pred_pc = point_cloud_firsts[i]
+                            for k in range(0, sample["k"][i]):
+                                pred_flow_temp = scene_flow_predictor(pred_pc, sample["idx"][i]+k, sample["total_frames"][i],QueryDirection.FORWARD)
+                                pred_pc = pred_pc + pred_flow_temp
+                                longterm_pred_flow[sample["idx"][i]+k+1] = pred_pc
+                                if k == 0:
+                                    pred_flow.append(pred_flow_temp)
+                            pred_pc = point_cloud_firsts[i]
+                            for k in range(0, sample["k"][i]):
+                                pred_flow_temp = scene_flow_predictor(pred_pc, sample["idx"][i]-k, sample["total_frames"][i],QueryDirection.REVERSE)
+                                pred_pc = pred_pc - pred_flow_temp
+                                longterm_pred_flow[sample["idx"][i]-k-1] = pred_pc
+                                if k == 0:
+                                    reverse_pred_flow.append(pred_flow_temp)
                     else:
-                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [B, N, 3]
+                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [N, 3]
                 gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
             else:
                 with torch.no_grad():
-                    pred_flow = []
                     for i in range(len(point_cloud_firsts)):
-                        pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))
+                        if config.model.flow.name == "EulerFlowMLP":
+                            pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))
+                        else:
+                            pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))
                     gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
             if train_mask:
                 pred_mask = []
@@ -166,6 +188,9 @@ def main(config, writer):
 
             if config.lr_multi.scene_flow_smoothness > 0:
                 scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
+                if len(reverse_pred_flow) > 0:
+                    scene_flow_smooth_loss += flowSmoothLoss(sample, pred_mask, reverse_pred_flow)
+                    scene_flow_smooth_loss = scene_flow_smooth_loss / 2
                 scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
                 # scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_scheduler(step)
             else:
@@ -185,6 +210,15 @@ def main(config, writer):
                 for i in range(len(point_cloud_firsts)):
                     pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
                     flow_loss += chamferLoss(pred_second_points.unsqueeze(0), sample["point_cloud_second"][i][:, :3].to(device).unsqueeze(0))
+                    if len(reverse_pred_flow) > 0:
+                        pred_first_point = point_cloud_seconds[i][:, :3] + reverse_pred_flow[i]
+                        flow_loss += chamferLoss(pred_first_point.unsqueeze(0), point_cloud_firsts[i][:, :3].to(device).unsqueeze(0))
+                        flow_loss = flow_loss / 2
+                    if len(longterm_pred_flow) > 0:
+                        for idx in longterm_pred_flow:
+                            pred_points = longterm_pred_flow[idx][:, :3]
+                            real_points = sample["self"][i].get_item(idx)["point_cloud_first"][:, :3].to(device)
+                            flow_loss += chamferLoss(pred_points.unsqueeze(0), real_points.to(device).unsqueeze(0))
                 flow_loss = flow_loss * config.lr_multi.flow_loss
             else:
                 flow_loss = torch.tensor(0.0, device=device)

@@ -52,7 +52,7 @@ def create_dataloaders(config):
     if config.dataset.name == "AV2":
         dataset = AV2PerSceneDataset()
     elif config.dataset.name == "AV2Sequence":
-        dataset = AV2SequenceDataset()
+        dataset = AV2SequenceDataset(max_k=3)
     elif config.dataset.name == "MOVI_F":
         dataset = MOVIPerSceneDataset()
     elif config.dataset.name == "KITTISF":
@@ -79,9 +79,9 @@ def create_dataloaders(config):
         raise ValueError(f"Dataset {config.dataset.val_name} not supported")
     # Create dataloader with batch dimension handling
     collate_fn_lambda = lambda batch: {
-            "point_cloud_first": [item["point_cloud_first"] for item in batch],
-            "point_cloud_second": [item["point_cloud_second"] for item in batch],
-            "flow": [item["flow"] for item in batch],
+            "point_cloud_first": [item["point_cloud_first"] for item in batch if "point_cloud_first" in item],
+            "point_cloud_second": [item["point_cloud_second"] for item in batch if "point_cloud_second" in item],
+            "flow": [item["flow"] for item in batch if "flow" in item],
             "dynamic_instance_mask": [item["dynamic_instance_mask"] for item in batch if "dynamic_instance_mask" in item],
             "background_static_mask": [item["background_static_mask"] for item in batch if "background_static_mask" in item],
             "foreground_static_mask": [item["foreground_static_mask"] for item in batch if "foreground_static_mask" in item],
@@ -89,6 +89,8 @@ def create_dataloaders(config):
             "idx": [item["idx"] for item in batch if "idx" in item],
             "idx2": [item["idx2"] for item in batch if "idx2" in item],
             "total_frames": [item["total_frames"] for item in batch if "total_frames" in item],
+            "self": [item["self"] for item in batch if "self" in item],
+            "k": [item["k"] for item in batch if "k" in item],
         }
     dataloader = torch.utils.data.DataLoader(
         dataset, 
