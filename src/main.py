@@ -275,11 +275,11 @@ def main(config, writer):
             if config.lr_multi.l1_regularization > 0:
                 l1_regularization_loss = 0
                 for flow in pred_flow:
-                    l1_regularization_loss += torch.norm(flow, p=1)
+                    l1_regularization_loss += torch.norm(flow, p=1)/flow.shape[0]
                 for flow in reverse_pred_flow:
-                    l1_regularization_loss += torch.norm(flow, p=1)
+                    l1_regularization_loss += torch.norm(flow, p=1)/flow.shape[0]
                 for idx in longterm_pred_flow:
-                    l1_regularization_loss += torch.norm(longterm_pred_flow[idx], p=1)
+                    l1_regularization_loss += torch.norm(longterm_pred_flow[idx], p=1)/longterm_pred_flow[idx].shape[0]
                 l1_regularization_loss = l1_regularization_loss * config.lr_multi.l1_regularization
             else:
                 l1_regularization_loss = torch.tensor(0.0, device=device)
@@ -309,6 +309,7 @@ def main(config, writer):
                 "eular_flow_loss": eular_flow_loss.item(),
                 "kdtree_dist_loss": kdtree_dist_loss.item(),
                 "knn_dist_loss": knn_dist_loss.item(),
+                "l1_regularization_loss": l1_regularization_loss.item(),
                 "total_loss": loss.item(),
             }, step)
             def compute_individual_gradients(loss_dict, model, retain_graph=False):
