@@ -137,7 +137,11 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
             gt_flows.extend(flow_gt)
 
             for point_cloud_first in point_cloud_firsts:
-                masks_pred = mask_predictor(point_cloud_first)
+                if config.model.mask.name == "EulerMaskMLP":
+                    masks_pred = mask_predictor(point_cloud_first, batch["idx"][i], batch["total_frames"][i])
+                    masks_pred = masks_pred.permute(1, 0)
+                else:
+                    masks_pred = mask_predictor(point_cloud_first)
                 pred_masks.extend([masks_pred])
 
             # optional Argoverse masks

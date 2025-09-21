@@ -177,12 +177,23 @@ def main(config, writer):
             if train_mask:
                 pred_mask = []
                 for i in range(len(point_cloud_firsts)):
-                    pred_mask.append(mask_predictor(point_cloud_firsts[i]))
+                    if config.model.mask.name == "EulerMaskMLP":
+                        mask = mask_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i])
+                        mask = mask.permute(1, 0)
+                        
+                        pred_mask.append(mask)
+                    else:
+                        pred_mask.append(mask_predictor(point_cloud_firsts[i]))
             else:
                 with torch.no_grad():
                     pred_mask =[]
                     for i in range(len(point_cloud_firsts)):
-                        pred_mask.append(mask_predictor(point_cloud_firsts[i]))
+                        if config.model.mask.name == "EulerMaskMLP":
+                            mask = mask_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i])
+                            mask = mask.permute(1, 0)
+                            pred_mask.append(mask)
+                        else:
+                            pred_mask.append(mask_predictor(point_cloud_firsts[i]))
             # Compute losses
             if config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0:
                 rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
@@ -192,9 +203,6 @@ def main(config, writer):
 
             if config.lr_multi.scene_flow_smoothness > 0:
                 scene_flow_smooth_loss = flowSmoothLoss(sample, pred_mask, pred_flow)
-                if len(reverse_pred_flow) > 0:
-                    scene_flow_smooth_loss += flowSmoothLoss(sample, pred_mask, reverse_pred_flow)
-                    scene_flow_smooth_loss = scene_flow_smooth_loss / 2
                 scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
             else:
                 scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
@@ -273,13 +281,31 @@ def main(config, writer):
             else:
                 knn_dist_loss = torch.tensor(0.0, device=device)
             if config.lr_multi.l1_regularization > 0:
+                def adaptive_loss(flow_tensor, threshold=0.2):
+                    """
+                    Adaptive loss function: L1 loss for larger values, L2 loss for smaller values
+                    """
+                    flow_magnitudes = torch.norm(flow_tensor, dim=-1, keepdim=True)  # Calculate magnitude for each flow vector
+                    
+                    # Create masks for large and small values
+                    large_mask = flow_magnitudes >= threshold
+                    small_mask = flow_magnitudes < threshold
+                    
+                    # L1 loss for large values (robust to outliers)
+                    l1_loss = torch.sum(flow_magnitudes * large_mask)
+                    
+                    # L2 loss for small values (smooth gradient near zero)
+                    l2_loss = torch.sum((flow_magnitudes ** 2) * small_mask)
+                    
+                    return (l1_loss + l2_loss) / flow_tensor.shape[0]
+                
                 l1_regularization_loss = 0
                 for flow in pred_flow:
-                    l1_regularization_loss += torch.norm(flow, p=1)/flow.shape[0]
+                    l1_regularization_loss += adaptive_loss(flow)
                 for flow in reverse_pred_flow:
-                    l1_regularization_loss += torch.norm(flow, p=1)/flow.shape[0]
+                    l1_regularization_loss += adaptive_loss(flow)
                 for idx in longterm_pred_flow:
-                    l1_regularization_loss += torch.norm(longterm_pred_flow[idx], p=1)/longterm_pred_flow[idx].shape[0]
+                    l1_regularization_loss += adaptive_loss(longterm_pred_flow[idx])
                 l1_regularization_loss = l1_regularization_loss * config.lr_multi.l1_regularization
             else:
                 l1_regularization_loss = torch.tensor(0.0, device=device)

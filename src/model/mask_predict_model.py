@@ -9,6 +9,7 @@ mask weights are directly optimized during training.
 import torch
 from torch import nn
 from torch.nn import functional as F
+from .eulerflow_raw_mlp import EulerFlowMLP, ActivationFn, QueryDirection
 
 class OptimizedMaskPredictor(nn.Module):
     """
@@ -128,3 +129,22 @@ class Neural_Mask_Prior(torch.nn.Module):
         # x = F.softmax(x, dim=1)
         return x.permute(1, 0)
     
+
+class EulerMaskMLP(EulerFlowMLP):
+    def __init__(
+        self, 
+        slot_num=10, 
+        filter_size=128, 
+        act_fn: ActivationFn = ActivationFn.RELU,
+        layer_size=8, 
+    ):
+        super().__init__(
+            output_dim=slot_num,
+            latent_dim=filter_size,
+            act_fn=act_fn,
+            num_layers=layer_size,
+        )
+        self.nn_layers = torch.nn.Sequential(self.nn_layers)
+
+    def forward(self, pc, idx, total_entries):
+        return super().forward(pc, idx, total_entries, QueryDirection.FORWARD)

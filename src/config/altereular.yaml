@@ -1,0 +1,39 @@
+__base__: "baseconfig.yaml"
+
+model:
+  flow:
+    name: "EulerFlowMLP"
+    lr: 0.00008
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "leakyrelu"
+  mask:
+    name: "EulerMaskMLP"
+    MLP:
+      num_layers: 18
+      num_hidden: 128
+dataset:
+  name: "AV2Sequence"
+  val_name: "AV2Sequence_val"
+
+dataloader:
+  batchsize: 4
+  num_workers: 0
+
+lr_multi:
+  rec_loss: 0.0
+  flow_loss: 0.0
+  scene_flow_smoothness: 1
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.0
+  eular_flow_loss: 0.01
+  KDTree_loss: 1.0
+  KNN_loss: 1.0
+  l1_regularization: 0.001
+
+
+
+vis:
+  show_window: false
+  debug_grad: false
