@@ -176,7 +176,7 @@ class FlowSmoothLoss():
             mask_b = mask[b]  # (K, N)
             
             # Process mask
-            mask_b = ScaleGradient.apply(mask_b, 1)
+            mask_b = ScaleGradient.apply(mask_b, 10)
             mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
             
             # Normalize flow

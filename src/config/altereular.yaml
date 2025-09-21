@@ -9,6 +9,7 @@ model:
       num_hidden: 128
       activation: "leakyrelu"
   mask:
+    lr : 0.1
     name: "EulerMaskMLP"
     lr : 0.001
     MLP:
@@ -25,18 +26,25 @@ dataloader:
 lr_multi:
   rec_loss: 0.0
   flow_loss: 0.0
-  scene_flow_smoothness: 1
+  scene_flow_smoothness: 0
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
   KNN_loss: 1.0
-  l1_regularization: 0.001
-
+  l1_regularization: 0.0
 alternate:
   flow: [[100,true],[100,true]]
-  mask: [[2000,false],[100000,true]]
+  mask: [[1000,false],[100000,true]]
 
+loss:
+  scene_flow_smoothness:
+    each_mask_item:
+      relative_gradient: 1
+      criterion: "L2"
+    sum_mask_item:
+      relative_gradient: 1
+      criterion: "L2"
 vis:
   show_window: false
   debug_grad: false

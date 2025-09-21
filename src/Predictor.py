@@ -80,7 +80,6 @@ def get_mask_predictor(mask_model_config,N):
                             layer_size=model_detail.num_layers).to(device)
     elif mask_model_config.name == "EularNMP":
         model_detail = mask_model_config.NMP
-        from model.mask_predict_model import Neural_Mask_Prior
 
         return Neural_Mask_Prior(input_dim=4,
                             slot_num=mask_model_config.slot_num,

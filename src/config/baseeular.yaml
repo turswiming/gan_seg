@@ -27,7 +27,7 @@ lr_multi:
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
   KNN_loss: 1.0
-  l1_regularization: 0.001
+  l1_regularization: 0.0
 
 
 
