@@ -115,6 +115,8 @@ class AV2PerSceneDataset(nn.Module):
     
 cache = {}
 
+
+
 class AV2SequenceDataset(nn.Module):
     """
     Dataset class for loading and processing AV2 dataset.
@@ -159,7 +161,11 @@ class AV2SequenceDataset(nn.Module):
     def prepare_item(self, idx,from_manual=False):
         if idx < self.max_k and not from_manual:
             return {}
-        k = random.randint(1, self.max_k)
+        longseq = random.random() < 0.5
+        if longseq:
+            k = self.max_k
+        else:
+            k = 1
         keys = list(self.av2_dataset.keys())
         if idx in self.cache:
             self.cache[idx]["k"] = k
@@ -167,23 +173,13 @@ class AV2SequenceDataset(nn.Module):
         first_key = keys[idx]
         first_value = self.av2_dataset[first_key]
         valid_mask = first_value["flow_is_valid"]
+        cropped_mask = first_value["point_cloud_first_cropped_mask"]
         dynamic_mask = first_value["flow_category"] != 0
         ground_mask = first_value["ground_mask"]
-        valid_mask = valid_mask & dynamic_mask & (~ ground_mask)
+        valid_mask = valid_mask & dynamic_mask & (~ ground_mask) & cropped_mask
         point_cloud_first = first_value["point_cloud_first"][valid_mask]
         ego_motion = first_value["ego_motion"]
         
-        # Process second frame
-        second_key = keys[idx+1]
-        second_value = self.av2_dataset[second_key]
-        valid_mask_second = second_value["flow_is_valid"]
-        dynamic_mask_second = second_value["flow_category"] != 0
-        ground_mask_second = second_value["ground_mask"]
-        valid_mask_second = valid_mask_second & dynamic_mask_second & (~ ground_mask_second)
-        point_cloud_second = second_value["point_cloud_first"][valid_mask_second]
-        #apply ego motion
-        if self.fix_ego_motion:
-            point_cloud_second = torch.matmul(point_cloud_second - ego_motion[:3, 3], ego_motion[:3, :3].T)
         flow = first_value["flow"]
         if not self.apply_ego_motion:
             flow = torch.matmul(flow - ego_motion[:3, 3], ego_motion[:3, :3].T)

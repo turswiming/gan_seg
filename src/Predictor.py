@@ -44,7 +44,7 @@ def get_scene_flow_predictor(flow_model_config,N):
         return EulerFlowMLP(output_dim=3,
                             latent_dim=128,
                             act_fn=ActivationFn.RELU,
-                            num_layers=8)
+                            num_layers=18)
     elif flow_model_config.name == "OptimizedFlow":
         return OptimizedFLowPredictor(dim=3,
                              pointSize=N)

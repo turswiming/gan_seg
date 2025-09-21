@@ -92,6 +92,15 @@ def read_av2_h5(file_path: str, apply_ego_motion: bool = True, timestamp: Option
     
     return result
 
+DEFAULT_POINT_CLOUD_RANGE = (
+    -48,
+    -48,
+    -2.5,
+    48,
+    48,
+    2.5,
+)
+
 def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, Dict]:
     """
     Read all frames from an AV2 h5 file created by the preprocessing code.
@@ -111,33 +120,30 @@ def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, D
         for timestamp in timestamps:
             scene_data[timestamp] = read_av2_h5(file_path, apply_ego_motion, timestamp)
         if apply_ego_motion:
-            # Initialize cumulative ego motion matrices
-            # 初始化累积ego motion矩阵
-            cascade_ego_motion = torch.eye(4).unsqueeze(0).repeat(len(timestamps), 1, 1)
-            
-            # Calculate cumulative ego motion from first frame to each frame
-            # 计算从第一帧到每一帧的累积ego motion
-            for i in range(1, len(timestamps)):                
-                # Get incremental ego motion from frame (i-1) to frame i
-                # 获取从帧(i-1)到帧i的增量ego motion
-                incremental_ego_motion = scene_data[timestamps[i-1]]["real_ego_motion"]
-                
-                # Accumulate: T_0_to_i = T_0_to_(i-1) * T_(i-1)_to_i
-                # 累积：T_0_to_i = T_0_to_(i-1) * T_(i-1)_to_i
-                cascade_ego_motion[i] = torch.matmul(cascade_ego_motion[i-1], incremental_ego_motion)
-            # Transform point clouds to first frame coordinate system
-            # 将点云变换到第一帧坐标系
+            center = None
             for i in range(len(timestamps)):
                 point_cloud = scene_data[timestamps[i]]["point_cloud_first"]
-                motion = cascade_ego_motion[i]
-                
+                point_cloud_cropped_mask = torch.all(
+                    torch.stack([
+                        point_cloud[:, 0] > DEFAULT_POINT_CLOUD_RANGE[0],
+                        point_cloud[:, 0] < DEFAULT_POINT_CLOUD_RANGE[3],
+                        point_cloud[:, 1] > DEFAULT_POINT_CLOUD_RANGE[1],
+                        point_cloud[:, 1] < DEFAULT_POINT_CLOUD_RANGE[4],
+                        point_cloud[:, 2] > DEFAULT_POINT_CLOUD_RANGE[2],
+                        point_cloud[:, 2] < DEFAULT_POINT_CLOUD_RANGE[5]
+                    ], dim=0), dim=0)
+                pose = scene_data[timestamps[i]]["pose"]
                 # Transform points from current frame to first frame
                 # 将点从当前帧变换到第一帧
                 # P_first = R^T * (P_current - t)
                 # where R is rotation matrix and t is translation vector
-                transformed_points = torch.matmul(point_cloud - motion[:3, 3], motion[:3, :3].T)
+                # transformed_points = torch.matmul(point_cloud - motion[:3, 3], motion[:3, :3].T)
+                transformed_points = torch.matmul(point_cloud, pose[:3, :3])-pose[:3, 3]
+                if center is None:
+                    center = transformed_points.mean(dim=0)
+                transformed_points = transformed_points - center
                 scene_data[timestamps[i]]["point_cloud_first"] = transformed_points
-
+                scene_data[timestamps[i]]["point_cloud_first_cropped_mask"] = point_cloud_cropped_mask
                 # Transform flow vectors to first frame coordinate system
                 # 将flow向量变换到第一帧坐标系
                 if "flow" in scene_data[timestamps[i]]:
@@ -145,7 +151,7 @@ def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, D
                     # Flow vectors are also rotated by the same rotation matrix
                     # Flow向量也通过相同的旋转矩阵进行旋转
                     real_ego_motion = scene_data[timestamps[i]]["real_ego_motion"]
-                    transformed_flow = torch.matmul(flow-real_ego_motion[:3, 3], motion[:3, :3].T)
+                    transformed_flow = torch.matmul(flow-real_ego_motion[:3, 3], pose[:3, :3])
                     scene_data[timestamps[i]]["flow"] = transformed_flow
 
     return scene_data

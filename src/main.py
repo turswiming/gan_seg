@@ -300,8 +300,6 @@ def main(config, writer):
                 "knn_dist_loss": knn_dist_loss.item(),
                 "total_loss": loss.item(),
             }, step)
-            writer.add_histogram("pred_mask",
-                torch.stack([pred_mask[0]]).cpu().detach().numpy(), step)
             def compute_individual_gradients(loss_dict, model, retain_graph=False):
                 grad_contributions = {}
                 
