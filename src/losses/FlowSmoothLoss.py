@@ -181,7 +181,7 @@ class FlowSmoothLoss():
             
             # Normalize flow
             scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
-            scene_flow_b = ScaleGradient.apply(scene_flow_b, 1)
+            scene_flow_b = ScaleGradient.apply(scene_flow_b, 0.01)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             
