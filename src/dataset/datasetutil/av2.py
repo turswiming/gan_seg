@@ -139,9 +139,7 @@ def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, D
                 # where R is rotation matrix and t is translation vector
                 # transformed_points = torch.matmul(point_cloud - motion[:3, 3], motion[:3, :3].T)
                 transformed_points = torch.matmul(point_cloud, pose[:3, :3])-pose[:3, 3]
-                if center is None:
-                    center = transformed_points.mean(dim=0)
-                transformed_points = transformed_points - center
+
                 scene_data[timestamps[i]]["point_cloud_first"] = transformed_points
                 scene_data[timestamps[i]]["point_cloud_first_cropped_mask"] = point_cloud_cropped_mask
                 # Transform flow vectors to first frame coordinate system
@@ -151,7 +149,13 @@ def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, D
                     # Flow vectors are also rotated by the same rotation matrix
                     # Flow向量也通过相同的旋转矩阵进行旋转
                     real_ego_motion = scene_data[timestamps[i]]["real_ego_motion"]
-                    transformed_flow = torch.matmul(flow-real_ego_motion[:3, 3], pose[:3, :3])
+                    pc_flow= torch.matmul(point_cloud + flow-real_ego_motion[:3, 3], real_ego_motion[:3, :3])
+                    transformed_flow = torch.matmul(pc_flow, pose[:3, :3])-pose[:3, 3]
+                    transformed_flow = transformed_flow - transformed_points
                     scene_data[timestamps[i]]["flow"] = transformed_flow
+                if center is None:
+                    center = transformed_points.mean(dim=0)
+                transformed_points = transformed_points - center
+                scene_data[timestamps[i]]["point_cloud_first"] = transformed_points
 
     return scene_data
