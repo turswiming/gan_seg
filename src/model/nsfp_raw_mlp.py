@@ -8,6 +8,7 @@ class ActivationFn(enum.Enum):
     SIGMOID = "sigmoid"
     SINC = "sinc"  # https://openreview.net/forum?id=0Lqyut1y7M
     GAUSSIAN = "gaussian"  # https://arxiv.org/abs/2204.05735
+    LEAKYRELU = "leakyrelu"
 
 
 class SinC(nn.Module):
@@ -64,6 +65,8 @@ class NSFPRawMLP(nn.Module):
                 return SinC()
             case ActivationFn.GAUSSIAN:
                 return Gaussian()
+            case ActivationFn.LEAKYRELU:
+                return torch.nn.LeakyReLU()
             case _:
                 raise ValueError(f"Unsupported activation function: {self.act_fn}")
 

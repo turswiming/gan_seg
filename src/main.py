@@ -73,11 +73,11 @@ def main(config, writer):
         chamferLoss = ChamferDistanceLoss()
     else:
         chamferLoss = None
-    if config.lr_multi.scene_flow_smoothness > 0:
-        from losses.FlowSmoothLoss import FlowSmoothLoss
-        flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
-    else:
-        flowSmoothLoss = None
+    # if config.lr_multi.scene_flow_smoothness > 0:
+    from losses.FlowSmoothLoss import FlowSmoothLoss
+    flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
+    # else:
+    #     flowSmoothLoss = None
     if config.lr_multi.rec_flow_loss > 0:
         flowRecLoss = nn.MSELoss()
     else:
@@ -131,6 +131,8 @@ def main(config, writer):
                 mask_predictor.train()
             else:
                 mask_predictor.eval()
+            if step>1000:
+                config.lr_multi.scene_flow_smoothness = 1
             # Forward pass
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
             idxs=sample.get("idx")

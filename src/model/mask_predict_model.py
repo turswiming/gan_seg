@@ -135,7 +135,7 @@ class EulerMaskMLP(EulerFlowMLP):
         self, 
         slot_num=10, 
         filter_size=128, 
-        act_fn: ActivationFn = ActivationFn.RELU,
+        act_fn: ActivationFn = ActivationFn.LEAKYRELU,
         layer_size=8, 
     ):
         super().__init__(
