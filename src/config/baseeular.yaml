@@ -3,7 +3,7 @@ __base__: "baseconfig.yaml"
 model:
   flow:
     name: "EulerFlowMLP"
-    lr: 0.001
+    lr: 0.00008
     NSFP:
       num_layers: 8
       num_hidden: 128

@@ -91,6 +91,7 @@ def create_dataloaders(config):
             "total_frames": [item["total_frames"] for item in batch if "total_frames" in item],
             "self": [item["self"] for item in batch if "self" in item],
             "k": [item["k"] for item in batch if "k" in item],
+            "ego_motion": [item["ego_motion"] for item in batch if "ego_motion" in item],
         }
     dataloader = torch.utils.data.DataLoader(
         dataset, 

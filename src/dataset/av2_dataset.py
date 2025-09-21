@@ -53,8 +53,6 @@ class AV2PerSceneDataset(nn.Module):
                 - point_cloud_second (torch.Tensor): Second frame point cloud [N, 3]
                 - flow (torch.Tensor): Ground truth flow vectors [N, 3]
         """
-        start = 0
-        end = 1
         if self.point_cloud_first is None:
             # Load AV2 scene data
             av2_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
@@ -130,18 +128,22 @@ class AV2SequenceDataset(nn.Module):
         flow (torch.Tensor): Ground truth flow vectors
     """
     
-    def __init__(self, fix_ego_motion=True,max_k=1):
+    def __init__(self, fix_ego_motion=True,max_k=1,apply_ego_motion=True):
         """
         Initialize the AV2 dataset loader.
         """
         super(AV2SequenceDataset, self).__init__()
         self.point_cloud_first = None
+        self.apply_ego_motion = apply_ego_motion
         self.av2_scene_path = "/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
         self.av2_test_scene_path = "/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
-        self.av2_dataset = read_av2_scene(self.av2_scene_path)
+        if self.apply_ego_motion:
+            assert fix_ego_motion,"fix_ego_motion must be True when apply_ego_motion is True"
+        self.av2_dataset = read_av2_scene(self.av2_scene_path,apply_ego_motion=True)
         self.sequence_length = len(list(self.av2_dataset.keys()))
         self.fix_ego_motion = fix_ego_motion
         self.max_k = max_k
+        self.cache ={}
 
     def __len__(self):
         """
@@ -150,7 +152,7 @@ class AV2SequenceDataset(nn.Module):
         Returns:
             int: Number of samples in the dataset
         """
-        return self.sequence_length - 1 - self.max_k
+        return self.sequence_length - 2 - self.max_k
     def get_item(self, idx):
         return self.prepare_item(idx,from_manual=True)
 
@@ -159,6 +161,9 @@ class AV2SequenceDataset(nn.Module):
             return {}
         k = random.randint(1, self.max_k)
         keys = list(self.av2_dataset.keys())
+        if idx in self.cache:
+            self.cache[idx]["k"] = k
+            return self.cache[idx]
         first_key = keys[idx]
         first_value = self.av2_dataset[first_key]
         valid_mask = first_value["flow_is_valid"]
@@ -179,9 +184,9 @@ class AV2SequenceDataset(nn.Module):
         #apply ego motion
         if self.fix_ego_motion:
             point_cloud_second = torch.matmul(point_cloud_second - ego_motion[:3, 3], ego_motion[:3, :3].T)
-
         flow = first_value["flow"]
-        flow = torch.matmul(flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
+        if not self.apply_ego_motion:
+            flow = torch.matmul(flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
         motion_mask = torch.linalg.norm(flow, dim=1) > 0.05
         if self.fix_ego_motion:
             pass
@@ -205,19 +210,19 @@ class AV2SequenceDataset(nn.Module):
         # Prepare sample
         sample = {
             "point_cloud_first": point_cloud_first,
-            "point_cloud_second": point_cloud_second,
             "flow": flow,
             'dynamic_instance_mask': dynamic_instance_mask,
             'background_static_mask': background_static_mask,
             'foreground_static_mask': foreground_static_mask,
             'foreground_dynamic_mask': foreground_dynamic_mask,
             "idx": idx,
-            "idx2": idx+1,
-            "total_frames": self.sequence_length - 2,
+            "total_frames": self.sequence_length,
             "self": self,
             "k": k,
+            "ego_motion": ego_motion,
 
         }
+        self.cache[idx] = sample
         return sample
 
 

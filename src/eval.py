@@ -122,10 +122,6 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
     with torch.no_grad():
         for batch in iterator:
             point_cloud_firsts = [item.to(device) for item in batch["point_cloud_first"]]
-
-            point_cloud_seconds = batch.get("point_cloud_second")
-            if point_cloud_seconds is not None:
-                point_cloud_seconds = [item.to(device) for item in point_cloud_seconds]
             flow_gt = batch.get("flow")
             if flow_gt is not None:
                 flow_gt = [item.to(device) for item in flow_gt]

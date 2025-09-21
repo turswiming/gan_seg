@@ -95,7 +95,6 @@ def main(config, writer):
     if config.lr_multi.KNN_loss > 0:
         from losses.KNNDistanceLoss import TruncatedKNNDistanceLoss
         knn_loss = TruncatedKNNDistanceLoss(k=1, reduction="mean")
-    # pointsmoothloss = PointSmoothLoss()
 
     # Initialize visualization if enabled
     if config.vis.show_window:
@@ -134,7 +133,9 @@ def main(config, writer):
                 mask_predictor.eval()
             # Forward pass
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
-            point_cloud_seconds = [item.to(device) for item in sample["point_cloud_second"]]
+            idxs=sample.get("idx")
+            nextbatchs= [sample["self"][0].get_item(idx+1) for idx in idxs]
+            point_cloud_nexts = [item["point_cloud_first"].to(device) for item in nextbatchs]
             pred_flow = []
             reverse_pred_flow = []
             longterm_pred_flow = {}
@@ -143,25 +144,29 @@ def main(config, writer):
                     if config.model.flow.name == "EulerFlowMLP":
                         if sample["k"][i] ==1:
                             pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [N, 3]
-                            reverse_pred_flow.append(scene_flow_predictor(point_cloud_seconds[i], sample["idx2"][i], sample["total_frames"][i],QueryDirection.REVERSE))  # Shape: [N, 3]
+                            
+                            reverse_pred_flow.append(scene_flow_predictor(point_cloud_nexts[i], sample["idx"][i]+1, sample["total_frames"][i],QueryDirection.REVERSE))  # Shape: [N, 3]
                         else:
-                            pred_pc = point_cloud_firsts[i]
+                            pred_pc = point_cloud_firsts[i].clone()
                             for k in range(0, sample["k"][i]):
+                                idx = sample["idx"][i]
                                 pred_flow_temp = scene_flow_predictor(pred_pc, sample["idx"][i]+k, sample["total_frames"][i],QueryDirection.FORWARD)
                                 pred_pc = pred_pc + pred_flow_temp
-                                longterm_pred_flow[sample["idx"][i]+k+1] = pred_pc
+                                longterm_pred_flow[sample["idx"][i]+k+1] = pred_pc.clone()
                                 if k == 0:
                                     pred_flow.append(pred_flow_temp)
-                            pred_pc = point_cloud_firsts[i]
+                                    break
+                            pred_pc = point_cloud_firsts[i].clone()
                             for k in range(0, sample["k"][i]):
+                                idx = sample["idx"][i]
                                 pred_flow_temp = scene_flow_predictor(pred_pc, sample["idx"][i]-k, sample["total_frames"][i],QueryDirection.REVERSE)
-                                pred_pc = pred_pc - pred_flow_temp
-                                longterm_pred_flow[sample["idx"][i]-k-1] = pred_pc
+                                pred_pc = pred_pc + pred_flow_temp
+                                longterm_pred_flow[sample["idx"][i]-k-1] = pred_pc.clone()
                                 if k == 0:
                                     reverse_pred_flow.append(pred_flow_temp)
+                                    break
                     else:
                         pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [N, 3]
-                gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
             else:
                 with torch.no_grad():
                     for i in range(len(point_cloud_firsts)):
@@ -169,7 +174,6 @@ def main(config, writer):
                             pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))
                         else:
                             pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))
-                    gt_flow = [flow.to(device) for flow in sample["flow"]]  # Shape: [B, N, 3]
             if train_mask:
                 pred_mask = []
                 for i in range(len(point_cloud_firsts)):
@@ -192,7 +196,6 @@ def main(config, writer):
                     scene_flow_smooth_loss += flowSmoothLoss(sample, pred_mask, reverse_pred_flow)
                     scene_flow_smooth_loss = scene_flow_smooth_loss / 2
                 scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
-                # scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_scheduler(step)
             else:
                 scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
@@ -209,16 +212,16 @@ def main(config, writer):
                 flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
-                    flow_loss += chamferLoss(pred_second_points.unsqueeze(0), sample["point_cloud_second"][i][:, :3].to(device).unsqueeze(0))
+                    flow_loss += chamferLoss(pred_second_points.unsqueeze(0), point_cloud_nexts[i][:, :3].to(device).unsqueeze(0))
                     if len(reverse_pred_flow) > 0:
-                        pred_first_point = point_cloud_seconds[i][:, :3] + reverse_pred_flow[i]
+                        pred_first_point = point_cloud_nexts[i][:, :3] + reverse_pred_flow[i]
                         flow_loss += chamferLoss(pred_first_point.unsqueeze(0), point_cloud_firsts[i][:, :3].to(device).unsqueeze(0))
                         flow_loss = flow_loss / 2
-                    if len(longterm_pred_flow) > 0:
-                        for idx in longterm_pred_flow:
-                            pred_points = longterm_pred_flow[idx][:, :3]
-                            real_points = sample["self"][i].get_item(idx)["point_cloud_first"][:, :3].to(device)
-                            flow_loss += chamferLoss(pred_points.unsqueeze(0), real_points.to(device).unsqueeze(0))
+                if len(longterm_pred_flow) > 0:
+                    for idx in longterm_pred_flow:
+                        pred_points = longterm_pred_flow[idx][:, :3]
+                        real_points = sample["self"][i].get_item(idx)["point_cloud_first"][:, :3].to(device)
+                        flow_loss += chamferLoss(pred_points.unsqueeze(0), real_points.to(device).unsqueeze(0))
                 flow_loss = flow_loss * config.lr_multi.flow_loss
             else:
                 flow_loss = torch.tensor(0.0, device=device)
@@ -232,7 +235,8 @@ def main(config, writer):
             if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP":
                 eular_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
-                    reverse_reverse = scene_flow_predictor(point_cloud_firsts[i][:, :3] + pred_flow[i], sample["idx2"][i], sample["total_frames"][i], QueryDirection.REVERSE)
+                    point_cloud_firsts_i = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    reverse_reverse = scene_flow_predictor(point_cloud_firsts_i, sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
                     l2_error = torch.norm(pred_flow[i] + reverse_reverse, dim=1)
                     sigmoid_l2_error = torch.sigmoid(l2_error)
                     eular_flow_loss += sigmoid_l2_error.mean()
@@ -244,7 +248,13 @@ def main(config, writer):
                 kdtree_dist_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
-                    kdtree_dist_loss += kdtree_loss(pred_second_point, sample["idx2"][i], sample["point_cloud_second"][i][:, :3].to(device))
+                    kdtree_dist_loss += kdtree_loss(pred_second_point, sample["idx"][i]+1, point_cloud_nexts[i][:, :3].to(device))
+                if len(longterm_pred_flow) > 0:
+                    for idx in longterm_pred_flow:
+                        pred_points = longterm_pred_flow[idx][:, :3]
+                        data_object = sample["self"][i].get_item(idx)
+                        real_points = data_object["point_cloud_first"][:, :3].to(device)
+                        kdtree_dist_loss += kdtree_loss(pred_points, data_object["idx"], real_points)
                 kdtree_dist_loss = kdtree_dist_loss * config.lr_multi.KDTree_loss
             else:
                 kdtree_dist_loss = torch.tensor(0.0, device=device)
@@ -253,7 +263,12 @@ def main(config, writer):
                 knn_dist_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
-                    knn_dist_loss += knn_loss(sample["point_cloud_second"][i][:, :3].to(device),pred_second_point)
+                    knn_dist_loss += knn_loss(point_cloud_nexts[i][:, :3].to(device),pred_second_point)
+                if len(longterm_pred_flow) > 0:
+                    for idx in longterm_pred_flow:
+                        pred_points = longterm_pred_flow[idx][:, :3]
+                        real_points = sample["self"][i].get_item(idx)["point_cloud_first"][:, :3].to(device)
+                        knn_dist_loss += knn_loss(real_points, pred_points)
                 knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
             else:
                 knn_dist_loss = torch.tensor(0.0, device=device)
@@ -267,7 +282,12 @@ def main(config, writer):
             # tqdm.write(f"rec_flow_loss: {rec_flow_loss.item()}")
             # tqdm.write(f"point_smooth_loss: {point_smooth_loss.item()}")
             # tqdm.write(f"iteration: {step}")
-
+            if step == 10:
+                np.save(f"pred_flow_{step}.npy", pred_flow[0].detach().cpu())
+                np.save(f"point_cloud_firsts_{step}.npy", point_cloud_firsts[0].cpu())
+                np.save(f"point_cloud_nexts_{step}.npy", point_cloud_nexts[0].cpu())
+                np.save(f'gt_flow_{step}.npy', sample["flow"][0].cpu())
+                
             # Log to tensorboard
             writer.add_scalars("losses", {
                 "rec_loss": rec_loss.item(),

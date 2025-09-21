@@ -4,14 +4,14 @@ import torch
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
-def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
+def read_av2_h5(file_path: str, apply_ego_motion: bool = True, timestamp: Optional[str] = None) -> Dict:
     """
     Read a single frame from an AV2 h5 file created by the preprocessing code.
     
     Args:
         file_path (str): Path to the h5 file
         timestamp (str, optional): Specific timestamp to load. If None, returns the first timestamp.
-    
+        apply_ego_motion (bool, optional): Whether to apply ego motion to the point cloud.
     Returns:
         dict: Dictionary containing point cloud, flow, and other data
     """
@@ -29,6 +29,7 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         group = f[timestamp]
         # Always available data
         point_cloud_first = np.array(group['lidar'])
+
         ground_mask = np.array(group['ground_mask'])
         pose = np.array(group['pose'])
         
@@ -37,11 +38,16 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
             flow = np.array(group['flow'])
             flow_is_valid = np.array(group['flow_is_valid'])
             flow_category = np.array(group['flow_category_indices'])
-            ego_motion = np.array(group['ego_motion'])
+            real_ego_motion = np.array(group['ego_motion'])
+            if apply_ego_motion:
+                ego_motion = np.array(group['ego_motion'])
+            else:
+                ego_motion = np.eye(4).repeat(point_cloud_first.shape[0], axis=0)
         else:
             flow = None
             flow_is_valid = None
             flow_category = None
+            real_ego_motion = None
             ego_motion = None
             
         # For evaluation masks (only in val/test sets)
@@ -50,13 +56,7 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         else:
             eval_mask = None
             
-        # If we have flow, try to find the next point cloud
-        point_cloud_second = None
-        next_timestamp_idx = timestamps.index(timestamp) + 1
-        if next_timestamp_idx < len(timestamps) and flow is not None:
-            next_timestamp = timestamps[next_timestamp_idx]
-            point_cloud_second = np.array(f[next_timestamp]['lidar'])
-                # 在read_av2_h5函数中添加这些字段
+        # 在read_av2_h5函数中添加这些字段
         label = None
         if 'label' in group:
             label = np.array(group['label'])
@@ -84,16 +84,15 @@ def read_av2_h5(file_path: str, timestamp: Optional[str] = None) -> Dict:
         result["flow_is_valid"] = torch.from_numpy(flow_is_valid).bool()
         result["flow_category"] = torch.from_numpy(flow_category).to(torch.uint8)
         result["ego_motion"] = torch.from_numpy(ego_motion).float()
+        result["real_ego_motion"] = torch.from_numpy(real_ego_motion).float()
     
     if eval_mask is not None:
         result["eval_mask"] = torch.from_numpy(eval_mask).bool()
         
-    if point_cloud_second is not None:
-        result["point_cloud_second"] = torch.from_numpy(point_cloud_second).float()
     
     return result
 
-def read_av2_scene(file_path: str) -> Dict[str, Dict]:
+def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, Dict]:
     """
     Read all frames from an AV2 h5 file created by the preprocessing code.
     
@@ -110,6 +109,43 @@ def read_av2_scene(file_path: str) -> Dict[str, Dict]:
         timestamps = list(f.keys())
         
         for timestamp in timestamps:
-            scene_data[timestamp] = read_av2_h5(file_path, timestamp)
-    
+            scene_data[timestamp] = read_av2_h5(file_path, apply_ego_motion, timestamp)
+        if apply_ego_motion:
+            # Initialize cumulative ego motion matrices
+            # 初始化累积ego motion矩阵
+            cascade_ego_motion = torch.eye(4).unsqueeze(0).repeat(len(timestamps), 1, 1)
+            
+            # Calculate cumulative ego motion from first frame to each frame
+            # 计算从第一帧到每一帧的累积ego motion
+            for i in range(1, len(timestamps)):                
+                # Get incremental ego motion from frame (i-1) to frame i
+                # 获取从帧(i-1)到帧i的增量ego motion
+                incremental_ego_motion = scene_data[timestamps[i-1]]["real_ego_motion"]
+                
+                # Accumulate: T_0_to_i = T_0_to_(i-1) * T_(i-1)_to_i
+                # 累积：T_0_to_i = T_0_to_(i-1) * T_(i-1)_to_i
+                cascade_ego_motion[i] = torch.matmul(cascade_ego_motion[i-1], incremental_ego_motion)
+            # Transform point clouds to first frame coordinate system
+            # 将点云变换到第一帧坐标系
+            for i in range(len(timestamps)):
+                point_cloud = scene_data[timestamps[i]]["point_cloud_first"]
+                motion = cascade_ego_motion[i]
+                
+                # Transform points from current frame to first frame
+                # 将点从当前帧变换到第一帧
+                # P_first = R^T * (P_current - t)
+                # where R is rotation matrix and t is translation vector
+                transformed_points = torch.matmul(point_cloud - motion[:3, 3], motion[:3, :3].T)
+                scene_data[timestamps[i]]["point_cloud_first"] = transformed_points
+
+                # Transform flow vectors to first frame coordinate system
+                # 将flow向量变换到第一帧坐标系
+                if "flow" in scene_data[timestamps[i]]:
+                    flow = scene_data[timestamps[i]]["flow"]
+                    # Flow vectors are also rotated by the same rotation matrix
+                    # Flow向量也通过相同的旋转矩阵进行旋转
+                    real_ego_motion = scene_data[timestamps[i]]["real_ego_motion"]
+                    transformed_flow = torch.matmul(flow-real_ego_motion[:3, 3], motion[:3, :3].T)
+                    scene_data[timestamps[i]]["flow"] = transformed_flow
+
     return scene_data
