@@ -131,8 +131,6 @@ def main(config, writer):
                 mask_predictor.train()
             else:
                 mask_predictor.eval()
-            if step>1000:
-                config.lr_multi.scene_flow_smoothness = 1
             # Forward pass
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
             idxs=sample.get("idx")
@@ -377,6 +375,7 @@ def main(config, writer):
                 "eular_flow_loss": eular_flow_loss,
                 "kdtree_dist_loss": kdtree_dist_loss,
                 "knn_dist_loss": knn_dist_loss,
+                "l1_regularization_loss": l1_regularization_loss,
             }
 
             # --- 步骤1：单独计算并记录每个loss的梯度 ---

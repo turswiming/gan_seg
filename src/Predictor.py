@@ -91,7 +91,7 @@ def get_mask_predictor(mask_model_config,N):
         model_detail = mask_model_config.MLP
         return EulerMaskMLP(slot_num=mask_model_config.slot_num,
                             filter_size=model_detail.num_hidden,
-                            act_fn=ActivationFn.RELU,
+                            act_fn=ActivationFn.LEAKYRELU,
                             layer_size=model_detail.num_layers).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")
