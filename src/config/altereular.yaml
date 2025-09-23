@@ -10,7 +10,7 @@ model:
       activation: "leakyrelu"
   mask:
     name: "EulerMaskMLP"
-    lr : 0.001
+    lr : 0.00008
     MLP:
       num_layers: 18
       num_hidden: 128
@@ -19,7 +19,7 @@ dataset:
   val_name: "AV2Sequence_val"
 
 dataloader:
-  batchsize: 4
+  batchsize: 5
   num_workers: 0
 
 lr_multi:
