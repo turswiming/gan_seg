@@ -131,22 +131,21 @@ class FlowSmoothLoss():
             raise ValueError(f"Invalid loss criterion: {self.sum_mask_item_loss}")
         pass
 
-    def __call__(self, sample, mask, flow):
+    def __call__(self, point_position, mask, flow):
         """
         Compute the flow smoothness loss.
         
         Args:
-            sample (dict): Input data containing:
-                - point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
+            point_position (list[torch.Tensor]): List of point positions, each of shape [N, 3]
             mask (list[torch.Tensor]): List of segmentation masks, each of shape [K, N]
             flow (list[torch.Tensor]): List of predicted flow vectors, each of shape [N, 3]
             
         Returns:
             torch.Tensor: Computed smoothness loss averaged across the batch
         """
-        return self.loss(sample, mask, flow)
+        return self.loss(point_position, mask, flow)
         
-    def loss(self, sample, mask, flow):
+    def loss(self, point_position, mask, flow):
         """
         Core loss computation function.
         
@@ -162,8 +161,8 @@ class FlowSmoothLoss():
         Returns:
             torch.Tensor: Average reconstruction loss across all batches
         """
-        batch_size = len(sample["point_cloud_first"])
-        point_position = [item.to(self.device) for item in sample["point_cloud_first"]]
+        batch_size = len(mask)
+        point_position = [item.to(self.device) for item in point_position]
         scene_flows = flow
         
         total_loss = 0.0
@@ -177,7 +176,7 @@ class FlowSmoothLoss():
             
             # Process mask
             mask_b = ScaleGradient.apply(mask_b, 100)
-            mask_binary_b = F.softmax(mask_b/100, dim=0)  # (K, N)
+            mask_binary_b = F.softmax(mask_b/10, dim=0)  # (K, N)
             
             # Normalize flow
             scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
