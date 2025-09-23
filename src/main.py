@@ -115,7 +115,8 @@ def main(config, writer):
         tqdm.write("Starting training...")
         for sample in infinite_loader:
 
-
+            if len(sample["idx"]) == 0:
+                continue
             
             step += 1
             if step > config.training.max_iter:
@@ -312,18 +313,6 @@ def main(config, writer):
             # Combine losses
             loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss + kdtree_dist_loss + knn_dist_loss + l1_regularization_loss
 
-            # Log losses
-            # tqdm.write(f"rec_loss: {rec_loss.item()}")
-            # tqdm.write(f"flow_loss: {flow_loss.item()}")
-            # tqdm.write(f"scene_flow_smooth_loss: {scene_flow_smooth_loss.item()}")
-            # tqdm.write(f"rec_flow_loss: {rec_flow_loss.item()}")
-            # tqdm.write(f"point_smooth_loss: {point_smooth_loss.item()}")
-            # tqdm.write(f"iteration: {step}")
-            if step == 10:
-                np.save(f"pred_flow_{step}.npy", pred_flow[0].detach().cpu())
-                np.save(f"point_cloud_firsts_{step}.npy", point_cloud_firsts[0].cpu())
-                np.save(f"point_cloud_nexts_{step}.npy", point_cloud_nexts[0].cpu())
-                np.save(f'gt_flow_{step}.npy', sample["flow"][0].cpu())
                 
             # Log to tensorboard
             writer.add_scalars("losses", {
