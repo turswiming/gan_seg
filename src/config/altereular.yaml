@@ -10,7 +10,7 @@ model:
       activation: "leakyrelu"
   mask:
     name: "EulerMaskMLP"
-    lr : 0.00002
+    lr : 0.000008
     MLP:
       num_layers: 18
       num_hidden: 128
@@ -42,7 +42,7 @@ loss:
       relative_gradient: 1
       criterion: "L2"
     sum_mask_item:
-      relative_gradient: 0
+      relative_gradient: 0.1
       criterion: "L2"
 vis:
   show_window: false

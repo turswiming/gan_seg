@@ -175,12 +175,13 @@ class FlowSmoothLoss():
             mask_b = mask[b]  # (K, N)
             
             # Process mask
-            mask_b = ScaleGradient.apply(mask_b, 100)
-            mask_binary_b = F.softmax(mask_b/10, dim=0)  # (K, N)
-            
+            mask_b = ScaleGradient.apply(mask_b, 10)
+            mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
+            mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.25)
+            scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.25)
             # Normalize flow
-            scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
-            scene_flow_b = ScaleGradient.apply(scene_flow_b, 0.01)
+            scene_flow_b = normalize_useing_other(scene_flow_b, point_position_b)
+            scene_flow_b = ScaleGradient.apply(scene_flow_b,0.0001)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             

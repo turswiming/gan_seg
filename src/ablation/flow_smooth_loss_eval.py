@@ -36,40 +36,66 @@ def remap_instance_labels(labels):
     return remapped
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-config_obj = load_config_with_inheritance("/home/lzq/workspace/gan_seg/src/config/baseconfig.yaml")
+config_obj = load_config_with_inheritance("/home/lzq/workspace/gan_seg/src/config/altereular.yaml")
 
-dataloader, infinite_loader, batch_size, N = create_dataloaders(config_obj)
-
-sample = next(infinite_loader)
-mask = sample["dynamic_instance_mask"][0].to(device)
-mask = remap_instance_labels(mask)
-one_hot_mask = F.one_hot(mask).permute(1, 0)
-one_hot_mask = one_hot_mask.float()
-mask_noise = torch.randn(one_hot_mask.shape)
-mask_noise = mask_noise.to(device)
-
-
-flow_noise = torch.randn(N, 3)
-flow_noise = flow_noise.to(device)
+dataloader, infinite_loader, val_dataloader, batch_size, N = create_dataloaders(config_obj)
 
 cr = FlowSmoothLoss(device, config_obj.loss.scene_flow_smoothness)
-bucket_size = 100
-losses = []
-for i in range(bucket_size):
-    loss_same_flow_noise = []
-    for j in range(bucket_size):
+bucket_size = 10
 
-        flow_Scaled = flow_noise * i/bucket_size
+# Initialize accumulator for average losses
+all_losses = []
+sample_count = 0
 
-        mask_noise_scaled = mask_noise * j/bucket_size
-        mask = mask_noise_scaled + one_hot_mask*(1-j/bucket_size)
-        flow = flow_Scaled + sample["flow"][0].to(device).squeeze(0) * (1-i/bucket_size)
-        loss = cr(sample,[mask], [flow])
-        loss_same_flow_noise.append(loss.item())
-    losses.append(loss_same_flow_noise)
+print("Processing validation samples...")
+
+# Iterate through all validation samples
+for val_sample in val_dataloader:
+    sample_count += 1
+    print(f"Processing sample {sample_count}")
+    
+    mask = val_sample["dynamic_instance_mask"][0].to(device)
+    mask = remap_instance_labels(mask)
+    one_hot_mask = F.one_hot(mask).permute(1, 0)
+    one_hot_mask = one_hot_mask.float()
+    mask_noise = torch.ones_like(one_hot_mask)
+    mask_noise = (mask_noise) / one_hot_mask.sum(dim=1, keepdim=True) 
+    mask_noise = mask_noise+torch.randn_like(one_hot_mask)*0.01
+    mask_noise = mask_noise.to(device)
+
+    N = val_sample["point_cloud_first"][0].shape[0]
+    flow_noise = torch.randn(N, 3)
+    flow_noise = flow_noise.to(device)
+
+    # Calculate losses for this sample
+    sample_losses = []
+    for i in range(bucket_size):
+        loss_same_flow_noise = []
+        for j in range(bucket_size):
+            flow_Scaled = flow_noise * i/bucket_size *0.01
+            mask_noise_scaled = mask_noise * (j/bucket_size+1e-4)
+            mask_current = mask_noise_scaled + one_hot_mask*(1-j/bucket_size)
+            # mask = mask/pow(mask.std(),0.5)
+            flow = flow_Scaled + val_sample["flow"][0].to(device).squeeze(0) * (1-i/bucket_size)
+            # flow = flow/pow(flow.std(),0.5)
+            flow = flow - flow.mean(dim=0)
+            # flow = flow/pow(flow.std(),1.5)
+            point_position = val_sample["point_cloud_first"][0].to(device)
+            loss = cr(point_position,[mask_current], [flow])
+            loss_same_flow_noise.append(loss.item())
+        sample_losses.append(loss_same_flow_noise)
+    
+    all_losses.append(sample_losses)
+
+print(f"Processed {sample_count} validation samples")
+
+# Calculate average losses across all samples
+losses = np.mean(np.array(all_losses), axis=0)
 
 # Reshape losses into a 2D array for plotting
 losses = np.array(losses).reshape(bucket_size, bucket_size)
+
+# losses = np.where(losses == -1, np.mean(losses), losses)
 
 # Create a figure with multiple subplots
 plt.figure(figsize=(18, 6))
@@ -82,8 +108,8 @@ X, Y = np.meshgrid(x, y)
 surf = ax1.plot_surface(X, Y, losses, cmap='viridis', edgecolor='none')
 ax1.set_xlabel('Mask Noise Scale')
 ax1.set_ylabel('Flow Noise Scale')
-ax1.set_zlabel('Loss')
-ax1.set_title('3D Surface Plot')
+ax1.set_zlabel('Average Loss')
+ax1.set_title(f'3D Surface Plot (Avg over {sample_count} samples)')
 
 # 2. Contour Plot (2D with contour lines) with very fine intervals
 ax2 = plt.subplot(1, 3, 2)
@@ -124,7 +150,7 @@ heatmap = ax3.imshow(losses, cmap='terrain', origin='lower',
                      extent=[0, 1, 0, 1], aspect='auto')
 ax3.set_xlabel('Mask Noise Scale')
 ax3.set_ylabel('Flow Noise Scale')
-ax3.set_title('Color Terrain Heatmap')
+ax3.set_title(f'Color Terrain Heatmap (Avg over {sample_count} samples)')
 plt.colorbar(heatmap, ax=ax3, label='Loss Value')
 
 # Add markers for min and max values
@@ -141,5 +167,5 @@ ax3.plot(max_idx[1]/bucket_size, max_idx[0]/bucket_size, 'go', markersize=8)
 ax2.legend()
 
 plt.tight_layout()
-plt.savefig('loss_visualization.png', dpi=300, bbox_inches='tight')
-plt.show()
+plt.savefig(f'loss_visualization_avg_{sample_count}_samples.png', dpi=300, bbox_inches='tight')
+print(f"Visualization saved as 'loss_visualization_avg_{sample_count}_samples.png'")

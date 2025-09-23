@@ -396,7 +396,12 @@ def main(config, writer):
             total_loss = sum(loss_dict.values())
             optimizer_flow.zero_grad()
             optimizer_mask.zero_grad()
-            total_loss.backward()  # 实际参数更新只用总loss的梯度
+            try:
+                total_loss.backward()  # 实际参数更新只用总loss的梯度
+            except:
+                print("Error computing gradient for total loss")
+                print(f"Total loss value: {total_loss.item()}")
+                continue
             if not train_flow:
                 optimizer_flow.zero_grad()
             if not train_mask:
