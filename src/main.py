@@ -13,7 +13,7 @@ import datetime
 import argparse
 import os
 import shutil
-
+import gc
 # Third party imports
 import numpy as np
 import torch
@@ -73,11 +73,11 @@ def main(config, writer):
         chamferLoss = ChamferDistanceLoss()
     else:
         chamferLoss = None
-    # if config.lr_multi.scene_flow_smoothness > 0:
-    from losses.FlowSmoothLoss import FlowSmoothLoss
-    flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
-    # else:
-    #     flowSmoothLoss = None
+    if config.lr_multi.scene_flow_smoothness > 0:
+        from losses.FlowSmoothLoss import FlowSmoothLoss
+        flowSmoothLoss = FlowSmoothLoss(device, config.loss.scene_flow_smoothness)
+    else:
+        flowSmoothLoss = None
     if config.lr_multi.rec_flow_loss > 0:
         flowRecLoss = nn.MSELoss()
     else:
@@ -109,6 +109,61 @@ def main(config, writer):
     
     first_iteration = True
     step = 0
+
+    # =====================
+    # Checkpointing setup
+    # =====================
+    checkpoint_dir = os.path.join(config.log.dir, "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # Resume logic
+    # Config options supported:
+    # - config.checkpoint.resume (bool)
+    # - config.checkpoint.resume_path (str)
+    # - config.checkpoint.save_every_iters (int, default 1000)
+    save_every_iters = 1000
+    resume = False
+    resume_path = None
+    if hasattr(config, "checkpoint"):
+        save_every_iters = getattr(config.checkpoint, "save_every_iters", 1000)
+        resume = getattr(config.checkpoint, "resume", False)
+        resume_path = getattr(config.checkpoint, "resume_path", None)
+
+    if resume:
+        candidate_path = resume_path if resume_path else os.path.join(checkpoint_dir, "latest.pt")
+        if os.path.exists(candidate_path):
+            ckpt = torch.load(candidate_path, map_location=device)
+            scene_flow_predictor.load_state_dict(ckpt["scene_flow_predictor"])  # required
+            mask_predictor.load_state_dict(ckpt["mask_predictor"])            # required
+            optimizer_flow.load_state_dict(ckpt.get("optimizer_flow", optimizer_flow.state_dict()))
+            optimizer_mask.load_state_dict(ckpt.get("optimizer_mask", optimizer_mask.state_dict()))
+            if "alter_scheduler" in ckpt:
+                try:
+                    alter_scheduler.load_state_dict(ckpt["alter_scheduler"])  # optional
+                except Exception:
+                    pass
+            step = int(ckpt.get("step", 0))
+            tqdm.write(f"Resumed from checkpoint: {candidate_path} (step={step})")
+        else:
+            tqdm.write(f"No checkpoint found at {candidate_path}, starting fresh.")
+
+    def save_checkpoint(path_latest: str, step_value: int):
+        state = {
+            "step": step_value,
+            "scene_flow_predictor": scene_flow_predictor.state_dict(),
+            "mask_predictor": mask_predictor.state_dict(),
+            "optimizer_flow": optimizer_flow.state_dict(),
+            "optimizer_mask": optimizer_mask.state_dict(),
+            "alter_scheduler": getattr(alter_scheduler, 'state_dict', lambda: {})(),
+            "config": OmegaConf.to_container(config, resolve=True),
+        }
+        torch.save(state, path_latest)
+        # Also keep a step-suffixed snapshot
+        step_path = os.path.join(checkpoint_dir, f"step_{step_value}.pt")
+        try:
+            torch.save(state, step_path)
+        except Exception:
+            pass
 
     # Main training loop
     with tqdm(infinite_loader, desc="Training", total=config.training.max_iter) as infinite_loader:
@@ -202,7 +257,7 @@ def main(config, writer):
             else:
                 rec_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
-            if config.lr_multi.scene_flow_smoothness > 0:
+            if config.lr_multi.scene_flow_smoothness > 0 and step > config.training.begin_train_smooth:
                 scene_flow_smooth_loss = flowSmoothLoss(point_cloud_firsts, pred_mask, pred_flow)
                 scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
             else:
@@ -282,31 +337,14 @@ def main(config, writer):
             else:
                 knn_dist_loss = torch.tensor(0.0, device=device)
             if config.lr_multi.l1_regularization > 0:
-                def adaptive_loss(flow_tensor, threshold=0.2):
-                    """
-                    Adaptive loss function: L1 loss for larger values, L2 loss for smaller values
-                    """
-                    flow_magnitudes = torch.norm(flow_tensor, dim=-1, keepdim=True)  # Calculate magnitude for each flow vector
-                    
-                    # Create masks for large and small values
-                    large_mask = flow_magnitudes >= threshold
-                    small_mask = flow_magnitudes < threshold
-                    
-                    # L1 loss for large values (robust to outliers)
-                    l1_loss = torch.sum(flow_magnitudes * large_mask)
-                    
-                    # L2 loss for small values (smooth gradient near zero)
-                    l2_loss = torch.sum((flow_magnitudes ** 2) * small_mask)
-                    
-                    return (l1_loss + l2_loss) / flow_tensor.shape[0]
                 
                 l1_regularization_loss = 0
                 for flow in pred_flow:
-                    l1_regularization_loss += adaptive_loss(flow)
+                    l1_regularization_loss += torch.norm(flow, dim=1).mean()
                 for flow in reverse_pred_flow:
-                    l1_regularization_loss += adaptive_loss(flow)
+                    l1_regularization_loss += torch.norm(flow, dim=1).mean()
                 for idx in longterm_pred_flow:
-                    l1_regularization_loss += adaptive_loss(longterm_pred_flow[idx])
+                    l1_regularization_loss += torch.norm(longterm_pred_flow[idx], dim=1).mean()
                 l1_regularization_loss = l1_regularization_loss * config.lr_multi.l1_regularization
             else:
                 l1_regularization_loss = torch.tensor(0.0, device=device)
@@ -401,18 +439,34 @@ def main(config, writer):
             except:
                 print("Error computing gradient for total loss")
                 print(f"Total loss value: {total_loss.item()}")
+                import traceback
+                traceback.print_exc()
                 continue
             if not train_flow:
                 optimizer_flow.zero_grad()
             if not train_mask:
                 optimizer_mask.zero_grad()
-            optimizer_flow.step()
-            optimizer_mask.step()
+            if hasattr(config.training, "flow_model_grad_clip"):
+                torch.nn.utils.clip_grad_norm_(scene_flow_predictor.parameters(), config.training.flow_model_grad_clip)
+            if hasattr(config.training, "mask_model_grad_clip"):
+                torch.nn.utils.clip_grad_norm_(mask_predictor.parameters(), config.training.mask_model_grad_clip)
+            if train_flow:
+                optimizer_flow.step()
+            if train_mask:
+                optimizer_mask.step()
 
 
             alter_scheduler.step()
+            # Iteration-based checkpoint save
+            if save_every_iters > 0 and step % save_every_iters == 0:
+                latest_path = os.path.join(checkpoint_dir, "latest.pt")
+                try:
+                    save_checkpoint(latest_path, step)
+                    tqdm.write(f"Saved checkpoint at step {step} -> {latest_path}")
+                except Exception as e:
+                    tqdm.write(f"Failed to save checkpoint: {e}")
             # Evaluate predictions
-            if step % config.training.eval_loop == 0:
+            if step % config.training.eval_loop == 1:
                 epe, miou, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
                 writer.add_scalar(
                     "val_epe",
@@ -448,6 +502,10 @@ def main(config, writer):
                         threeway_mean.mean().item(),
                         step
                     )
+            #clear the cache
+            torch.cuda.empty_cache()
+            gc.collect()
+
             # Visualization
             if config.vis.show_window and point_cloud_firsts[0].shape[0] > 0:
                 batch_idx = 0

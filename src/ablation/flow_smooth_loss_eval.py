@@ -36,13 +36,13 @@ def remap_instance_labels(labels):
     return remapped
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-config_obj = load_config_with_inheritance("/home/lzq/workspace/gan_seg/src/config/altereular.yaml")
-
+config_obj = load_config_with_inheritance("/workspace/gan_seg/src/config/altereular.yaml")
+config_obj.dataloader.batchsize = 4
 dataloader, infinite_loader, val_dataloader, batch_size, N = create_dataloaders(config_obj)
 
 cr = FlowSmoothLoss(device, config_obj.loss.scene_flow_smoothness)
 bucket_size = 10
-
+max_sample = 20
 # Initialize accumulator for average losses
 all_losses = []
 sample_count = 0
@@ -52,7 +52,10 @@ print("Processing validation samples...")
 # Iterate through all validation samples
 for val_sample in val_dataloader:
     sample_count += 1
+    if sample_count > max_sample:
+        break
     print(f"Processing sample {sample_count}")
+
     
     mask = val_sample["dynamic_instance_mask"][0].to(device)
     mask = remap_instance_labels(mask)
@@ -78,13 +81,12 @@ for val_sample in val_dataloader:
             # mask = mask/pow(mask.std(),0.5)
             flow = flow_Scaled + val_sample["flow"][0].to(device).squeeze(0) * (1-i/bucket_size)
             # flow = flow/pow(flow.std(),0.5)
-            flow = flow - flow.mean(dim=0)
             # flow = flow/pow(flow.std(),1.5)
             point_position = val_sample["point_cloud_first"][0].to(device)
             loss = cr(point_position,[mask_current], [flow])
             loss_same_flow_noise.append(loss.item())
         sample_losses.append(loss_same_flow_noise)
-    
+    print("mean loss", np.mean(sample_losses))
     all_losses.append(sample_losses)
 
 print(f"Processed {sample_count} validation samples")

@@ -3,14 +3,15 @@ __base__: "baseconfig.yaml"
 model:
   flow:
     name: "EulerFlowMLP"
-    lr: 0.00008
+    lr: 0.00012
     NSFP:
       num_layers: 8
       num_hidden: 128
       activation: "leakyrelu"
   mask:
     name: "EulerMaskMLP"
-    lr : 0.000008
+    lr : 0.00008
+    slot_num: 15
     MLP:
       num_layers: 18
       num_hidden: 128
@@ -19,8 +20,13 @@ dataset:
   val_name: "AV2Sequence_val"
 
 dataloader:
-  batchsize: 5
+  batchsize: 1
   num_workers: 0
+
+checkpoint:
+  resume: true          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20250925_072651/checkpoints/step_3000.pt"       # 留空则默认用 checkpoints/latest.pt
+  save_every_iters: 1000
 
 lr_multi:
   rec_loss: 0.0
@@ -31,10 +37,17 @@ lr_multi:
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
   KNN_loss: 1.0
-  l1_regularization: 0.0
+  l1_regularization: 0.001
 alternate:
-  flow: [[100,true],[100,true]]
-  mask: [[1000,true],[100000,true]]
+  flow: [[200,true],[200,false]]
+  mask: [[200,false],[200,true]]
+
+training:
+  max_iter: 30000
+  eval_loop: 100
+  begin_train_smooth: 2000
+  flow_model_grad_clip: 0.01
+  mask_model_grad_clip: 0.01
 
 loss:
   scene_flow_smoothness:

@@ -33,3 +33,10 @@ class AlterScheduler:
                 return train
             step -= step_num
         return self.mask_list[-1][1]
+    #prepare for save
+    def state_dict(self):
+        return {
+            "iter": self.iter,
+        }
+    def load_state_dict(self, state_dict):
+        self.iter = state_dict["iter"]

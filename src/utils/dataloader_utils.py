@@ -98,14 +98,16 @@ def create_dataloaders(config):
         batch_size=config.dataloader.batchsize, 
         shuffle=True,
         num_workers=config.dataloader.num_workers,
-        collate_fn=collate_fn_lambda
+        collate_fn=collate_fn_lambda,
+        pin_memory=False
     )
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, 
         batch_size=config.dataloader.batchsize, 
         shuffle=False,
         num_workers=config.dataloader.num_workers,
-        collate_fn=collate_fn_lambda
+        collate_fn=collate_fn_lambda,
+        pin_memory=False
     )
     # Create infinite dataloader
     infinite_loader = infinite_dataloader(dataloader)

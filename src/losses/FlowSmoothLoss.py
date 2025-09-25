@@ -4,6 +4,12 @@ Flow Smoothness Loss implementation for scene flow prediction.
 This module implements a parametric flow smoothness loss that encourages spatially
 coherent flow predictions within segmented regions. It uses a quadratic flow
 approximation approach to ensure smooth transitions in the predicted flow field.
+
+Key Optimizations:
+- Parallel matrix operations for k-dimensional slots processing
+- Batch subdivision strategy: automatically selects optimal batch sizes (5, 4, or 3)
+  based on K to maximize GPU utilization and memory efficiency
+- Vectorized loss computation to eliminate sequential loops
 """
 
 import torch
@@ -145,6 +151,15 @@ class FlowSmoothLoss():
         """
         return self.loss(point_position, mask, flow)
         
+    def get_optimal_batch_size(self, K):
+        """根据K选择最优的batch size (5, 4, 3的倍数)"""
+        # 优先选择能整除K的最大batch size
+        divisors = [5, 4, 3]
+        for batch_size in divisors:
+            if K % batch_size == 0:
+                return batch_size
+    
+        return K  # 对于很小的K值，直接全部处理
     def loss(self, point_position, mask, flow):
         """
         Core loss computation function.
@@ -175,46 +190,77 @@ class FlowSmoothLoss():
             mask_b = mask[b]  # (K, N)
             
             # Process mask
-            mask_b = ScaleGradient.apply(mask_b, 10)
+            mask_b = ScaleGradient.apply(mask_b.clone(), 1)
             mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
-            mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.25)
-            scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.25)
+            mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.5)
+            scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.5)
             # Normalize flow
             scene_flow_b = normalize_useing_other(scene_flow_b, point_position_b)
-            scene_flow_b = ScaleGradient.apply(scene_flow_b,0.0001)
+            scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),0.001)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             
             # Initialize flow reconstruction
             flow_reconstruction = torch.zeros_like(scene_flow_b)  # (N, 3)
             
-            # Per-slot reconstruction
+            # Per-slot reconstruction using parallel matrix operations
             K = mask_b.shape[0]
             reconstruction_loss = 0
             
-            for k in range(K):
-                mk = mask_binary_b[k].unsqueeze(-1)  # (N, 1)
-                
-                Ek = coords * mk  # Apply mask to embedding
-                Fk = scene_flow_b * mk  # Apply mask to flow
-                # print(f"Ek {Ek.shape}, Fk {Fk.shape}")
-                # Solve for parameters
-                try:
-                    theta_k = torch.linalg.lstsq(Ek, Fk,driver="gels").solution  # (5, 3)
-                except:
-                    continue
-                if torch.isnan(theta_k).any():
-                    print("NaN in theta_k")
-                    continue
-                # Reconstruct flow
-                Fk_hat = Ek @ theta_k
-                flow_reconstruction += Fk_hat  # (N, 3)
+            # Batch processing with K subdivision for acceleration
+            # 根据K的大小选择最佳的batch_size进行分批计算
 
-                reconstruction_loss = self.each_mask_criterion(Fk_hat,Fk)
-                one_batch_loss += reconstruction_loss*self.each_mask_item_gradient
+            
+            batch_size_k = self.get_optimal_batch_size(K)
+            num_batches = (K + batch_size_k - 1) // batch_size_k  # 向上取整
+            
+            # 分批处理K个slots
+            for batch_idx in range(num_batches):
+                start_k = batch_idx * batch_size_k
+                end_k = min(start_k + batch_size_k, K)
+                current_batch_size = end_k - start_k
+                
+                # 获取当前批次的mask
+                mask_batch = mask_binary_b[start_k:end_k]  # (current_batch_size, N)
+                mask_expanded = mask_batch.unsqueeze(-1)  # (current_batch_size, N, 1)
+                
+                # 扩展coords和scene_flow到当前批次大小
+                coords_expanded = coords.unsqueeze(0).expand(current_batch_size, -1, -1)  # (current_batch_size, N, 5)
+                scene_flow_expanded = scene_flow_b.unsqueeze(0).expand(current_batch_size, -1, -1)  # (current_batch_size, N, 3)
+                
+                # 批量应用masks到embeddings和flows
+                Ek_batch = coords_expanded * mask_expanded  # (current_batch_size, N, 5)
+                Fk_batch = scene_flow_expanded * mask_expanded  # (current_batch_size, N, 3)
+                #add a small noise to the Fk_batch
+                Fk_batch = Fk_batch + torch.randn_like(Fk_batch) * 1e-6
+                # 批量线性最小二乘求解
+                theta_batch = torch.linalg.lstsq(Ek_batch, Fk_batch, driver="gels").solution  # (current_batch_size, 5, 3)
+                
+                # 检查NaN值
+                valid_mask = ~torch.isnan(theta_batch).any(dim=[1, 2])  # (current_batch_size,)
+                
+                if not valid_mask.any():
+                    continue
+                    # 批量重建flows
+                Fk_hat_batch = torch.bmm(Ek_batch, theta_batch)  # (current_batch_size, N, 3)
+                
+                # 只对有效的slots进行累加
+                valid_Fk_hat = Fk_hat_batch[valid_mask]  # (valid_count, N, 3)
+                flow_reconstruction += valid_Fk_hat.sum(dim=0)  # (N, 3)
+                
+                # 计算有效slots的重建损失
+                valid_Fk = Fk_batch[valid_mask]  # (valid_count, N, 3)
+                
+                # 向量化损失计算
+                if self.each_mask_item_loss in ["L1", "l1"]:
+                    batch_reconstruction_loss = torch.sum(torch.abs(valid_Fk_hat - valid_Fk))
+                elif self.each_mask_item_loss in ["L2", "l2"]:
+                    batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
+                
+                one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
+            one_batch_loss = one_batch_loss * K
             reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
-            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient
-            one_batch_loss /= N
+            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
             total_loss += one_batch_loss
             # Compute reconstruction loss
             # with torch.no_grad():

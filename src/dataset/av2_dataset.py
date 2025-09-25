@@ -145,7 +145,6 @@ class AV2SequenceDataset(nn.Module):
         self.sequence_length = len(list(self.av2_dataset.keys()))
         self.fix_ego_motion = fix_ego_motion
         self.max_k = max_k
-        self.cache ={}
 
     def __len__(self):
         """
@@ -167,9 +166,9 @@ class AV2SequenceDataset(nn.Module):
         else:
             k = 1
         keys = list(self.av2_dataset.keys())
-        if idx in self.cache:
-            self.cache[idx]["k"] = k
-            return self.cache[idx]
+        if idx in cache:
+            cache[idx]["k"] = k
+            return cache[idx]
         first_key = keys[idx]
         first_value = self.av2_dataset[first_key]
         valid_mask = first_value["flow_is_valid"]
@@ -218,7 +217,7 @@ class AV2SequenceDataset(nn.Module):
             "ego_motion": ego_motion,
 
         }
-        self.cache[idx] = sample
+        cache[idx] = sample
         return sample
 
 
