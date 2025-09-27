@@ -137,12 +137,16 @@ class EulerMaskMLP(EulerFlowMLP):
         filter_size=128, 
         act_fn: ActivationFn = ActivationFn.LEAKYRELU,
         layer_size=8, 
+        use_normalization: bool = False,
+        normalization_type: str = "group_norm",  # 默认使用group_norm节省内存
     ):
         super().__init__(
             output_dim=slot_num,
             latent_dim=filter_size,
             act_fn=act_fn,
             num_layers=layer_size,
+            use_normalization=use_normalization,
+            normalization_type=normalization_type,
         )
         self.nn_layers = torch.nn.Sequential(self.nn_layers)
 

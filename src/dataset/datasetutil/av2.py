@@ -39,7 +39,7 @@ def read_av2_h5(file_path: str, apply_ego_motion: bool = True, timestamp: Option
             flow_is_valid = np.array(group['flow_is_valid'])
             flow_category = np.array(group['flow_category_indices'])
             real_ego_motion = np.array(group['ego_motion'])
-            if apply_ego_motion:
+            if not apply_ego_motion:
                 ego_motion = np.array(group['ego_motion'])
             else:
                 ego_motion = np.eye(4).repeat(point_cloud_first.shape[0], axis=0)
@@ -119,29 +119,29 @@ def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, D
         
         for timestamp in timestamps:
             scene_data[timestamp] = read_av2_h5(file_path, apply_ego_motion, timestamp)
-        if apply_ego_motion:
-            center = None
-            for i in range(len(timestamps)):
-                point_cloud = scene_data[timestamps[i]]["point_cloud_first"]
-                point_cloud_cropped_mask = torch.all(
-                    torch.stack([
-                        point_cloud[:, 0] > DEFAULT_POINT_CLOUD_RANGE[0],
-                        point_cloud[:, 0] < DEFAULT_POINT_CLOUD_RANGE[3],
-                        point_cloud[:, 1] > DEFAULT_POINT_CLOUD_RANGE[1],
-                        point_cloud[:, 1] < DEFAULT_POINT_CLOUD_RANGE[4],
-                        point_cloud[:, 2] > DEFAULT_POINT_CLOUD_RANGE[2],
-                        point_cloud[:, 2] < DEFAULT_POINT_CLOUD_RANGE[5]
-                    ], dim=0), dim=0)
+        center = None
+        for i in range(len(timestamps)):
+            point_cloud = scene_data[timestamps[i]]["point_cloud_first"]
+            point_cloud_cropped_mask = torch.all(
+                torch.stack([
+                    point_cloud[:, 0] > DEFAULT_POINT_CLOUD_RANGE[0],
+                    point_cloud[:, 0] < DEFAULT_POINT_CLOUD_RANGE[3],
+                    point_cloud[:, 1] > DEFAULT_POINT_CLOUD_RANGE[1],
+                    point_cloud[:, 1] < DEFAULT_POINT_CLOUD_RANGE[4],
+                    point_cloud[:, 2] > DEFAULT_POINT_CLOUD_RANGE[2],
+                    point_cloud[:, 2] < DEFAULT_POINT_CLOUD_RANGE[5]
+                ], dim=0), dim=0)
+            scene_data[timestamps[i]]["point_cloud_first_cropped_mask"] = point_cloud_cropped_mask
+            if apply_ego_motion:
                 pose = scene_data[timestamps[i]]["pose"]
                 # Transform points from current frame to first frame
                 # 将点从当前帧变换到第一帧
                 # P_first = R^T * (P_current - t)
                 # where R is rotation matrix and t is translation vector
                 # transformed_points = torch.matmul(point_cloud - motion[:3, 3], motion[:3, :3].T)
-                transformed_points = torch.matmul(point_cloud, pose[:3, :3])-pose[:3, 3]
+                point_cloud = point_cloud*torch.tensor([-1,-1,1])
+                transformed_points = torch.matmul(point_cloud, pose[:3, :3].T)-pose[:3, 3]*torch.tensor([1,1,1])
 
-                scene_data[timestamps[i]]["point_cloud_first"] = transformed_points
-                scene_data[timestamps[i]]["point_cloud_first_cropped_mask"] = point_cloud_cropped_mask
                 # Transform flow vectors to first frame coordinate system
                 # 将flow向量变换到第一帧坐标系
                 if "flow" in scene_data[timestamps[i]]:
@@ -149,9 +149,8 @@ def read_av2_scene(file_path: str, apply_ego_motion: bool = True) -> Dict[str, D
                     # Flow vectors are also rotated by the same rotation matrix
                     # Flow向量也通过相同的旋转矩阵进行旋转
                     real_ego_motion = scene_data[timestamps[i]]["real_ego_motion"]
-                    pc_flow= torch.matmul(point_cloud + flow-real_ego_motion[:3, 3], real_ego_motion[:3, :3])
-                    transformed_flow = torch.matmul(pc_flow, pose[:3, :3])-pose[:3, 3]
-                    transformed_flow = transformed_flow - transformed_points
+                    pc_flow= torch.matmul(flow-real_ego_motion[:3, 3], real_ego_motion[:3, :3])*torch.tensor([-1,-1,1])
+                    transformed_flow = torch.matmul(pc_flow, pose[:3, :3].T)#-pose[:3, 3]
                     scene_data[timestamps[i]]["flow"] = transformed_flow
                 if center is None:
                     center = transformed_points.mean(dim=0)

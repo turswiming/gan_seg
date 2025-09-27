@@ -122,6 +122,8 @@ class EulerFlowMLP(NSFPRawMLP):
         act_fn: ActivationFn = ActivationFn.RELU,
         num_layers: int = 8,
         encoder: BaseEncoder = SimpleEncoder(),
+        use_normalization: bool = False,
+        normalization_type: str = "layer_norm",
     ):
         super().__init__(
             input_dim=len(encoder),
@@ -129,6 +131,8 @@ class EulerFlowMLP(NSFPRawMLP):
             latent_dim=latent_dim,
             act_fn=act_fn,
             num_layers=num_layers,
+            use_normalization=use_normalization,
+            normalization_type=normalization_type,
         )
         # 暂时禁用 torch.compile 以避免兼容性问题
         # self.nn_layers = torch.compile(torch.nn.Sequential(encoder, self.nn_layers))
@@ -144,6 +148,8 @@ class EulerFlowMLP(NSFPRawMLP):
     ) -> torch.tensor:
         entries = (pc, idx, total_entries, query_direction)
         res = self.nn_layers(entries)
+        if self.output_dim == 3:
+            return res+pc*torch.tensor([0.01,0.002,0.01],device=res.device)+torch.tensor([0.1,0.2,0.1],device=res.device)
         return res
 
 
@@ -157,6 +163,8 @@ class EulerFlowOccFlowMLP(NSFPRawMLP):
         num_layers: int = 8,
         encoder: BaseEncoder = FourierTemporalEmbedding(),
         with_compile: bool = True,
+        use_normalization: bool = False,
+        normalization_type: str = "layer_norm",
     ):
         super().__init__(
             input_dim=len(encoder),
@@ -165,6 +173,8 @@ class EulerFlowOccFlowMLP(NSFPRawMLP):
             act_fn=act_fn,
             num_layers=num_layers,
             with_compile=with_compile,
+            use_normalization=use_normalization,
+            normalization_type=normalization_type,
         )
         self.nn_layers = torch.nn.Sequential(encoder, self.nn_layers)
         if with_compile:

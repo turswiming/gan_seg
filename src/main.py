@@ -14,6 +14,7 @@ import argparse
 import os
 import shutil
 import gc
+import time
 # Third party imports
 import numpy as np
 import torch
@@ -211,7 +212,7 @@ def main(config, writer):
                                 longterm_pred_flow[sample["idx"][i]+k+1] = pred_pc.clone()
                                 if k == 0:
                                     pred_flow.append(pred_flow_temp)
-                                    break
+                                    
                             pred_pc = point_cloud_firsts[i].clone()
                             for k in range(0, sample["k"][i]):
                                 idx = sample["idx"][i]
@@ -220,7 +221,7 @@ def main(config, writer):
                                 longterm_pred_flow[sample["idx"][i]-k-1] = pred_pc.clone()
                                 if k == 0:
                                     reverse_pred_flow.append(pred_flow_temp)
-                                    break
+                                    
                     else:
                         pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))  # Shape: [N, 3]
             else:
@@ -340,11 +341,19 @@ def main(config, writer):
                 
                 l1_regularization_loss = 0
                 for flow in pred_flow:
-                    l1_regularization_loss += torch.norm(flow, dim=1).mean()
+                    thres = 0.25
+                    dist = torch.norm(flow, dim=1)
+                    #for dist > 0.005, set to 0
+                    dist = torch.where(dist > thres, torch.zeros_like(dist), dist)
+                    l1_regularization_loss += dist.mean()   
                 for flow in reverse_pred_flow:
-                    l1_regularization_loss += torch.norm(flow, dim=1).mean()
+                    dist = torch.norm(flow, dim=1)
+                    dist = torch.where(dist > thres, torch.zeros_like(dist), dist)
+                    l1_regularization_loss += dist.mean()
                 for idx in longterm_pred_flow:
-                    l1_regularization_loss += torch.norm(longterm_pred_flow[idx], dim=1).mean()
+                    dist = torch.norm(longterm_pred_flow[idx], dim=1)
+                    dist = torch.where(dist > thres, torch.zeros_like(dist), dist)
+                    l1_regularization_loss += dist.mean()
                 l1_regularization_loss = l1_regularization_loss * config.lr_multi.l1_regularization
             else:
                 l1_regularization_loss = torch.tensor(0.0, device=device)
@@ -512,10 +521,11 @@ def main(config, writer):
                 
                 # Get data for visualization
                 point_cloud_first = point_cloud_firsts[batch_idx].cpu().numpy()
-                point_cloud_second = sample["point_cloud_second"][batch_idx].cpu().numpy()
+                point_cloud_second = point_cloud_nexts[batch_idx].cpu().numpy()
                 current_pred_flow = pred_flow[batch_idx].cpu().detach().numpy()
                 current_pred_mask = pred_mask[batch_idx].cpu().detach()
-                
+                gt_flow = sample["flow"][batch_idx].cpu().detach().numpy()
+                print("mean length of pred_flow",np.mean(np.linalg.norm(current_pred_flow)))
                 # PCA for coloring
                 # current_pred_mask = current_pred_mask.permute(1, 0)  # Change to [N, K] for PCA
                 # pred_color = pca(current_pred_mask)
@@ -524,45 +534,47 @@ def main(config, writer):
                 gt_mask = sample["dynamic_instance_mask"][0]
                 gt_mask = remap_instance_labels(gt_mask)
                 gt_color = color_mask(F.one_hot(gt_mask.to(torch.long)).permute(1, 0).to(torch.float32))
-                writer.add_histogram("pred_color", pred_color, step)
-                writer.add_histogram("gt_color", gt_color, step)
                 # Update point clouds
-                pred_point = point_cloud_first + current_pred_flow
                 pcd.points = o3d.utility.Vector3dVector(point_cloud_first)
                 pcd.colors = o3d.utility.Vector3dVector(gt_color.numpy())
                 
                 gt_pcd.points = o3d.utility.Vector3dVector(point_cloud_second)
                 gt_pcd.paint_uniform_color([0, 1, 0])
                 
-                if "reconstructed_points" in locals():
-                    current_reconstructed = reconstructed_points[batch_idx].cpu().detach().numpy().squeeze(0)
-                    reconstructed_pcd.points = o3d.utility.Vector3dVector(current_reconstructed)
-                    reconstructed_pcd.paint_uniform_color([0, 0, 1])
                     
                 if first_iteration:
-                    vis.add_geometry(pcd)
-                    vis.add_geometry(gt_pcd)
-                    if "reconstructed_points" in locals():
-                        vis.add_geometry(reconstructed_pcd)
+                    # vis.add_geometry(pcd)
+                    # vis.add_geometry(gt_pcd)
                     vis, lineset = visualize_vectors(
                         point_cloud_first,
                         current_pred_flow,
                         vis=vis,
                         color=pred_color.numpy(),
                     )
+                    vis, lineset_gt = visualize_vectors(
+                        point_cloud_first,
+                        gt_flow,
+                        vis=vis,
+                        color=gt_color.numpy(),
+                    )
                     first_iteration = False
                 else:
-                    vis.update_geometry(pcd)
-                    vis.update_geometry(gt_pcd)
-                    if "reconstructed_points" in locals():
-                        vis.update_geometry(reconstructed_pcd)
+                    # vis.update_geometry(pcd)
+                    # vis.update_geometry(gt_pcd)
                     lineset = update_vector_visualization(
                         lineset,
                         point_cloud_first,
                         current_pred_flow,
                         color=pred_color.numpy(),
                     )
+                    lineset_gt = update_vector_visualization(
+                        lineset_gt,
+                        point_cloud_first,
+                        gt_flow,
+                        color=gt_color.numpy(),
+                    )
                     vis.update_geometry(lineset)
+                    vis.update_geometry(lineset_gt)
                     
                 vis.poll_events()
                 vis.update_renderer()

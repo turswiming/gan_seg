@@ -137,11 +137,11 @@ class AV2SequenceDataset(nn.Module):
         super(AV2SequenceDataset, self).__init__()
         self.point_cloud_first = None
         self.apply_ego_motion = apply_ego_motion
-        self.av2_scene_path = "/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
-        self.av2_test_scene_path = "/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
+        self.av2_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
+        self.av2_test_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
         if self.apply_ego_motion:
             assert fix_ego_motion,"fix_ego_motion must be True when apply_ego_motion is True"
-        self.av2_dataset = read_av2_scene(self.av2_scene_path,apply_ego_motion=True)
+        self.av2_dataset = read_av2_scene(self.av2_scene_path,apply_ego_motion=apply_ego_motion)
         self.sequence_length = len(list(self.av2_dataset.keys()))
         self.fix_ego_motion = fix_ego_motion
         self.max_k = max_k

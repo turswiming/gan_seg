@@ -154,12 +154,12 @@ class FlowSmoothLoss():
     def get_optimal_batch_size(self, K):
         """根据K选择最优的batch size (5, 4, 3的倍数)"""
         # 优先选择能整除K的最大batch size
-        divisors = [5, 4, 3]
-        for batch_size in divisors:
-            if K % batch_size == 0:
-                return batch_size
+        # divisors = [5, 4, 3]
+        # for batch_size in divisors:
+        #     if K % batch_size == 0:
+        #         return batch_size
     
-        return K  # 对于很小的K值，直接全部处理
+        return 3  # 对于很小的K值，直接全部处理
     def loss(self, point_position, mask, flow):
         """
         Core loss computation function.
@@ -190,9 +190,9 @@ class FlowSmoothLoss():
             mask_b = mask[b]  # (K, N)
             
             # Process mask
-            mask_b = ScaleGradient.apply(mask_b.clone(), 1)
+            mask_b = mask_b / pow(mask_b.std(),1.5)
             mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
-            mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.5)
+            # mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.5)
             scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.5)
             # Normalize flow
             scene_flow_b = normalize_useing_other(scene_flow_b, point_position_b)
@@ -258,7 +258,7 @@ class FlowSmoothLoss():
                     batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
                 
                 one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
-            one_batch_loss = one_batch_loss * K
+            one_batch_loss = one_batch_loss / K
             reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
             one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
             total_loss += one_batch_loss

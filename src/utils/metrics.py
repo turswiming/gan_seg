@@ -39,9 +39,7 @@ def calculate_miou(pred_mask, gt_mask):
     pred_mask_size = torch.sum(pred_mask, dim=1)
     for j in range(gt_mask.shape[0]):
         max_iou = 0
-        if j == 0:
-            continue
-        if gt_mask_size[j] <= 75:
+        if gt_mask_size[j] <= 50:
             continue  # Skip small masks to avoid noise in IoU calculation
         for i in range(pred_mask.shape[0]):
         

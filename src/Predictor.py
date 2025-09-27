@@ -44,7 +44,9 @@ def get_scene_flow_predictor(flow_model_config,N):
         return EulerFlowMLP(output_dim=3,
                             latent_dim=128,
                             act_fn=ActivationFn.RELU,
-                            num_layers=18)
+                            num_layers=18,
+                            use_normalization=False,
+                            normalization_type="batch_norm")
     elif flow_model_config.name == "OptimizedFlow":
         return OptimizedFLowPredictor(dim=3,
                              pointSize=N)
@@ -89,9 +91,13 @@ def get_mask_predictor(mask_model_config,N):
     elif mask_model_config.name == "EulerMaskMLP":
         from model.mask_predict_model import ActivationFn, EulerMaskMLP
         model_detail = mask_model_config.MLP
+        use_norm = getattr(mask_model_config, 'use_normalization', True)  # 默认启用
+        norm_type = getattr(mask_model_config, 'normalization_type', 'group_norm')  # 默认group_norm
         return EulerMaskMLP(slot_num=mask_model_config.slot_num,
                             filter_size=model_detail.num_hidden,
                             act_fn=ActivationFn.LEAKYRELU,
-                            layer_size=model_detail.num_layers).to(device)
+                            layer_size=model_detail.num_layers,
+                            use_normalization=use_norm,
+                            normalization_type=norm_type).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")
