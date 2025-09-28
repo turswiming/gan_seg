@@ -123,6 +123,7 @@ class FlowSmoothLoss():
         self.sum_mask_item_gradient = sum_mask_item_gradient/(each_mask_item_gradient+sum_mask_item_gradient)
         self.each_mask_item_loss = flow_smooth_loss_config.each_mask_item.criterion
         self.sum_mask_item_loss = flow_smooth_loss_config.sum_mask_item.criterion
+        self.scale_flow_grad = flow_smooth_loss_config.scale_flow_grad
         if self.each_mask_item_loss in ["L1", "l1"]:
             self.each_mask_criterion = nn.L1Loss(reduction="sum").to(self.device)
         elif self.each_mask_item_loss in ["L2", "l2"]:
@@ -190,13 +191,13 @@ class FlowSmoothLoss():
             mask_b = mask[b]  # (K, N)
             
             # Process mask
-            mask_b = mask_b / pow(mask_b.std(),1.5)
+            mask_b = mask_b / pow(mask_b.std(),0.5)
             mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
             # mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.5)
             scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.5)
             # Normalize flow
-            scene_flow_b = normalize_useing_other(scene_flow_b, point_position_b)
-            scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),0.001)
+            # scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
+            scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),self.scale_flow_grad)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             

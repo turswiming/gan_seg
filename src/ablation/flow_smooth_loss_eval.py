@@ -13,7 +13,7 @@ from utils.config_utils import load_config_with_inheritance
 from utils.dataloader_utils import create_dataloaders
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
-
+from losses.KNNDistanceLoss import KNNDistanceLoss
 def remap_instance_labels(labels):
     """
     将任意整数标签重映射为连续的标签编号，从0开始
@@ -40,9 +40,16 @@ config_obj = load_config_with_inheritance("/home/lzq/workspace/gan_seg/src/confi
 config_obj.dataloader.batchsize = 4
 dataloader, infinite_loader, val_dataloader, batch_size, N = create_dataloaders(config_obj)
 
-cr = FlowSmoothLoss(device, config_obj.loss.scene_flow_smoothness)
+flow_smooth_loss = FlowSmoothLoss(device, config_obj.loss.scene_flow_smoothness)
+knn_loss = KNNDistanceLoss()
+from Predictor import get_scene_flow_predictor, get_mask_predictor
+from model.eulerflow_raw_mlp import QueryDirection
+flow_model = get_scene_flow_predictor(config_obj.model.flow, N)
+flow_model.to(device)
+mask_model = get_mask_predictor(config_obj.model.mask, N)
+mask_model.to(device)
 bucket_size = 10
-max_sample = 20
+max_sample = 10
 # Initialize accumulator for average losses
 all_losses = []
 sample_count = 0
@@ -61,13 +68,12 @@ for val_sample in val_dataloader:
     mask = remap_instance_labels(mask)
     one_hot_mask = F.one_hot(mask).permute(1, 0)
     one_hot_mask = one_hot_mask.float()
-    mask_noise = torch.ones_like(one_hot_mask)
-    mask_noise = (mask_noise) / one_hot_mask.sum(dim=1, keepdim=True) 
-    mask_noise = mask_noise+torch.randn_like(one_hot_mask)*0.01
-    mask_noise = mask_noise.to(device)
+    mask_noise = mask_model(val_sample["point_cloud_first"][0].to(device), val_sample["idx"][0], val_sample["total_frames"][0])
+    mask_noise = mask_noise.permute(1, 0)[:one_hot_mask.shape[0],:].to(device)
 
     N = val_sample["point_cloud_first"][0].shape[0]
-    flow_noise = torch.randn(N, 3)
+    flow_noise = flow_model(val_sample["point_cloud_first"][0].to(device), val_sample["idx"][0], val_sample["total_frames"][0],QueryDirection.FORWARD)
+    flow_noise = flow_noise.to(device)
     flow_noise = flow_noise.to(device)
 
     # Calculate losses for this sample
@@ -83,7 +89,10 @@ for val_sample in val_dataloader:
             # flow = flow/pow(flow.std(),0.5)
             # flow = flow/pow(flow.std(),1.5)
             point_position = val_sample["point_cloud_first"][0].to(device)
-            loss = cr(point_position,[mask_current], [flow])
+            idx = val_sample["idx"][0]
+            point_position_next = val_sample["self"][0].get_item(idx+1)["point_cloud_first"].to(device)
+            loss = flow_smooth_loss(point_position,[mask_current], [flow])
+            # loss += knn_loss(point_position+flow, point_position_next)*4
             loss_same_flow_noise.append(loss.item())
         sample_losses.append(loss_same_flow_noise)
     print("mean loss", np.mean(sample_losses))
@@ -124,7 +133,7 @@ max_loss = np.max(losses)
 range_loss = max_loss - min_loss
 # Using power function to create non-uniform spacing
 # Higher exponent = more concentration near max value
-power = 2.5  # Adjust this value to control density distribution
+power = 1  # Adjust this value to control density distribution
 num_levels = 100  # Total number of contour levels
 
 # Generate normalized values between 0 and 1, more concentrated toward 1

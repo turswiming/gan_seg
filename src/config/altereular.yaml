@@ -3,7 +3,7 @@ __base__: "baseconfig.yaml"
 model:
   flow:
     name: "EulerFlowMLP"
-    lr: 0.00012
+    lr: 0.00008
     NSFP:
       num_layers: 8
       num_hidden: 128
@@ -11,10 +11,12 @@ model:
   mask:
     name: "EulerMaskMLP"
     lr : 0.00008
-    slot_num: 15
+    slot_num: 30
+    use_normalization: true  # 启用normalization
+    normalization_type: "group_norm"  # 使用group_norm节省内存
     MLP:
-      num_layers: 18
-      num_hidden: 128
+      num_layers: 12
+      num_hidden: 96
 dataset:
   name: "AV2Sequence"
   val_name: "AV2Sequence_val"
@@ -24,38 +26,40 @@ dataloader:
   num_workers: 0
 
 checkpoint:
-  resume: true          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20250925_072651/checkpoints/step_3000.pt"       # 留空则默认用 checkpoints/latest.pt
+  resume: false          # 是否从断点恢复
+  resume_path: "/home/lzq/workspace/gan_seg/outputs/step_4000.pt"       # 留空则默认用 checkpoints/latest.pt
   save_every_iters: 1000
 
 lr_multi:
   rec_loss: 0.0
   flow_loss: 0.0
-  scene_flow_smoothness: 1
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
   KNN_loss: 1.0
-  l1_regularization: 0.001
+  l1_regularization: 0.0
+  eular_mask_loss: 0
 alternate:
   flow: [[200,true],[200,false]]
-  mask: [[200,false],[200,true]]
+  mask: [[200,false],[200000,true]]
 
 training:
-  max_iter: 30000
+  max_iter: 15000
   eval_loop: 100
-  begin_train_smooth: 2000
-  flow_model_grad_clip: 0.01
-  mask_model_grad_clip: 0.01
+  begin_train_smooth: 4000
+  # flow_model_grad_clip: 0.0002
+  # mask_model_grad_clip: 0.0002
 
 loss:
   scene_flow_smoothness:
+    scale_flow_grad: 0.001
     each_mask_item:
-      relative_gradient: 1
+      relative_gradient: 0
       criterion: "L2"
     sum_mask_item:
-      relative_gradient: 0.1
+      relative_gradient: 1
       criterion: "L2"
 vis:
   show_window: false

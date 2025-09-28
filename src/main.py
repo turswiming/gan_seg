@@ -167,7 +167,7 @@ def main(config, writer):
             pass
 
     # Main training loop
-    with tqdm(infinite_loader, desc="Training", total=config.training.max_iter) as infinite_loader:
+    with tqdm(infinite_loader, desc="Training", total=config.training.max_iter-step) as infinite_loader:
         tqdm.write("Starting training...")
         for sample in infinite_loader:
 
@@ -213,12 +213,12 @@ def main(config, writer):
                                 if k == 0:
                                     pred_flow.append(pred_flow_temp)
                                     
-                            pred_pc = point_cloud_firsts[i].clone()
+                            pred_pc = point_cloud_nexts[i].clone()
                             for k in range(0, sample["k"][i]):
                                 idx = sample["idx"][i]
-                                pred_flow_temp = scene_flow_predictor(pred_pc, sample["idx"][i]-k, sample["total_frames"][i],QueryDirection.REVERSE)
+                                pred_flow_temp = scene_flow_predictor(pred_pc, sample["idx"][i]-k+1, sample["total_frames"][i],QueryDirection.REVERSE)
                                 pred_pc = pred_pc + pred_flow_temp
-                                longterm_pred_flow[sample["idx"][i]-k-1] = pred_pc.clone()
+                                longterm_pred_flow[sample["idx"][i]-k] = pred_pc.clone()
                                 if k == 0:
                                     reverse_pred_flow.append(pred_flow_temp)
                                     
@@ -300,15 +300,32 @@ def main(config, writer):
             if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP":
                 eular_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
-                    point_cloud_firsts_i = point_cloud_firsts[i][:, :3] + pred_flow[i]
-                    reverse_reverse = scene_flow_predictor(point_cloud_firsts_i, sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
-                    l2_error = torch.norm(pred_flow[i] + reverse_reverse, dim=1)
-                    sigmoid_l2_error = torch.sigmoid(l2_error)
-                    eular_flow_loss += sigmoid_l2_error.mean()
+                    point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    forward_reverse = scene_flow_predictor(point_cloud_first_forward, sample["idx"][i]+1, sample["total_frames"][i], QueryDirection.REVERSE)
+                    l2_error = torch.norm(pred_flow[i] + forward_reverse, dim=1)
+                    eular_flow_loss += torch.sigmoid(l2_error).mean()
+                    if len(reverse_pred_flow) == 0:
+                        continue
+                    point_cloud_next_reverse = point_cloud_nexts[i][:, :3] + reverse_pred_flow[i]
+                    reverse_forward = scene_flow_predictor(point_cloud_next_reverse, sample["idx"][i], sample["total_frames"][i], QueryDirection.FORWARD)
+                    l2_error = torch.norm(reverse_pred_flow[i] + reverse_forward, dim=1)
+                    eular_flow_loss += torch.sigmoid(l2_error).mean()
                 eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
             else:
                 eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
-
+            if config.lr_multi.eular_mask_loss > 0 and config.model.mask.name == "EulerMaskMLP":
+                eular_mask_loss = 0
+                for i in range(len(point_cloud_firsts)):
+                    point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
+                    forward_mask = mask_predictor(point_cloud_first_forward, sample["idx"][i]+1, sample["total_frames"][i])
+                    #计算forward_mask和pred_mask的相对熵
+                    forward_mask = F.log_softmax(forward_mask, dim=1)
+                    target_mask = F.log_softmax(pred_mask[i].clone().permute(1, 0), dim=1)
+                    relative_entropy = torch.nn.functional.kl_div(forward_mask, target_mask, reduction='batchmean',log_target=True)
+                    eular_mask_loss += relative_entropy.mean()
+                eular_mask_loss = eular_mask_loss * config.lr_multi.eular_mask_loss
+            else:
+                eular_mask_loss = torch.tensor(0.0, device=device, requires_grad=True)
             if config.lr_multi.KDTree_loss > 0:
                 kdtree_dist_loss = 0
                 for i in range(len(point_cloud_firsts)):
@@ -358,22 +375,24 @@ def main(config, writer):
             else:
                 l1_regularization_loss = torch.tensor(0.0, device=device)
             # Combine losses
-            loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss + kdtree_dist_loss + knn_dist_loss + l1_regularization_loss
+            loss = rec_loss + flow_loss + scene_flow_smooth_loss + rec_flow_loss + point_smooth_loss + eular_flow_loss + kdtree_dist_loss + knn_dist_loss + l1_regularization_loss + eular_mask_loss
 
                 
             # Log to tensorboard
-            writer.add_scalars("losses", {
-                "rec_loss": rec_loss.item(),
-                "flow_loss": flow_loss.item(),
-                "scene_flow_smooth_loss": scene_flow_smooth_loss.item(),
-                "rec_flow_loss": rec_flow_loss.item(),
-                "point_smooth_loss": point_smooth_loss.item(),
-                "eular_flow_loss": eular_flow_loss.item(),
-                "kdtree_dist_loss": kdtree_dist_loss.item(),
-                "knn_dist_loss": knn_dist_loss.item(),
-                "l1_regularization_loss": l1_regularization_loss.item(),
-                "total_loss": loss.item(),
-            }, step)
+            if step % 10 == 0:
+                writer.add_scalars("losses", {
+                    "rec_loss": rec_loss.item(),
+                    "flow_loss": flow_loss.item(),
+                    "scene_flow_smooth_loss": scene_flow_smooth_loss.item(),
+                    "rec_flow_loss": rec_flow_loss.item(),
+                    "point_smooth_loss": point_smooth_loss.item(),
+                    "eular_flow_loss": eular_flow_loss.item(),
+                    "kdtree_dist_loss": kdtree_dist_loss.item(),
+                    "knn_dist_loss": knn_dist_loss.item(),
+                    "l1_regularization_loss": l1_regularization_loss.item(),
+                    "eular_mask_loss": eular_mask_loss.item(),
+                    "total_loss": loss.item(),
+                }, step)
             def compute_individual_gradients(loss_dict, model, retain_graph=False):
                 grad_contributions = {}
                 
@@ -412,6 +431,7 @@ def main(config, writer):
                 "kdtree_dist_loss": kdtree_dist_loss,
                 "knn_dist_loss": knn_dist_loss,
                 "l1_regularization_loss": l1_regularization_loss,
+                "eular_mask_loss": eular_mask_loss,
             }
 
             # --- 步骤1：单独计算并记录每个loss的梯度 ---
@@ -445,6 +465,8 @@ def main(config, writer):
             optimizer_mask.zero_grad()
             try:
                 total_loss.backward()  # 实际参数更新只用总loss的梯度
+            except KeyboardInterrupt:
+                raise KeyboardInterrupt
             except:
                 print("Error computing gradient for total loss")
                 print(f"Total loss value: {total_loss.item()}")

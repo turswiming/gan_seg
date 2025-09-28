@@ -14,33 +14,12 @@ from matplotlib.ticker import MaxNLocator
 import os
 
 from read_tensorboard import read_tensorboard_data
-
+skip_training = False
 ab_name = "flow_smooth"  # Name for the ablation study
 # Configuration for different ablation settings
 # Each setting is a list of values for different loss terms:
 # [reconstruction, flow, flow_smoothness, reconstruction_flow, point_smoothness]
 lr_multi = {
-    "eularflow":     {
-        "scene_flow_smoothness": 0.0,
-        "l1_regularization": 0.0,
-        "begin_train_smooth": 0,
-        "alternate_flow": [[200,True],[200,True]],
-        "alternate_mask": [[4000,False],[200000,False]],
-    },
-    "eularflow_l1":     {
-        "scene_flow_smoothness": 0.0,
-        "l1_regularization": 0.01,
-        "begin_train_smooth": 0,
-        "alternate_flow": [[200,True],[200,True]],
-        "alternate_mask": [[4000,False],[200000,False]],
-    },
-    "ours_0.001":     {
-        "scene_flow_smoothness": 0.001,
-        "l1_regularization": 0.0,
-        "begin_train_smooth": 4000,
-        "alternate_flow": [[200,True],[200,True]],
-        "alternate_mask": [[4000,False],[200000,True]],
-    },
     "ours_0.01":     {
         "scene_flow_smoothness": 0.01,
         "l1_regularization": 0.0,
@@ -55,6 +34,14 @@ lr_multi = {
         "alternate_flow": [[200,True],[200,True]],
         "alternate_mask": [[4000,False],[200000,True]],
     },
+
+    "eularflow":     {
+        "scene_flow_smoothness": 0.0,
+        "l1_regularization": 0.0,
+        "begin_train_smooth": 0,
+        "alternate_flow": [[200,True],[200,True]],
+        "alternate_mask": [[4000,False],[200000,False]],
+    },
     # "ours_1":     {
     #     "scene_flow_smoothness": 1.0,
     #     "l1_regularization": 0.01,
@@ -66,14 +53,17 @@ lr_multi = {
 
 # Color mapping for different configurations
 colors = {
-    "eularflow": "#ff7f0e",    # Orange
-    "eularflow_l1": "#1f77b4", # Blue
-    "ours_0.01": "#2ca02c",  # Green
-    "ours_0.01": "#d62728",   # Red
-    "ours_0.1": "#9467bd",     # Purple
-    "ours_1": "#8c564b",    # Brown
-    # "LR100": "#e377c2",   # Pink
-    # "LR1000": "#7f7f7f",  # Gray
+    "eularflow": "#ff6b6b",    # Red
+    "eularflow_l1": "#4ecdc4", # Teal
+    "ours_0.0001": "#45b7d1",   # Blue
+    "ours_0.001": "#45b7d1",   # Blue
+    "ours_0.01": "#f39c12",   # Orange
+    "ours_0.01_alter": "#9b59b6",   # Purple
+    "ours_0.1": "#e74c3c",   # Dark Red
+    # "ours_0.01": "#9b59b6",   # Purple
+    # "ours_0.01": "#2ecc71",   # Green
+    # "ours_0.01": "#f1c40f",     # Yellow
+    # "ours_1": "#8e44ad",    # Dark Purple
 }
 run_times = 1  # Number of runs for each configuration
 dataset_list = ["AV2Sequence"]  # Dataset to use for ablation study
@@ -91,7 +81,6 @@ for dataset in dataset_list:
             savepath = os.path.join(save_path_base, key, f"run_{i}")
             if os.path.exists(savepath):
                 continue
-            os.makedirs(savepath, exist_ok=True)
             
             # Build command with appropriate loss weights
             command_list = [
@@ -109,6 +98,9 @@ for dataset in dataset_list:
             # Execute training command
             command = " ".join(command_list)
             print(command)
+            if skip_training:
+                continue
+            os.makedirs(savepath, exist_ok=True)
             result = subprocess.run(command, cwd=cwd, shell=True)
 
     # Dictionary to store EPE results
@@ -119,6 +111,8 @@ for dataset in dataset_list:
         for i in range(run_times):
             savepath = os.path.join(save_path_base, key, f"run_{i}")
             savepath = os.path.join(cwd, savepath)
+            if not os.path.exists(savepath):
+                continue
             _, values = read_tensorboard_data(savepath, "epe")
             if epe_results.get(key) is None:
                 epe_results[key] = []
@@ -129,6 +123,8 @@ for dataset in dataset_list:
         for i in range(run_times):
             savepath = os.path.join(save_path_base, key, f"run_{i}")
             savepath = os.path.join(cwd, savepath)
+            if not os.path.exists(savepath):
+                continue
             _, values = read_tensorboard_data(savepath, "val_threeway_mean")
             if val_threeway_mean_results.get(key) is None:
                 val_threeway_mean_results[key] = []
@@ -138,6 +134,8 @@ for dataset in dataset_list:
         for i in range(run_times):
             savepath = os.path.join(save_path_base, key, f"run_{i}")
             savepath = os.path.join(cwd, savepath)
+            if not os.path.exists(savepath):
+                continue
             _, values = read_tensorboard_data(savepath, "val_miou")
             if val_miou_results.get(key) is None:
                 val_miou_results[key] = []
@@ -156,17 +154,29 @@ for dataset in dataset_list:
     max_length = 0
     for key in epe_results:
         for run in epe_results[key]:
-            max_length = max(max_length, len(run))
+            if len(run) > 0:
+                max_length = max(max_length, len(run))
+    
+    # If no data found, use default length
+    if max_length == 0:
+        max_length = 100
 
     # Process data for each configuration
     for key in epe_results:
         all_runs = []
         for run in epe_results[key]:
+            if len(run) == 0:
+                continue
             # Pad shorter runs with their last value
             if len(run) < max_length:
                 run = run + [run[-1]] * (max_length - len(run))
             all_runs.append(run[:max_length])
         
+        # Skip if no valid runs
+        if len(all_runs) == 0:
+            print(f"No valid EPE data for {key}, skipping...")
+            continue
+            
         # Convert to numpy array for calculations
         all_runs = np.array(all_runs)
         smoothed_runs = []
@@ -174,10 +184,17 @@ for dataset in dataset_list:
         for run in all_runs:
             smoothed_run = np.convolve(run, np.ones(5)/5, mode='same')
             # Handle edge cases by padding with edge values
-            smoothed_run[:2] = run[3]
-            smoothed_run[-2:] = run[-3]
+            if len(run) > 2:
+                smoothed_run[:2] = run[2]
+                smoothed_run[-2:] = run[-3]
             smoothed_runs.append(smoothed_run)
+        
+        # Skip if no smoothed runs
+        if len(smoothed_runs) == 0:
+            continue
+            
         # Calculate mean and bounds
+        smoothed_runs = np.array(smoothed_runs)
         mean_values = np.mean(smoothed_runs, axis=0)
         min_values = np.min(smoothed_runs, axis=0)
         max_values = np.max(smoothed_runs, axis=0)
@@ -212,6 +229,8 @@ for dataset in dataset_list:
         for i in range(run_times):
             savepath = os.path.join(save_path_base, key, f"run_{i}")
             savepath = os.path.join(cwd, savepath)
+            if not os.path.exists(savepath):
+                continue
             _, values = read_tensorboard_data(savepath, "miou")
             if miou_results.get(key) is None:
                 miou_results[key] = []
@@ -221,7 +240,12 @@ for dataset in dataset_list:
     max_length_miou = 0
     for key in miou_results:
         for run in miou_results[key]:
-            max_length_miou = max(max_length_miou, len(run))
+            if len(run) > 0:
+                max_length_miou = max(max_length_miou, len(run))
+    
+    # If no data found, use default length
+    if max_length_miou == 0:
+        max_length_miou = 100
 
     # Set up a new plot for mIoU
     plt.figure(figsize=(12, 8))
@@ -230,26 +254,35 @@ for dataset in dataset_list:
     for key in miou_results:
         all_runs = []
         for run in miou_results[key]:
+            if len(run) == 0:
+                continue
             # Pad shorter runs with their last value
             if len(run) < max_length_miou:
                 run = run + [run[-1]] * (max_length_miou - len(run))
             all_runs.append(run[:max_length_miou])
         
+        # Skip if no valid runs
+        if len(all_runs) == 0:
+            print(f"No valid mIoU data for {key}, skipping...")
+            continue
+            
         # Convert to numpy array for calculations
         all_runs = np.array(all_runs)
         
-        # Calculate mean and bounds
-        mean_values = np.mean(all_runs, axis=0)
-        min_values = np.min(all_runs, axis=0)
         # Apply a moving average with a window size of 5
         smoothed_runs = []
         for run in all_runs:
             smoothed_run = np.convolve(run, np.ones(5)/5, mode='same')
             # Handle edge cases by padding with edge values
-            smoothed_run[:2] = run[3]
-            smoothed_run[-2:] = run[-3]
+            if len(run) > 2:
+                smoothed_run[:2] = run[2]
+                smoothed_run[-2:] = run[-3]
             smoothed_runs.append(smoothed_run)
         
+        # Skip if no smoothed runs
+        if len(smoothed_runs) == 0:
+            continue
+            
         # Convert to numpy array for calculations
         smoothed_runs = np.array(smoothed_runs)
         
