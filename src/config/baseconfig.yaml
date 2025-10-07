@@ -13,7 +13,7 @@ model:
       activation: "leakyrelu"
   mask:
     lr : 0.0001
-    name: "NMP" #OptimizedMask or NMP #short for NeuralMaskPrior or EularNMP
+    name: "NMP" #OptimizedMask or NMP #short for NeuralMaskPrior or EulerMaskMLP
     slot_num: 30
     NMP:
       num_layers: 8

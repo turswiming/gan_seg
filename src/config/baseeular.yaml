@@ -8,7 +8,13 @@ model:
       num_hidden: 128
       activation: "leakyrelu"
   mask:
-    name: "EularNMP"
+    name: "EulerMaskMLP"
+    slot_num: 30
+    use_normalization: false  # 启用normalization
+    normalization_type: "group_norm"  # 使用group_norm节省内存
+    MLP:
+      num_layers: 12
+      num_hidden: 96
 dataset:
   name: "AV2Sequence"
   val_name: "AV2Sequence_val"
