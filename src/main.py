@@ -170,16 +170,19 @@ def main(config, writer):
     with tqdm(infinite_loader, desc="Training", total=config.training.max_iter-step) as infinite_loader:
         tqdm.write("Starting training...")
         for sample in infinite_loader:
+            step += 1
 
             if len(sample["idx"]) == 0:
                 continue
             
-            step += 1
             if step > config.training.max_iter:
                 tqdm.write("Reached maximum training iterations, stopping.")
                 break
             train_flow = alter_scheduler.flow_train()
             train_mask = alter_scheduler.mask_train()
+            if step < config.training.begin_train_mask:
+                train_mask = False
+                train_flow = True
             if train_flow:
                 scene_flow_predictor.train()
             else:
@@ -253,7 +256,7 @@ def main(config, writer):
                             pred_mask.append(mask_predictor(point_cloud_firsts[i]))
             # Compute losses
             if config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0:
-                rec_loss, reconstructed_points = reconstructionLoss(sample, pred_mask, pred_flow)
+                rec_loss, reconstructed_points = reconstructionLoss(point_cloud_firsts, point_cloud_nexts, pred_mask, pred_flow)
                 rec_loss = rec_loss * config.lr_multi.rec_loss
             else:
                 rec_loss = torch.tensor(0.0, device=device, requires_grad=True)
@@ -297,7 +300,7 @@ def main(config, writer):
             else:
                 point_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
-            if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP":
+            if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP" and train_flow:
                 eular_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
@@ -313,7 +316,7 @@ def main(config, writer):
                 eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
             else:
                 eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
-            if config.lr_multi.eular_mask_loss > 0 and config.model.mask.name == "EulerMaskMLP":
+            if config.lr_multi.eular_mask_loss > 0 and config.model.mask.name == "EulerMaskMLP" and train_mask:
                 eular_mask_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
@@ -326,7 +329,7 @@ def main(config, writer):
                 eular_mask_loss = eular_mask_loss * config.lr_multi.eular_mask_loss
             else:
                 eular_mask_loss = torch.tensor(0.0, device=device, requires_grad=True)
-            if config.lr_multi.KDTree_loss > 0:
+            if config.lr_multi.KDTree_loss > 0 and train_flow:
                 kdtree_dist_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
@@ -341,7 +344,7 @@ def main(config, writer):
             else:
                 kdtree_dist_loss = torch.tensor(0.0, device=device)
 
-            if config.lr_multi.KNN_loss > 0:
+            if config.lr_multi.KNN_loss > 0 and train_flow:
                 knn_dist_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
@@ -354,7 +357,7 @@ def main(config, writer):
                 knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
             else:
                 knn_dist_loss = torch.tensor(0.0, device=device)
-            if config.lr_multi.l1_regularization > 0:
+            if config.lr_multi.l1_regularization > 0 and train_flow:
                 
                 l1_regularization_loss = 0
                 for flow in pred_flow:
@@ -379,7 +382,7 @@ def main(config, writer):
 
                 
             # Log to tensorboard
-            if step % 10 == 0:
+            if step % 7 == 0:
                 writer.add_scalars("losses", {
                     "rec_loss": rec_loss.item(),
                     "flow_loss": flow_loss.item(),
@@ -536,7 +539,36 @@ def main(config, writer):
             #clear the cache
             torch.cuda.empty_cache()
             gc.collect()
-
+            if config.vis.log_histogram:
+                #log the first flow prediction
+                #if requires grad, detach it
+                if pred_flow[0].requires_grad:
+                    flow_log = pred_flow[0].detach()
+                else:
+                    flow_log = pred_flow[0]
+                if pred_mask[0].requires_grad:
+                    mask_log = pred_mask[0].detach()
+                else:
+                    mask_log = pred_mask[0]
+                flow_log = flow_log.cpu().numpy()
+                mask_log = mask_log.cpu().numpy()
+                processed_mask = mask_log.copy()
+                processed_mask = processed_mask / pow(processed_mask.std(),0.5)
+                #numpy softmax
+                min_value = np.min(processed_mask)*10
+                softmaxed_mask = np.exp(processed_mask*10 - min_value) / np.sum(np.exp(processed_mask*10 - min_value), axis=0)
+                writer.add_histogram(f"prediction_flow", flow_log, step)
+                writer.add_histogram(f"prediction_mask", mask_log, step)
+                writer.add_histogram(f"prediction_mask_processed", processed_mask, step)
+                writer.add_histogram(f"prediction_mask_softmaxed", softmaxed_mask, step)
+                writer.add_scalar(f"prediction_flow_mean", np.mean(np.linalg.norm(flow_log, axis=1)), step)
+                writer.add_scalar(f"prediction_mask_mean", np.mean(np.linalg.norm(mask_log, axis=1)), step)
+                writer.add_scalar(f"prediction_flow_std", np.std(np.linalg.norm(flow_log, axis=1)), step)
+                writer.add_scalar(f"prediction_mask_processed_mean", np.mean(np.linalg.norm(processed_mask, axis=1)), step)
+                writer.add_scalar(f"prediction_mask_softmaxed_mean", np.mean(np.linalg.norm(softmaxed_mask, axis=1)), step)
+                writer.add_scalar(f"prediction_mask_std", np.std(np.linalg.norm(mask_log, axis=1)), step)
+                writer.add_scalar(f"prediction_mask_processed_std", np.std(np.linalg.norm(processed_mask, axis=1)), step)
+                writer.add_scalar(f"prediction_mask_softmaxed_std", np.std(np.linalg.norm(softmaxed_mask, axis=1)), step)
             # Visualization
             if config.vis.show_window and point_cloud_firsts[0].shape[0] > 0:
                 batch_idx = 0

@@ -50,7 +50,7 @@ def create_dataloaders(config):
     """
     # Create dataset based on config
     if config.dataset.name == "AV2":
-        dataset = AV2PerSceneDataset()
+        dataset = AV2PerSceneDataset(fixed_scene_idx=config.dataset.AV2.fixed_scene_idx)
     elif config.dataset.name == "AV2Sequence":
         dataset = AV2SequenceDataset(max_k=3)
     elif config.dataset.name == "MOVI_F":
@@ -71,6 +71,8 @@ def create_dataloaders(config):
         raise ValueError(f"Dataset {config.dataset.name} not supported")
     if config.dataset.val_name == "AV2Sequence":
         val_dataset = AV2SequenceDataset(max_k=3)
+    elif config.dataset.val_name == "AV2":
+        val_dataset = AV2PerSceneDataset(fixed_scene_idx=config.dataset.AV2.fixed_scene_idx)
     elif config.dataset.val_name == "AV2Sequence_val":
         val_dataset = AV2SequenceDataset(max_k=1)
     elif config.dataset.val_name == "KITTISF":

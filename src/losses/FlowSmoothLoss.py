@@ -194,7 +194,7 @@ class FlowSmoothLoss():
             mask_b = mask_b / pow(mask_b.std(),0.5)
             mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
             # mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.5)
-            scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.5)
+            scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.1)
             # Normalize flow
             # scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
             scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),self.scale_flow_grad)

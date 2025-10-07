@@ -139,14 +139,13 @@ class ReconstructionLoss():
         
         return interpolated_values
     
-    def __call__(self, inputs, pred_mask, pred_flow):
+    def __call__(self, point_cloud_first, point_cloud_second, pred_mask, pred_flow):
         """
         Compute the reconstruction loss.
         
         Args:
-            inputs (dict): Input data containing:
-                - point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
-                - point_cloud_second (list[torch.Tensor]): List of second frame point clouds [N, 3]
+            point_cloud_first (list[torch.Tensor]): List of first frame point clouds [N, 3]
+            point_cloud_second (list[torch.Tensor]): List of second frame point clouds [N, 3]
             pred_mask (list[torch.Tensor]): List of predicted segmentation masks, each of shape [K, N]
             pred_flow (list[torch.Tensor]): List of predicted flow vectors, each of shape [N, 3]
             
@@ -155,8 +154,8 @@ class ReconstructionLoss():
                 - loss (torch.Tensor): Computed reconstruction loss averaged across the batch
                 - rec_point_cloud (list[torch.Tensor]): List of reconstructed point clouds
         """
-        point_cloud_first = [item.to(self.device) for item in inputs["point_cloud_first"]]
-        point_cloud_second = [item.to(self.device) for item in inputs["point_cloud_second"]]
+        point_cloud_first = [item.to(self.device) for item in point_cloud_first]
+        point_cloud_second = [item.to(self.device) for item in point_cloud_second]
         pred_mask = [item.to(self.device) for item in pred_mask]
         pred_flow = [item.to(self.device) for item in pred_flow]
         

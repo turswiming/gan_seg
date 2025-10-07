@@ -11,108 +11,6 @@ from torch.nn import functional as F
 from .gen_point_traj_flow import process_one_sample
 from .datasetutil.av2 import read_av2_scene
 import random
-class AV2PerSceneDataset(nn.Module):
-    """
-    Dataset class for loading and processing AV2 dataset.
-    
-    This class handles loading point cloud data from AV2 format files and provides
-    the necessary preprocessing for scene flow prediction.
-    
-    Attributes:
-        point_cloud_first (torch.Tensor): First frame point cloud
-        point_cloud_second (torch.Tensor): Second frame point cloud
-        flow (torch.Tensor): Ground truth flow vectors
-    """
-    
-    def __init__(self):
-        """
-        Initialize the AV2 dataset loader.
-        """
-        super(AV2PerSceneDataset, self).__init__()
-        self.point_cloud_first = None
-        
-    def __len__(self):
-        """
-        Get the length of the dataset.
-        
-        Returns:
-            int: Number of samples in the dataset
-        """
-        return 1
-        
-    def __getitem__(self, idx):
-        """
-        Get a sample from the dataset.
-        
-        Args:
-            idx (int): Index of the sample to get
-            
-        Returns:
-            dict: A dictionary containing:
-                - point_cloud_first (torch.Tensor): First frame point cloud [N, 3]
-                - point_cloud_second (torch.Tensor): Second frame point cloud [N, 3]
-                - flow (torch.Tensor): Ground truth flow vectors [N, 3]
-        """
-        if self.point_cloud_first is None:
-            # Load AV2 scene data
-            av2_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
-            av2_test_scene_path = "/home/lzq/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
-            av2_dataset = read_av2_scene(av2_scene_path)
-            
-            # Process first frame
-            keys = list(av2_dataset.keys())
-            first_key = keys[5]
-            first_value = av2_dataset[first_key]
-            valid_mask = first_value["flow_is_valid"]
-            dynamic_mask = first_value["flow_category"] != 0
-            ground_mask = first_value["ground_mask"]
-            valid_mask = valid_mask & dynamic_mask & (~ ground_mask)
-            self.point_cloud_first = first_value["point_cloud_first"][valid_mask]
-            ego_motion = first_value["ego_motion"]
-            
-            # Process second frame
-            second_key = keys[6]
-            second_value = av2_dataset[second_key]
-            valid_mask_second = second_value["flow_is_valid"]
-            dynamic_mask_second = second_value["flow_category"] != 0
-            ground_mask_second = second_value["ground_mask"]
-            valid_mask_second = valid_mask_second & dynamic_mask_second & (~ ground_mask_second)
-            self.point_cloud_second = second_value["point_cloud_first"][valid_mask_second]
-            #apply ego motion
-            self.point_cloud_second = torch.matmul(self.point_cloud_second - ego_motion[:3, 3], ego_motion[:3, :3].T)
-
-            self.flow = first_value["flow"]
-            self.flow = torch.matmul(self.flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
-            motion_mask = torch.linalg.norm(self.flow, dim=1) > 0.05
-
-            self.flow = self.flow[valid_mask]
-            self.dynamic_instance_mask = (motion_mask*first_value["label"])[valid_mask]
-            """
-
-            Category	Description
-            Foreground/Background	A point belongs to the foreground if it is contained in the bounding box of any tracked object.
-            Dynamic/Static	A point is dynamic if it is moving faster than 0.5 m/s in the world frame. Since each pair of sweeps spans 0.1s, this is equivalent to a point having a flow vector with a norm of at least 0.05m once ego-motion has been removed.
-            """
-            self.background_static_mask = first_value["label"] == 0
-            self.foreground_static_mask = (first_value["label"] != 0) & (~motion_mask)
-            self.foreground_dynamic_mask = (first_value["label"] != 0) & motion_mask
-            self.background_static_mask = self.background_static_mask[valid_mask]
-            self.foreground_static_mask = self.foreground_static_mask[valid_mask]
-            self.foreground_dynamic_mask = self.foreground_dynamic_mask[valid_mask]
-
-        # Prepare sample
-        sample = {
-            "point_cloud_first": self.point_cloud_first,
-            "point_cloud_second": self.point_cloud_second,
-            "flow": self.flow,
-            'dynamic_instance_mask': self.dynamic_instance_mask,
-            'background_static_mask': self.background_static_mask,
-            'foreground_static_mask': self.foreground_static_mask,
-            'foreground_dynamic_mask': self.foreground_dynamic_mask,
-        }
-
-        return sample
-    
 cache = {}
 
 
@@ -145,6 +43,7 @@ class AV2SequenceDataset(nn.Module):
         self.sequence_length = len(list(self.av2_dataset.keys()))
         self.fix_ego_motion = fix_ego_motion
         self.max_k = max_k
+        self.fixed_scene_idx = None
 
     def __len__(self):
         """
@@ -160,6 +59,8 @@ class AV2SequenceDataset(nn.Module):
     def prepare_item(self, idx,from_manual=False):
         if idx < self.max_k and not from_manual:
             return {}
+        if self.fixed_scene_idx is not None and not from_manual:
+            idx = self.fixed_scene_idx
         longseq = random.random() < 0.5
         if longseq:
             k = self.max_k
@@ -236,4 +137,51 @@ class AV2SequenceDataset(nn.Module):
         """
         
         return self.prepare_item(idx,from_manual=False)
+
+
+class AV2PerSceneDataset(AV2SequenceDataset):
+    """
+    Dataset class that inherits from AV2SequenceDataset but always returns a fixed scene.
+    
+    This class extends AV2SequenceDataset to always return the same fixed scene when accessed
+    through __getitem__, while still supporting get_item(idx) for accessing specific scenes.
+    
+    Attributes:
+        fixed_scene_idx (int): Fixed scene index to always return
+    """
+    
+    def __init__(self, fix_ego_motion=True, apply_ego_motion=True, fixed_scene_idx=5):
+        """
+        Initialize the AV2PerSceneDataset.
+        
+        Args:
+            fix_ego_motion (bool): Whether to fix ego motion
+            max_k (int): Maximum k value for sequence
+            apply_ego_motion (bool): Whether to apply ego motion
+            fixed_scene_idx (int): Fixed scene index to always return (default: 5)
+        """
+        # Initialize parent class
+        super(AV2PerSceneDataset, self).__init__(fix_ego_motion, 1, apply_ego_motion)
+        self.fixed_scene_idx = fixed_scene_idx
+        
+    def __len__(self):
+        """
+        Get the length of the dataset.
+        
+        Returns:
+            int: Number of samples in the dataset (always 1 for fixed scene)
+        """
+        return 1
+        
+    def __getitem__(self, idx):
+        """
+        Get a sample from the dataset. Always returns the fixed scene.
+        
+        Args:
+            idx (int): Index (ignored, always returns fixed scene)
+            
+        Returns:
+            dict: A dictionary containing scene data for the fixed scene
+        """
+        return self.prepare_item(self.fixed_scene_idx, from_manual=False)
     

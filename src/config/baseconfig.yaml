@@ -7,53 +7,63 @@ model:
   flow:
     name: "NSFP" # NSFP or OptimizedFlow or EularFlow
     lr : 0.0001
-    lambda_reg: 0.1
     NSFP:
       num_layers: 8
       num_hidden: 128
       activation: "leakyrelu"
   mask:
-    lr : 0.00001
+    lr : 0.0001
     name: "NMP" #OptimizedMask or NMP #short for NeuralMaskPrior or EularNMP
-    slot_num: 10
+    slot_num: 30
     NMP:
       num_layers: 8
       num_hidden: 128
       activation: "leakyrelu"
 
-
+checkpoint:
+  resume: false          # 是否从断点恢复
+  resume_path: "/home/lzq/workspace/gan_seg/outputs/ablation/mask_model/AV2Sequence/ours_4additional/run_0/checkpoints/step_4000.pt"       # 留空则默认用 checkpoints/latest.pt
+  save_every_iters: 1000
 dataset:
-  name: "KITTISF" # MOVI_F or AV2 or KITTISF or AV2Sequence
+  name: "AV2" # MOVI_F or AV2 or KITTISF or AV2Sequence
+  val_name: "AV2"
   KITTISF:
     data_root: "../kittisf"
     downsampled: false
     fixed_scene_id: "000001"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
     num_points: 8192  # Number of points to sample from each point cloud
     val_name: "KITTISF"
+  AV2:
+    fixed_scene_idx: 5
 training:
   max_iter: 30000
-  eval_loop: 100
+  eval_loop: 10
+  begin_train_smooth: 0
+  begin_train_mask: 0
 
 dataloader:
   batchsize: 1
-  num_workers: 1
+  num_workers: 0
 
 alternate:
   flow: [[100,true],[100,true]]
   mask: [[100,true],[100,true]]
 
 lr_multi:
-  rec_loss: 0.0
+  rec_loss: 1.0
   flow_loss: 0.0
   scene_flow_smoothness: 1.0
   rec_flow_loss: 0.0
-  point_smooth_loss: 0.0
-  eular_flow_loss: 0.01
+  point_smooth_loss: 0.01
+  eular_flow_loss: 0.0
   KDTree_loss: 1.0
   KNN_loss: 1.0
+  l1_regularization: 0.0
+  eular_mask_loss: 0
 
 loss:
   scene_flow_smoothness:
+    scale_flow_grad: 0.001
     each_mask_item:
       relative_gradient: 0
       criterion: "L2"
@@ -65,3 +75,4 @@ loss:
 vis:
   show_window: false
   debug_grad: false
+  log_histogram: true
