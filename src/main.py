@@ -66,7 +66,8 @@ def main(config, writer):
     # Initialize loss functions
     if config.lr_multi.rec_loss > 0:
         from losses.ReconstructionLoss import ReconstructionLoss
-        reconstructionLoss = ReconstructionLoss(device)
+        from losses.ReconstructionLoss_optimized import ReconstructionLossOptimized
+        reconstructionLoss = ReconstructionLossOptimized(device)
     else:
         reconstructionLoss = None
     if config.lr_multi.flow_loss > 0:
@@ -237,7 +238,7 @@ def main(config, writer):
             if train_mask:
                 pred_mask = []
                 for i in range(len(point_cloud_firsts)):
-                    if config.model.mask.name == "EulerMaskMLP":
+                    if config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual"]:
                         mask = mask_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i])
                         mask = mask.permute(1, 0)
                         
@@ -248,15 +249,16 @@ def main(config, writer):
                 with torch.no_grad():
                     pred_mask =[]
                     for i in range(len(point_cloud_firsts)):
-                        if config.model.mask.name == "EulerMaskMLP":
+                        if config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual"]:
                             mask = mask_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i])
                             mask = mask.permute(1, 0)
                             pred_mask.append(mask)
                         else:
                             pred_mask.append(mask_predictor(point_cloud_firsts[i]))
             # Compute losses
-            if config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0:
-                rec_loss, reconstructed_points = reconstructionLoss(point_cloud_firsts, point_cloud_nexts, pred_mask, pred_flow)
+            if (config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0) and train_mask:
+                pred_flow_detach = [flow.detach() for flow in pred_flow]
+                rec_loss, reconstructed_points = reconstructionLoss(point_cloud_firsts, point_cloud_nexts, pred_mask, pred_flow_detach)
                 rec_loss = rec_loss * config.lr_multi.rec_loss
             else:
                 rec_loss = torch.tensor(0.0, device=device, requires_grad=True)
@@ -267,7 +269,7 @@ def main(config, writer):
             else:
                 scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
-            if config.lr_multi.rec_flow_loss > 0:
+            if config.lr_multi.rec_flow_loss > 0 and train_mask:
                 rec_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
@@ -316,7 +318,7 @@ def main(config, writer):
                 eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
             else:
                 eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
-            if config.lr_multi.eular_mask_loss > 0 and config.model.mask.name == "EulerMaskMLP" and train_mask:
+            if config.lr_multi.eular_mask_loss > 0 and config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual"] and train_mask:
                 eular_mask_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]

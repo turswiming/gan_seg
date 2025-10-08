@@ -3,18 +3,21 @@ __base__: "baseconfig.yaml"
 model:
   flow:
     name: "EulerFlowMLP"
+    lr : 0.0001
     NSFP:
       num_layers: 8
       num_hidden: 128
       activation: "leakyrelu"
   mask:
-    name: "EulerMaskMLP"
-    slot_num: 30
+    name: "EulerMaskMLPResidual"
+    lr : 0.0001
+
+    slot_num: 20
     use_normalization: false  # 启用normalization
     normalization_type: "group_norm"  # 使用group_norm节省内存
     MLP:
-      num_layers: 12
-      num_hidden: 96
+      num_layers: 18
+      num_hidden: 128
 dataset:
   name: "AV2Sequence"
   val_name: "AV2Sequence_val"
@@ -23,17 +26,23 @@ dataloader:
   batchsize: 1
   num_workers: 0
 
+training:
+  max_iter: 30000
+  eval_loop: 100
+  begin_train_smooth: 0
+  begin_train_mask: 0
+
 lr_multi:
   rec_loss: 1.0
   flow_loss: 0.0
-  scene_flow_smoothness: 1
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
   point_smooth_loss: 0.01
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
   KNN_loss: 1.0
   l1_regularization: 0.0
-  eular_mask_loss: 0.01
+  eular_mask_loss: 1
 
 loss:
   scene_flow_smoothness:

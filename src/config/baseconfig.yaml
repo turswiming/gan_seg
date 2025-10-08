@@ -37,7 +37,7 @@ dataset:
     fixed_scene_idx: 5
 training:
   max_iter: 30000
-  eval_loop: 10
+  eval_loop: 100
   begin_train_smooth: 0
   begin_train_mask: 0
 
@@ -75,4 +75,4 @@ loss:
 vis:
   show_window: false
   debug_grad: false
-  log_histogram: true
+  log_histogram: false

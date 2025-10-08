@@ -11,6 +11,31 @@ from torch import nn
 from torch.nn import functional as F
 from .eulerflow_raw_mlp import EulerFlowMLP, ActivationFn, QueryDirection
 
+
+class ResidualBlock(nn.Module):
+    """
+    经典残差块设计，基于ResNet的启发
+    Classic residual block design inspired by ResNet
+    """
+    def __init__(self, dim_in, dim_out, activation_fn=nn.ReLU()):
+        super().__init__()
+        self.linear1 = nn.Linear(dim_in, dim_out)
+        self.linear2 = nn.Linear(dim_out, dim_out)
+        self.activation = activation_fn
+        
+        # 捷径连接：如果输入输出维度不同，需要线性投影
+        # Shortcut connection: linear projection if input/output dimensions differ
+        self.shortcut = nn.Linear(dim_in, dim_out) if dim_in != dim_out else nn.Identity()
+        
+    def forward(self, x):
+        identity = self.shortcut(x)
+        out = self.linear1(x)
+        out = self.activation(out)
+        out = self.linear2(out)
+        out = out + identity  # 核心：残差连接 / Core: residual connection
+        out = self.activation(out)
+        return out
+
 class OptimizedMaskPredictor(nn.Module):
     """
     Learnable mask predictor for point cloud segmentation.
@@ -152,3 +177,79 @@ class EulerMaskMLP(EulerFlowMLP):
 
     def forward(self, pc, idx, total_entries):
         return super().forward(pc, idx, total_entries, QueryDirection.FORWARD)
+
+
+class EulerMaskMLPResidual(nn.Module):
+    """
+    基于残差块的EulerMaskMLP实现，直接初始化编码器
+    EulerMaskMLP implementation with residual blocks, directly initializing encoder
+    """
+    def __init__(
+        self, 
+        slot_num=10, 
+        filter_size=128, 
+        act_fn: ActivationFn = ActivationFn.LEAKYRELU,
+        layer_size=8, 
+        encoder=None,  # 可选的编码器
+    ):
+        super().__init__()
+        self.slot_num = slot_num
+        self.filter_size = filter_size
+        self.act_fn = act_fn
+        self.layer_size = layer_size
+        
+        # 初始化编码器
+        if encoder is None:
+            from .eulerflow_raw_mlp import SimpleEncoder
+            self.encoder = SimpleEncoder()
+        else:
+            self.encoder = encoder
+            
+        # 构建基于残差块的网络
+        self._build_residual_network()
+
+    def _build_residual_network(self):
+        """构建基于残差块的网络结构"""
+        # 获取激活函数
+        activation_fn = self._get_activation_fn()
+        
+        # 获取编码器输出维度
+        encoder_dim = len(self.encoder)
+        
+        # 构建残差网络
+        residual_layers = []
+        
+        # 第一个残差块：从编码器输出到隐藏维度
+        residual_layers.append(ResidualBlock(encoder_dim, self.filter_size, activation_fn))
+        
+        # 中间的残差块：隐藏维度到隐藏维度
+        for _ in range(self.layer_size - 1):
+            residual_layers.append(ResidualBlock(self.filter_size, self.filter_size, activation_fn))
+        
+        # 输出层：从隐藏维度到输出维度
+        residual_layers.append(nn.Linear(self.filter_size, self.slot_num))
+        
+        # 构建完整网络：编码器 + 残差块
+        self.nn_layers = torch.nn.Sequential(
+            self.encoder,       # 编码器
+            *residual_layers    # 残差块
+        )
+
+    def _get_activation_fn(self):
+        """获取激活函数"""
+        if self.act_fn == ActivationFn.RELU:
+            return nn.ReLU()
+        elif self.act_fn == ActivationFn.LEAKYRELU:
+            return nn.LeakyReLU()
+        elif self.act_fn == ActivationFn.SIGMOID:
+            return nn.Sigmoid()
+        else:
+            return nn.ReLU()  # 默认使用ReLU
+
+    def forward(self, pc, idx, total_entries):
+        """
+        前向传播
+        Forward pass
+        """
+        entries = (pc, idx, total_entries, QueryDirection.FORWARD)
+        return self.nn_layers(entries)

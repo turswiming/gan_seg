@@ -99,5 +99,13 @@ def get_mask_predictor(mask_model_config,N):
                             layer_size=model_detail.num_layers,
                             use_normalization=use_norm,
                             normalization_type=norm_type).to(device)
+    elif mask_model_config.name == "EulerMaskMLPResidual":
+        from model.mask_predict_model import ActivationFn, EulerMaskMLPResidual
+        model_detail = mask_model_config.MLP
+        return EulerMaskMLPResidual(slot_num=mask_model_config.slot_num,
+                            filter_size=model_detail.num_hidden,
+                            act_fn=ActivationFn.RELU,
+                            layer_size=model_detail.num_layers,
+                            ).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")
