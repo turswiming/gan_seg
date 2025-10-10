@@ -36,7 +36,7 @@ def remap_instance_labels(labels):
     return remapped
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-config_obj = load_config_with_inheritance("/home/lzq/workspace/gan_seg/src/config/altereular.yaml")
+config_obj = load_config_with_inheritance("/workspace/gan_seg/src/config/altereular.yaml")
 config_obj.dataloader.batchsize = 4
 dataloader, infinite_loader, val_dataloader, batch_size, N = create_dataloaders(config_obj)
 

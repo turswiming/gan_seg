@@ -107,5 +107,12 @@ def get_mask_predictor(mask_model_config,N):
                             act_fn=ActivationFn.RELU,
                             layer_size=model_detail.num_layers,
                             ).to(device)
+    elif mask_model_config.name == "EulerMaskMLPRoutine":
+        from model.mask_predict_model import ActivationFn, EulerMaskMLPRoutine
+        model_detail = mask_model_config.MLP
+        return EulerMaskMLPRoutine(slot_num=mask_model_config.slot_num,
+                            filter_size=model_detail.num_hidden,
+                            act_fn=ActivationFn.RELU,
+                            layer_size=model_detail.num_layers,).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")

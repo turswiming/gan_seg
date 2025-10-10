@@ -238,7 +238,7 @@ def main(config, writer):
             if train_mask:
                 pred_mask = []
                 for i in range(len(point_cloud_firsts)):
-                    if config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual"]:
+                    if config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual", "EulerMaskMLPRoutine"]:
                         mask = mask_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i])
                         mask = mask.permute(1, 0)
                         
@@ -249,7 +249,7 @@ def main(config, writer):
                 with torch.no_grad():
                     pred_mask =[]
                     for i in range(len(point_cloud_firsts)):
-                        if config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual"]:
+                        if config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual", "EulerMaskMLPRoutine"]:
                             mask = mask_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i])
                             mask = mask.permute(1, 0)
                             pred_mask.append(mask)

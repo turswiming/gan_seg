@@ -194,7 +194,7 @@ class FlowSmoothLoss():
             mask_b = mask_b / pow(mask_b.std(),0.5)
             mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
             # mask_binary_b = mask_binary_b / pow(mask_binary_b.std(),0.5)
-            scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.1)
+            # scene_flow_b = scene_flow_b / pow(scene_flow_b.std(),1.1)
             # Normalize flow
             # scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
             scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),self.scale_flow_grad)
@@ -259,7 +259,6 @@ class FlowSmoothLoss():
                     batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
                 
                 one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
-            one_batch_loss = one_batch_loss / K
             reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
             one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
             total_loss += one_batch_loss

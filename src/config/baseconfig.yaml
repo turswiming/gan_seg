@@ -34,7 +34,7 @@ dataset:
     num_points: 8192  # Number of points to sample from each point cloud
     val_name: "KITTISF"
   AV2:
-    fixed_scene_idx: 5
+    fixed_scene_idx: 100
 training:
   max_iter: 30000
   eval_loop: 100
@@ -66,7 +66,7 @@ loss:
     scale_flow_grad: 0.001
     each_mask_item:
       relative_gradient: 0
-      criterion: "L2"
+      criterion: "L1"
     sum_mask_item:
       relative_gradient: 1
       criterion: "L2"
