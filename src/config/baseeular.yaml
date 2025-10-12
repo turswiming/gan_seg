@@ -1,7 +1,7 @@
 __base__: "baseconfig.yaml"
 checkpoint:
   resume: false          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251009_153404/checkpoints/step_5000.pt"
+  resume_path: "/workspace/gan_seg/outputs/exp/20251010_202438beststable/checkpoints/step_14000.pt"
   save_every_iters: 1000
 model:
   flow:
@@ -13,14 +13,14 @@ model:
       activation: "leakyrelu"
   mask:
     name: "EulerMaskMLPResidual"
-    lr : 0.00003
+    lr : 0.0001
 
-    slot_num: 40
+    slot_num: 25
     use_normalization: false  # 启用normalization
     normalization_type: "group_norm"  # 使用group_norm节省内存
     MLP:
-      num_layers: 18
-      num_hidden: 384
+      num_layers: 9
+      num_hidden: 64
 dataset:
   name: "AV2Sequence"
   val_name: "AV2Sequence_val"
@@ -38,18 +38,18 @@ training:
 lr_multi:
   rec_loss: 1.0
   flow_loss: 0.0
-  scene_flow_smoothness: 3
+  scene_flow_smoothness: 0
   rec_flow_loss: 0.0
   point_smooth_loss: 0.01
   eular_flow_loss: 0.01
   KDTree_loss: 1.0
   KNN_loss: 1.0
   l1_regularization: 0.0
-  eular_mask_loss: 1
+  eular_mask_loss: 0
 
 loss:
   scene_flow_smoothness:
-    scale_flow_grad: 0.003
+    scale_flow_grad: 0.001
     each_mask_item:
       relative_gradient: 0.9
       criterion: "L2"

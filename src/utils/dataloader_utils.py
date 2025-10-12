@@ -1,7 +1,8 @@
 import torch
 from dataset.av2_dataset import AV2PerSceneDataset,AV2SequenceDataset
-from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
+# from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
 from dataset.kitti_dataset import KITTIPerSceneDataset
+from dataset.movi_f_sequence_dataset import MOVIFPerSceneDataset, MOVIFSequenceDataset
 def infinite_dataloader(dataloader):
     """
     Create an infinite iterator that cycles through a dataloader indefinitely.
@@ -54,7 +55,13 @@ def create_dataloaders(config):
     elif config.dataset.name == "AV2Sequence":
         dataset = AV2SequenceDataset(max_k=3)
     elif config.dataset.name == "MOVI_F":
-        dataset = MOVIPerSceneDataset()
+        dataset = MOVIFPerSceneDataset()
+    elif config.dataset.name == "MOVI_FSequence":
+        dataset = MOVIFSequenceDataset(
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=3,
+            motion_threshold=0.01
+        )
     elif config.dataset.name == "KITTISF":
         if config.dataset.KITTISF.fixed_scene_id is not None:
             dataset = KITTIPerSceneDataset(
@@ -75,6 +82,12 @@ def create_dataloaders(config):
         val_dataset = AV2PerSceneDataset(fixed_scene_idx=config.dataset.AV2.fixed_scene_idx)
     elif config.dataset.val_name == "AV2Sequence_val":
         val_dataset = AV2SequenceDataset(max_k=1)
+    elif config.dataset.val_name == "MOVI_FSequence":
+        val_dataset = MOVIFSequenceDataset(
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=1,
+            motion_threshold=0.01
+        )
     elif config.dataset.val_name == "KITTISF":
         val_dataset = KITTIPerSceneDataset(data_root=config.dataset.KITTISF.data_root, downsampled=config.dataset.KITTISF.downsampled, fixed_scene_id=config.dataset.KITTISF.fixed_scene_id)
     else:
