@@ -101,7 +101,7 @@ class MOVIFSequenceDataset(nn.Module):
             depth_path = os.path.join(self.dataset_path, depth_files[i])
             seg_path = os.path.join(self.dataset_path, seg_files[i])
             
-            # Load trajectory data
+            # Load trajectory data using process_one_sample
             traj = process_one_sample(metadata_path, depth_path, seg_path, f=i)
             traj = torch.from_numpy(traj).to(torch.float32)
             
@@ -175,9 +175,10 @@ class MOVIFSequenceDataset(nn.Module):
         first_frame = self.sequence_data[idx]
         second_frame = self.sequence_data[idx + 1]
         
-        # Extract point clouds
-        point_cloud_first = first_frame['trajectory'][0]  # First timestep
-        point_cloud_second = second_frame['trajectory'][0]  # First timestep of next frame
+        # Extract point clouds from trajectory data
+        # trajectory shape: [num_frames, num_points, 3]
+        point_cloud_first = first_frame['trajectory'][idx]  # First timestep of current frame
+        point_cloud_second = first_frame['trajectory'][idx+1]  # First timestep of next frame
         
         # Calculate flow (movement between frames)
         flow = point_cloud_second - point_cloud_first

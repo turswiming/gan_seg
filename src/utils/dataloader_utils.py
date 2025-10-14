@@ -58,22 +58,17 @@ def create_dataloaders(config):
         dataset = MOVIFPerSceneDataset()
     elif config.dataset.name == "MOVI_FSequence":
         dataset = MOVIFSequenceDataset(
-            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            dataset_path=config.dataset.MOVI_F.dataset_path,
             max_k=3,
-            motion_threshold=0.01
+            motion_threshold=0.05
         )
     elif config.dataset.name == "KITTISF":
-        if config.dataset.KITTISF.fixed_scene_id is not None:
-            dataset = KITTIPerSceneDataset(
-                data_root=config.dataset.KITTISF.data_root, 
-                downsampled=config.dataset.KITTISF.downsampled, 
-                fixed_scene_id=config.dataset.KITTISF.fixed_scene_id
-                )
-        else:
-            dataset = KITTIPerSceneDataset(
-                data_root=config.dataset.KITTISF.data_root, 
-                downsampled=config.dataset.KITTISF.downsampled
-                )
+        dataset = KITTIPerSceneDataset(
+            data_root=config.dataset.KITTISF.data_root, 
+            downsampled=config.dataset.KITTISF.downsampled, 
+            fixed_scene_id=config.dataset.KITTISF.fixed_scene_id
+            )
+
     else:
         raise ValueError(f"Dataset {config.dataset.name} not supported")
     if config.dataset.val_name == "AV2Sequence":
@@ -82,11 +77,11 @@ def create_dataloaders(config):
         val_dataset = AV2PerSceneDataset(fixed_scene_idx=config.dataset.AV2.fixed_scene_idx)
     elif config.dataset.val_name == "AV2Sequence_val":
         val_dataset = AV2SequenceDataset(max_k=1)
-    elif config.dataset.val_name == "MOVI_FSequence":
+    elif config.dataset.val_name == "MOVI_FSequence_val":
         val_dataset = MOVIFSequenceDataset(
-            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            dataset_path=config.dataset.MOVI_F.dataset_path,
             max_k=1,
-            motion_threshold=0.01
+            motion_threshold=0.05
         )
     elif config.dataset.val_name == "KITTISF":
         val_dataset = KITTIPerSceneDataset(data_root=config.dataset.KITTISF.data_root, downsampled=config.dataset.KITTISF.downsampled, fixed_scene_id=config.dataset.KITTISF.fixed_scene_id)

@@ -1,0 +1,21 @@
+__base__: "altereular.yaml"
+checkpoint:
+  resume: false          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20251010_202438beststable/checkpoints/step_14000.pt"
+  save_every_iters: 1000
+model:
+  flow:
+    name: "EulerFlowMLP"
+  mask:
+    name: "EulerMaskMLPResidual"
+    lr : 0.0001
+    slot_num: 10
+    MLP:
+      num_layers: 9
+      num_hidden: 64
+
+dataset:
+  name: "MOVI_FSequence"
+  val_name: "MOVI_FSequence_val"
+  MOVI_F:
+    dataset_path: "/home/lzq/workspace/gan_seg/dataset/0/"

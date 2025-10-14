@@ -147,10 +147,7 @@ class EulerFlowMLP(NSFPRawMLP):
         query_direction: QueryDirection,
     ) -> torch.tensor:
         entries = (pc, idx, total_entries, query_direction)
-        res = self.nn_layers(entries)
-        if self.output_dim == 3:
-            return res+pc*torch.tensor([0.01,0.002,0.01],device=res.device)+torch.tensor([0.1,0.2,0.1],device=res.device)
-        return res
+        return self.nn_layers(entries)
 
 
 class EulerFlowOccFlowMLP(NSFPRawMLP):
