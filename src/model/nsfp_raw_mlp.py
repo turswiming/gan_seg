@@ -95,10 +95,17 @@ class NSFPRawMLP(nn.Module):
         self.use_normalization = use_normalization
         self.normalization_type = normalization_type
         self.nn_layers = torch.nn.Sequential(*self._make_model())
+        self.init_weights()
+        
         if with_compile:
             # 暂时禁用 torch.compile 以避免兼容性问题
             # self.nn_layers = torch.compile(self.nn_layers, dynamic=True)
             pass
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                m.bias.data.fill_(0.0)
 
     def _get_activation_fn(self) -> nn.Module:
         match self.act_fn:

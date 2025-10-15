@@ -60,6 +60,11 @@ lr_multi:
   KNN_loss: 1.0
   l1_regularization: 0.0
   eular_mask_loss: 0
+  scene_flow_smoothness_scheduler:
+    begin_iter: 0
+    end_iter: 1
+    begin_value: 1.0
+    end_value: 1.0
 
 loss:
   scene_flow_smoothness:

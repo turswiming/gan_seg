@@ -39,7 +39,7 @@ from Predictor import get_mask_predictor, get_scene_flow_predictor
 from alter_scheduler import AlterScheduler
 from config.config import correct_datatype
 from model.eulerflow_raw_mlp import QueryDirection
-
+from alter_scheduler import SceneFlowSmoothnessScheduler
 def main(config, writer):
     """
     Main training function.
@@ -63,6 +63,7 @@ def main(config, writer):
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
     
     alter_scheduler = AlterScheduler(config.alternate)
+    scene_flow_smoothness_scheduler = SceneFlowSmoothnessScheduler(config.lr_multi.scene_flow_smoothness_scheduler)
     # Initialize loss functions
     if config.lr_multi.rec_loss > 0:
         from losses.ReconstructionLoss import ReconstructionLoss
@@ -202,7 +203,7 @@ def main(config, writer):
             longterm_pred_flow = {}
             if train_flow:                    
                 for i in range(len(point_cloud_firsts)):
-                    if config.model.flow.name == "EulerFlowMLP":
+                    if config.model.flow.name in ["EulerFlowMLP", "EulerFlowMLPResidual"]:
                         if sample["k"][i] ==1:
                             pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))  # Shape: [N, 3]
                             
@@ -231,7 +232,7 @@ def main(config, writer):
             else:
                 with torch.no_grad():
                     for i in range(len(point_cloud_firsts)):
-                        if config.model.flow.name == "EulerFlowMLP":
+                        if config.model.flow.name in ["EulerFlowMLP", "EulerFlowMLPResidual"]:
                             pred_flow.append(scene_flow_predictor(point_cloud_firsts[i], sample["idx"][i], sample["total_frames"][i],QueryDirection.FORWARD))
                         else:
                             pred_flow.append(scene_flow_predictor(point_cloud_firsts[i]))
@@ -266,6 +267,7 @@ def main(config, writer):
             if config.lr_multi.scene_flow_smoothness > 0 and step > config.training.begin_train_smooth:
                 scene_flow_smooth_loss = flowSmoothLoss(point_cloud_firsts, pred_mask, pred_flow)
                 scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
+                scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_smoothness_scheduler(step)
             else:
                 scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
@@ -302,7 +304,7 @@ def main(config, writer):
             else:
                 point_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
-            if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name == "EulerFlowMLP" and train_flow:
+            if config.lr_multi.eular_flow_loss > 0 and config.model.flow.name in ["EulerFlowMLP", "EulerFlowMLPResidual"] and train_flow:
                 eular_flow_loss = 0
                 for i in range(len(point_cloud_firsts)):
                     point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]

@@ -198,6 +198,7 @@ class FlowSmoothLoss():
             # Normalize flow
             # scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
             scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),self.scale_flow_grad)
+            scene_flow_b = scene_flow_b+torch.ones_like(scene_flow_b.clone()) * torch.tensor([1,0.5,0.1]).to(self.device)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             
@@ -237,7 +238,7 @@ class FlowSmoothLoss():
                 # 批量线性最小二乘求解
                 theta_batch = torch.linalg.lstsq(Ek_batch, Fk_batch, driver="gels").solution  # (current_batch_size, 5, 3)
                 
-                # 检查NaN值
+                # 检查NaN值`1`
                 valid_mask = ~torch.isnan(theta_batch).any(dim=[1, 2])  # (current_batch_size,)
                 
                 if not valid_mask.any():

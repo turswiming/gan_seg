@@ -1,4 +1,4 @@
-__base__: "baseconfig.yaml"
+__base__: "altereular.yaml"
 checkpoint:
   resume: false          # 是否从断点恢复
   resume_path: "/workspace/gan_seg/outputs/exp/20251010_202438beststable/checkpoints/step_14000.pt"
@@ -36,25 +36,16 @@ training:
   begin_train_mask: 0
 
 lr_multi:
-  rec_loss: 1.0
+  rec_loss: 0
   flow_loss: 0.0
-  scene_flow_smoothness: 1
+  scene_flow_smoothness: 10
   rec_flow_loss: 0.0
   point_smooth_loss: 0.01
   eular_flow_loss: 0.01
-  KDTree_loss: 3.0
-  KNN_loss: 3.0
+  KDTree_loss: 1.0
+  KNN_loss: 1.0
   l1_regularization: 0.0
   eular_mask_loss: 1
-  scene_flow_smoothness_scheduler:
-    begin_iter: 0
-    end_iter: 15000
-    begin_value: 1.0
-    end_value: 15.0
-
-# alternate:
-#   flow: [[50,true],[50,false]]
-#   mask: [[50,false],[50,true]]
 
 loss:
   scene_flow_smoothness:

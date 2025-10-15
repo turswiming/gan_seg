@@ -40,3 +40,20 @@ class AlterScheduler:
         }
     def load_state_dict(self, state_dict):
         self.iter = state_dict["iter"]
+
+
+class SceneFlowSmoothnessScheduler:
+    def __init__(self, scene_flow_smoothness_config):
+        self.begin_iter = scene_flow_smoothness_config.begin_iter
+        self.end_iter = scene_flow_smoothness_config.end_iter
+        self.begin_value = scene_flow_smoothness_config.begin_value
+        self.end_value = scene_flow_smoothness_config.end_value
+        if self.begin_iter >= self.end_iter:
+            raise ValueError("begin_iter must be less than end_iter")
+    def __call__(self, iter):
+        if iter < self.begin_iter:
+            return self.begin_value
+        elif iter < self.end_iter:
+            return self.end_value
+        else:
+            return (iter-self.begin_iter)/(self.end_iter-self.begin_iter)*(self.end_value-self.begin_value)+self.begin_value

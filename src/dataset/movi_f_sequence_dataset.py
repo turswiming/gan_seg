@@ -290,3 +290,4 @@ class MOVIFPerSceneDataset(MOVIFSequenceDataset):
             dict: A dictionary containing scene data for the fixed scene
         """
         return self.prepare_item(self.fixed_scene_idx, from_manual=False)
+

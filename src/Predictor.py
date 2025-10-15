@@ -50,6 +50,13 @@ def get_scene_flow_predictor(flow_model_config,N):
     elif flow_model_config.name == "OptimizedFlow":
         return OptimizedFLowPredictor(dim=3,
                              pointSize=N)
+    elif flow_model_config.name == "EulerFlowMLPResidual":
+        from model.eulerflow_residual_mlp import EulerFlowMLPResidual
+        from model.nsfp_raw_mlp import ActivationFn
+        return EulerFlowMLPResidual(output_dim=3,
+                            latent_dim=128,
+                            act_fn=ActivationFn.RELU,
+                            num_layers=9)
     else:
         raise NotImplementedError("scene flow predictor not implemented")
     
