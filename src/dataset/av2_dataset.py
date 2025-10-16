@@ -163,7 +163,7 @@ class AV2PerSceneDataset(AV2SequenceDataset):
         fixed_scene_idx (int): Fixed scene index to always return
     """
     
-    def __init__(self, fix_ego_motion=True, apply_ego_motion=True, fixed_scene_idx=5):
+    def __init__(self, fix_ego_motion=True, apply_ego_motion=True, fixed_scene_idx=5, train_scene_path=None, test_scene_path=None, motion_threshold=0.05):
         """
         Initialize the AV2PerSceneDataset.
         
@@ -172,9 +172,12 @@ class AV2PerSceneDataset(AV2SequenceDataset):
             max_k (int): Maximum k value for sequence
             apply_ego_motion (bool): Whether to apply ego motion
             fixed_scene_idx (int): Fixed scene index to always return (default: 5)
+            train_scene_path (str): Path to training scene file
+            test_scene_path (str): Path to test scene file
+            motion_threshold (float): Threshold for motion filtering
         """
         # Initialize parent class
-        super(AV2PerSceneDataset, self).__init__(fix_ego_motion, 1, apply_ego_motion)
+        super(AV2PerSceneDataset, self).__init__(fix_ego_motion, 1, apply_ego_motion, train_scene_path, test_scene_path, motion_threshold)
         self.fixed_scene_idx = fixed_scene_idx
         
     def __len__(self):

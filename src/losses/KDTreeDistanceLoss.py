@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 
-from torch_kdtree import KDTree, build_kd_tree
+from torch_kdtree import build_kd_tree
 
 
 class KDTreeDistanceLoss(nn.Module):

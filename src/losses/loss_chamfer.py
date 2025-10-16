@@ -3,7 +3,7 @@
 from typing import Union
 import torch
 import torch.nn.functional as F
-from pointnet2 import KNN, knn, gather_operation
+from pytorch3d.ops import knn_points, knn_gather
 
 
 def _validate_chamfer_reduction_inputs(
@@ -80,7 +80,6 @@ def _handle_pointcloud_input(
     return X, lengths, normals
 
 
-# Custom nearest point search replacement for PyTorch3D's knn_points
 def nearest_point_search(x, y, x_lengths=None, y_lengths=None, K=1):
     """
     Find the K nearest neighbors of x in y
@@ -94,76 +93,28 @@ def nearest_point_search(x, y, x_lengths=None, y_lengths=None, K=1):
         dist: (B, N, K) tensor of squared distances to the nearest points
         idx: (B, N, K) tensor of indices of nearest points
     """
-    B, N, _ = x.shape
-    M = y.shape[1]
-    
-    # Create masks for valid points
-    x_mask = torch.arange(N, device=x.device)[None] >= x_lengths[:, None]  # shape [B, N]
-    y_mask = torch.arange(M, device=y.device)[None] >= y_lengths[:, None]  # shape [B, M]
-    
-    # Use pointnet2's knn function
-    # Need to transpose x and y to match the expected shape (B, 3, N)
-    x_t = x.transpose(1, 2).contiguous()
-    y_t = y.transpose(1, 2).contiguous()
-    
-    # Get distances and indices
-    dist, idx = knn(K, x, y)
-    
-    # Apply masks to exclude invalid points
-    for b in range(B):
-        if x_lengths is not None and x_lengths[b] < N:
-            dist[b, x_lengths[b]:] = 0.0
-        if y_lengths is not None:
-            # For points in x that matched to invalid points in y, set large distance
-            invalid_matches = idx[b] >= y_lengths[b].item()
-            dist[b][invalid_matches] = float('inf')
-    
-    # Return a class with the same structure as PyTorch3D's knn_points output
+    # Use PyTorch3D knn_points which natively supports heterogeneous lengths
+    dists, idx, _ = knn_points(
+        x, y, K=K, lengths1=x_lengths, lengths2=y_lengths, return_nn=True
+    )
     class KNNResults:
         def __init__(self, dists, idx):
             self.dists = dists
             self.idx = idx
-    
-    return KNNResults(dist, idx)
+    return KNNResults(dists, idx)
 
 
-# Custom gather operation to replace PyTorch3D's knn_gather
 def custom_gather(y, idx, y_lengths=None):
     """
-    Gather features from y using indices idx
+    Gather features from y using indices idx using PyTorch3D knn_gather.
     Args:
-        y: (B, M, C) tensor of features to gather from
-        idx: (B, N, K) tensor of indices
-        y_lengths: (B) tensor of lengths of each batch element in y
+        y: (B, M, C)
+        idx: (B, N, K)
+        y_lengths: unused; kept for API compatibility (lengths are respected upstream)
     Returns:
-        gathered_y: (B, N, K, C) tensor of gathered features
+        (B, N, K, C)
     """
-    B, M, C = y.shape
-    _, N, K = idx.shape
-    
-    # Reshape y for gather_operation: (B, C, M)
-    y_t = y.transpose(1, 2).contiguous()
-    
-    # Create output tensor
-    gathered_y = torch.zeros(B, N, K, C, device=y.device)
-    
-    # For each k in K, gather features
-    for k in range(K):
-        idx_k = idx[:, :, k]  # (B, N)
-        
-        # Apply y_lengths mask if needed
-        if y_lengths is not None:
-            for b in range(B):
-                idx_k[b, idx_k[b] >= y_lengths[b]] = 0  # Use the first point as padding
-        
-        # Use gather_operation
-        gathered_features = gather_operation(y_t, idx_k)  # (B, C, N)
-        gathered_features = gathered_features.transpose(1, 2)  # (B, N, C)
-        
-        # Store in output tensor
-        gathered_y[:, :, k, :] = gathered_features
-    
-    return gathered_y
+    return knn_gather(y, idx)
 
 
 def my_chamfer_fn(

@@ -1,69 +1,79 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-def fit_motion_svd_batch(pc1, pc2, mask=None):
-        """
-        :param pc1: (B, N, 3) torch.Tensor.
-        :param pc2: (B, N, 3) torch.Tensor. pc1 and pc2 should be the same point cloud only with disturbed.
-        :param mask: (B, N) torch.Tensor.
-        :return:
-            R_base: (B, 3, 3) torch.Tensor.
-            t_base: (B, 3) torch.Tensor.
-        """
-        n_batch, n_point, _ = pc1.size()
+from pathlib import Path
+import argparse
 
-        if mask is None:
-            pc1_mean = torch.mean(pc1, dim=1, keepdim=True)   # (B, 1, 3)
-            pc2_mean = torch.mean(pc2, dim=1, keepdim=True)   # (B, 1, 3)
-        else:
-            pc1_mean = torch.einsum('bnd,bn->bd', pc1, mask) / torch.sum(mask, dim=1, keepdim=True)   # (B, 3)
-            pc1_mean.unsqueeze_(1)
-            pc2_mean = torch.einsum('bnd,bn->bd', pc2, mask) / torch.sum(mask, dim=1, keepdim=True)
-            pc2_mean.unsqueeze_(1)
-
-        pc1_centered = pc1 - pc1_mean
-        pc2_centered = pc2 - pc2_mean
-
-        if mask is None:
-            S = torch.bmm(pc1_centered.transpose(1, 2), pc2_centered)
-        else:
-            S = pc1_centered.transpose(1, 2).bmm(torch.diag_embed(mask).bmm(pc2_centered))
-
-        # If mask is not well-defined, S will be ill-posed.
-        # We just return an identity matrix.
-        valid_batches = ~torch.isnan(S).any(dim=1).any(dim=1)
-        R_base = torch.eye(3, device=pc1.device).unsqueeze(0).repeat(n_batch, 1, 1)
-        t_base = torch.zeros((n_batch, 3), device=pc1.device)
-
-        if valid_batches.any():
-            S = S[valid_batches, ...]
-            u, s, v = torch.svd(S, some=False, compute_uv=True)
-            R = torch.bmm(v, u.transpose(1, 2))
-            det = torch.det(R)
-
-            # Correct reflection matrix to rotation matrix
-            diag = torch.ones_like(S[..., 0], requires_grad=False)
-            diag[:, 2] = det
-            R = v.bmm(torch.diag_embed(diag).bmm(u.transpose(1, 2)))
-
-            pc1_mean, pc2_mean = pc1_mean[valid_batches], pc2_mean[valid_batches]
-            t = pc2_mean.squeeze(1) - torch.bmm(R, pc1_mean.transpose(1, 2)).squeeze(2)
-
-            R_base[valid_batches] = R.to(R_base.dtype)
-            t_base[valid_batches] = t.to(t_base.dtype)
-
-        return R_base, t_base
+from bucketed_scene_flow_eval.datasets.argoverse2.argoverse_scene_flow import (
+    ArgoverseSceneFlowSequenceLoader,
+)
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="Test ArgoverseSceneFlowSequenceLoader"
+    )
+    parser.add_argument(
+        "--raw_dir",
+        type=str,
+        required=True,
+        help="Path to AV2 raw sequence root (contains per-sequence subfolders)",
+    )
+    parser.add_argument(
+        "--flow_dir",
+        type=str,
+        default=None,
+        help="Path to flow feather root matching raw_dir (optional; defaults to *_sceneflow_feather)",
+    )
+    parser.add_argument(
+        "--use_gt_flow",
+        action="store_true",
+        help="Use ground-truth scene flow (default False if not set)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=3,
+        help="How many sequence IDs to preview",
+    )
+    args = parser.parse_args()
 
-point_cloud_first = torch.randn((1, 1000, 3))
+    raw_path = Path(args.raw_dir)
+    flow_path = Path(args.flow_dir) if args.flow_dir is not None else None
 
-rotation_matrix = torch.tensor([[0.0, -1.0, 0.0],
-                               [1.0, 0.0, 0.0],
-                               [0.0, 0.0, 1.0]])
-translation_vector = torch.tensor([0.0, 0.0, 0.0])
-point_cloud_second = torch.bmm(point_cloud_first, rotation_matrix.unsqueeze(0)) + translation_vector.unsqueeze(0)
+    loader = ArgoverseSceneFlowSequenceLoader(
+        raw_data_path=raw_path,
+        flow_data_path=flow_path,
+        use_gt_flow=args.use_gt_flow,
+    )
 
-rot_reconstructed, translation_reconstructed = fit_motion_svd_batch(point_cloud_first, point_cloud_second)
-print("Rotation Matrix Reconstructed:\n", rot_reconstructed)
-print("Translation Vector Reconstructed:\n", translation_reconstructed)
+    seq_ids = loader.get_sequence_ids()
+    print(f"Total sequences: {len(seq_ids)}")
+    print("First IDs:", seq_ids[: args.limit])
+
+    # Load first sequence and peek at a sample pair
+    if len(seq_ids) == 0:
+        print("No sequences found.")
+        return
+
+    seq = loader[0]
+    print(f"Sequence '{seq_ids[0]}' length (num frames): {len(seq)}")
+
+    if len(seq) >= 2:
+        frame0, raw0 = seq.load(0, 1, with_flow=True)
+        # frame0 is expected to be a TimeSyncedSceneFlowFrame
+        pc0 = frame0.pc_0.points
+        pc1 = frame0.pc_1.points
+        flow = frame0.flow.vecs if hasattr(frame0.flow, "vecs") else None
+        print(
+            f"pc0: {pc0.shape}, pc1: {pc1.shape}, flow: {None if flow is None else flow.shape}"
+        )
+        print(
+            f"pc0 min/max: ({pc0.min():.3f},{pc0.max():.3f}), pc1 min/max: ({pc1.min():.3f},{pc1.max():.3f})"
+        )
+    else:
+        print("Sequence has fewer than 2 frames; skipping sample load.")
+
+
+if __name__ == "__main__":
+    main()
+
+
+

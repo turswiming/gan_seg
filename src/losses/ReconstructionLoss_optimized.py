@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
-from losses.loss_chamfer import my_chamfer_fn
+from pytorch3d.ops import knn_points
 
 class ReconstructionLossOptimized():
     """
@@ -38,10 +38,27 @@ class ReconstructionLossOptimized():
             use_parallel (bool): Whether to use parallel processing optimizations
         """
         self.device = device
-        self.chamferDistanceLoss = my_chamfer_fn
+        self.chamferDistanceLoss = self._bidir_knn_distance
         self.use_checkpointing = use_checkpointing
         self.chunk_size = chunk_size
         self.use_parallel = use_parallel
+
+    def _bidir_knn_distance(self, x, y):
+        """
+        Symmetric KNN (K=1) distance between point clouds x and y.
+        Inputs:
+            x: (B, N, 3)
+            y: (B, M, 3)
+        Returns:
+            Scalar tensor: mean of squared distances in both directions.
+        """
+        if x.ndim != 3 or y.ndim != 3:
+            raise ValueError("x and y must be (B,N,3)/(B,M,3)")
+        dxy, _, _ = knn_points(x, y, K=1)
+        dyx, _, _ = knn_points(y, x, K=1)
+        loss_xy = dxy.squeeze(-1).mean(dim=1)
+        loss_yx = dyx.squeeze(-1).mean(dim=1)
+        return (loss_xy + loss_yx).mean()
 
     def _fit_motion_svd_chunk(self, pc1_chunk, pc2_chunk, mask_chunk=None):
         """

@@ -183,12 +183,12 @@ lr_multi:
 loss:
   # Scene flow smoothness loss
   scene_flow_smoothness:
-    scale_flow_grad: 0.1
+    scale_flow_grad: 0.001
     each_mask_item:
-      relative_gradient: 0
+      relative_gradient: 1
       criterion: "L1"
     sum_mask_item:
-      relative_gradient: 1
+      relative_gradient: 0
       criterion: "L2"
   
   # KDTree loss configuration

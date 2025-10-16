@@ -9,7 +9,7 @@ and their flow vectors.
 import torch
 from torch import nn
 from torch.nn import functional as F
-from losses.loss_chamfer import my_chamfer_fn
+from losses.KNNDistanceLoss import KNNDistanceLoss
 
 class ReconstructionLoss():
     """
@@ -31,7 +31,8 @@ class ReconstructionLoss():
             device (torch.device): Device to perform computations on
         """
         self.device = device
-        self.chamferDistanceLoss = my_chamfer_fn
+        # Use our project's bidirectional KNN distance implementation
+        self.knn_distance = KNNDistanceLoss(k=1, reduction='mean')
         pass
 
     def fit_motion_svd_batch(self, pc1, pc2, mask=None):
@@ -191,8 +192,9 @@ class ReconstructionLoss():
                 # Add to reconstruction
                 scene_flow_rec[batch_idx:batch_idx+1] += masked_scene_flow
         
-            # Compute loss using Chamfer distance
-            loss = self.chamferDistanceLoss(scene_flow_rec + current_point_cloud_first, current_point_cloud_second)
+            # Compute bidirectional KNN distance using project-local loss
+            rec_pc = scene_flow_rec + current_point_cloud_first  # (1, N, 3)
+            loss = self.knn_distance(rec_pc, current_point_cloud_second, bidirectional=True)
             loss_summ += loss
             rec_point_cloud.append(scene_flow_rec + current_point_cloud_first)
         return loss, rec_point_cloud

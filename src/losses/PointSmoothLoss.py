@@ -2,13 +2,9 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch
 from torch.autograd import Variable
 from torch.autograd import Function
-import torch.nn as nn
-from typing import Tuple
-
-from pointnet2.pointnet2 import *
+from pytorch3d.ops import knn_points, knn_gather, ball_query
 
 """
 Point Smoothness Loss implementation for point cloud segmentation.
@@ -76,16 +72,28 @@ class KnnLoss(nn.Module):
         Returns:
             torch.Tensor: Computed KNN smoothness loss
         """
-        mask = mask.permute(0, 2, 1).contiguous()
-        dist, idx = knn(self.k, pc, pc)
+        mask = mask.permute(0, 2, 1).contiguous()  # (B, Kclasses, N)
+        dists, idx, _ = knn_points(pc, pc, K=self.k, return_nn=True)  # dists: (B, N, K)
+        # Use Euclidean distance for radius filtering to match original behavior
+        euclidean_dists = dists.sqrt()
         tmp_idx = idx[:, :, 0].unsqueeze(2).repeat(1, 1, self.k).to(idx.device)
-        idx[dist > self.radius] = tmp_idx[dist > self.radius]
-        nn_mask = grouping_operation(mask, idx.detach())
+        over_radius = euclidean_dists > self.radius
+        idx = idx.clone()
+        idx[over_radius] = tmp_idx[over_radius]
+        # Safety: clamp indices to valid range and ensure int64 dtype for gather
+        idx = idx.to(dtype=torch.int64)
+        num_points = mask.shape[2]
+        idx = idx.clamp_(min=0, max=num_points - 1)
+        # Prepare features for gather: (B, N, Kclasses)
+        feats = mask.permute(0, 2, 1).contiguous()
+        # Gather neighbor masks: (B, N, K, Kclasses) -> permute to (B, Kclasses, N, K)
+        nn_mask = knn_gather(feats, idx.detach()).permute(0, 3, 1, 2).contiguous()
         if self.cross_entropy:
             mask = mask.unsqueeze(3).repeat(1, 1, 1, self.k).detach()
             loss = F.binary_cross_entropy(nn_mask, mask, reduction='none').sum(dim=1).mean(dim=-1)
         else:
-            loss = (mask.unsqueeze(3) - nn_mask).norm(p=self.loss_norm, dim=1).mean(dim=-1)
+            ref = mask.unsqueeze(3)
+            loss = (ref - nn_mask).norm(p=self.loss_norm, dim=1).mean(dim=-1)
         return loss.mean()
 
 
@@ -132,14 +140,30 @@ class BallQLoss(nn.Module):
         Returns:
             torch.Tensor: Computed ball query smoothness loss
         """
-        mask = mask.permute(0, 2, 1).contiguous()
-        idx = ball_query(self.radius, self.k, pc, pc)
-        nn_mask = grouping_operation(mask, idx.detach())
+        mask = mask.permute(0, 2, 1).contiguous()  # (B, Kclasses, N)
+        idx = ball_query(pc, pc, K=self.k, radius=self.radius)  # (B, N, K) or object with .idx
+        # Some implementations may return an object; extract indices if needed
+        if not torch.is_tensor(idx):
+            idx = getattr(idx, 'idx', idx)
+        # Replace invalid indices (-1) with self index to match original padding behavior
+        B, N, K = idx.shape
+        device = idx.device
+        self_idx = torch.arange(N, device=device).view(1, N, 1).repeat(B, 1, K)
+        idx = torch.where(idx < 0, self_idx, idx)
+        # Safety: clamp indices to valid range and ensure int64 dtype for gather
+        idx = idx.to(dtype=torch.int64)
+        num_points = mask.shape[2]
+        idx = idx.clamp_(min=0, max=num_points - 1)
+        # Prepare features for gather: (B, N, Kclasses)
+        feats = mask.permute(0, 2, 1).contiguous()
+        # Gather neighbor masks and permute to (B, Kclasses, N, K)
+        nn_mask = knn_gather(feats, idx.detach()).permute(0, 3, 1, 2).contiguous()
         if self.cross_entropy:
             mask = mask.unsqueeze(3).repeat(1, 1, 1, self.k).detach()
             loss = F.binary_cross_entropy(nn_mask, mask, reduction='none').sum(dim=1).mean(dim=-1)
         else:
-            loss = (mask.unsqueeze(3) - nn_mask).norm(p=self.loss_norm, dim=1).mean(dim=-1)
+            ref = mask.unsqueeze(3)
+            loss = (ref - nn_mask).norm(p=self.loss_norm, dim=1).mean(dim=-1)
         return loss.mean()
 
 

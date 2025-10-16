@@ -69,7 +69,8 @@ def main(config, writer):
     loss_functions = initialize_loss_functions(config, device)
     
     # Initialize visualization
-    vis, pcd, gt_pcd, reconstructed_pcd = initialize_visualization(config)
+    if config.vis.show_window:
+        vis, pcd, gt_pcd, reconstructed_pcd = initialize_visualization(config)
     
     # Setup checkpointing
     checkpoint_dir, save_every_iters, step, resume, resume_path = setup_checkpointing(config, device)
