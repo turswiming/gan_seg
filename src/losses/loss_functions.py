@@ -1,0 +1,285 @@
+"""
+Loss functions for scene flow and mask prediction training.
+
+This module contains all the individual loss computation functions
+that were previously in main.py, organized for better modularity.
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from model.eulerflow_raw_mlp import QueryDirection
+
+
+def compute_reconstruction_loss(config, loss_functions, point_cloud_firsts, point_cloud_nexts, 
+                               pred_mask, pred_flow, train_mask, device):
+    """Compute reconstruction related losses.
+    
+    Returns:
+        tuple: (rec_loss, rec_flow_loss, reconstructed_points)
+    """
+    if (config.lr_multi.rec_loss > 0 or config.lr_multi.rec_flow_loss > 0) and train_mask:
+        pred_flow_detach = [flow.detach() for flow in pred_flow]
+        rec_loss, reconstructed_points = loss_functions['reconstruction'](
+            point_cloud_firsts, point_cloud_nexts, pred_mask, pred_flow_detach)
+        rec_loss = rec_loss * config.lr_multi.rec_loss
+    else:
+        rec_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        reconstructed_points = None
+        
+    # Reconstruction flow loss
+    if config.lr_multi.rec_flow_loss > 0 and train_mask and reconstructed_points is not None:
+        rec_flow_loss = 0
+        for i in range(len(point_cloud_firsts)):
+            pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
+            rec_flow_loss += loss_functions['flow_rec'](pred_second_point, reconstructed_points[i])
+        rec_flow_loss = rec_flow_loss * config.lr_multi.rec_flow_loss
+    else:
+        rec_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+    return rec_loss, rec_flow_loss, reconstructed_points
+
+
+def compute_flow_losses(config, loss_functions, point_cloud_firsts, point_cloud_nexts, 
+                       pred_flow, reverse_pred_flow, longterm_pred_flow, sample, device):
+    """Compute flow related losses."""
+    # Chamfer distance loss
+    if config.lr_multi.flow_loss > 0:
+        flow_loss = 0
+        for i in range(len(point_cloud_firsts)):
+            pred_second_points = point_cloud_firsts[i][:, :3] + pred_flow[i]
+            flow_loss += loss_functions['chamfer'](
+                pred_second_points.unsqueeze(0), 
+                point_cloud_nexts[i][:, :3].to(device).unsqueeze(0))
+            if len(reverse_pred_flow) > 0:
+                pred_first_point = point_cloud_nexts[i][:, :3] + reverse_pred_flow[i]
+                flow_loss += loss_functions['chamfer'](
+                    pred_first_point.unsqueeze(0), 
+                    point_cloud_firsts[i][:, :3].to(device).unsqueeze(0))
+                flow_loss = flow_loss / 2
+        if len(longterm_pred_flow) > 0:
+            for idx in longterm_pred_flow:
+                pred_points = longterm_pred_flow[idx][:, :3]
+                real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
+                flow_loss += loss_functions['chamfer'](
+                    pred_points.unsqueeze(0), real_points.to(device).unsqueeze(0))
+        flow_loss = flow_loss * config.lr_multi.flow_loss
+    else:
+        flow_loss = torch.tensor(0.0, device=device)
+        
+    return flow_loss
+
+
+def compute_scene_flow_smoothness_loss(config, loss_functions, point_cloud_firsts, pred_mask, 
+                                      pred_flow, step, scene_flow_smoothness_scheduler, device):
+    """Compute scene flow smoothness loss."""
+    if config.lr_multi.scene_flow_smoothness > 0 and step > config.training.begin_train_smooth:
+        scene_flow_smooth_loss = loss_functions['flow_smooth'](point_cloud_firsts, pred_mask, pred_flow)
+        scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
+        scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_smoothness_scheduler(step)
+    else:
+        scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+    return scene_flow_smooth_loss
+
+
+def compute_point_smoothness_loss(config, loss_functions, point_cloud_firsts, pred_mask, device):
+    """Compute point smoothness loss."""
+    if config.lr_multi.point_smooth_loss > 0:
+        point_smooth_loss = loss_functions['point_smooth'](point_cloud_firsts, pred_mask)
+        point_smooth_loss = point_smooth_loss * config.lr_multi.point_smooth_loss
+    else:
+        point_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+    return point_smooth_loss
+
+
+def compute_euler_flow_loss(config, scene_flow_predictor, point_cloud_firsts, point_cloud_nexts, 
+                           pred_flow, reverse_pred_flow, sample, train_flow, device):
+    """Compute Euler flow consistency loss."""
+    if (config.lr_multi.eular_flow_loss > 0 and 
+        config.model.flow.name in ["EulerFlowMLP", "EulerFlowMLPResidual"] and train_flow):
+        eular_flow_loss = 0
+        for i in range(len(point_cloud_firsts)):
+            point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
+            forward_reverse = scene_flow_predictor(
+                point_cloud_first_forward, sample["idx"][i]+1, 
+                sample["total_frames"][i], QueryDirection.REVERSE)
+            l2_error = torch.norm(pred_flow[i] + forward_reverse, dim=1)
+            eular_flow_loss += torch.sigmoid(l2_error).mean()
+            
+            if len(reverse_pred_flow) > 0:
+                point_cloud_next_reverse = point_cloud_nexts[i][:, :3] + reverse_pred_flow[i]
+                reverse_forward = scene_flow_predictor(
+                    point_cloud_next_reverse, sample["idx"][i], 
+                    sample["total_frames"][i], QueryDirection.FORWARD)
+                l2_error = torch.norm(reverse_pred_flow[i] + reverse_forward, dim=1)
+                eular_flow_loss += torch.sigmoid(l2_error).mean()
+        eular_flow_loss = eular_flow_loss * config.lr_multi.eular_flow_loss
+    else:
+        eular_flow_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+    return eular_flow_loss
+
+
+def compute_euler_mask_loss(config, mask_predictor, point_cloud_firsts, pred_flow, pred_mask, 
+                           sample, train_mask, device):
+    """Compute Euler mask consistency loss."""
+    if (config.lr_multi.eular_mask_loss > 0 and 
+        config.model.mask.name in ["EulerMaskMLP", "EulerMaskMLPResidual"] and train_mask):
+        eular_mask_loss = 0
+        for i in range(len(point_cloud_firsts)):
+            point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
+            forward_mask = mask_predictor(
+                point_cloud_first_forward, sample["idx"][i]+1, sample["total_frames"][i])
+            forward_mask = F.log_softmax(forward_mask, dim=1)
+            target_mask = F.log_softmax(pred_mask[i].clone().permute(1, 0), dim=1)
+            relative_entropy = torch.nn.functional.kl_div(
+                forward_mask, target_mask, reduction='batchmean', log_target=True)
+            eular_mask_loss += relative_entropy.mean()
+        eular_mask_loss = eular_mask_loss * config.lr_multi.eular_mask_loss
+    else:
+        eular_mask_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+    return eular_mask_loss
+
+
+def compute_kdtree_loss(config, loss_functions, point_cloud_firsts, point_cloud_nexts,
+                       pred_flow, longterm_pred_flow, sample, train_flow, device):
+    """Compute KDTree distance loss."""
+    if config.lr_multi.KDTree_loss > 0 and train_flow:
+        kdtree_dist_loss = 0
+        for i in range(len(point_cloud_firsts)):
+            pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
+            kdtree_dist_loss += loss_functions['kdtree'](
+                pred_second_point, sample["idx"][i]+1, point_cloud_nexts[i][:, :3].to(device))
+        if len(longterm_pred_flow) > 0:
+            for idx in longterm_pred_flow:
+                pred_points = longterm_pred_flow[idx][:, :3]
+                data_object = sample["self"][0].get_item(idx)
+                real_points = data_object["point_cloud_first"][:, :3].to(device)
+                kdtree_dist_loss += loss_functions['kdtree'](pred_points, data_object["idx"], real_points)
+        kdtree_dist_loss = kdtree_dist_loss * config.lr_multi.KDTree_loss
+    else:
+        kdtree_dist_loss = torch.tensor(0.0, device=device)
+        
+    return kdtree_dist_loss
+
+
+def compute_knn_loss(config, loss_functions, point_cloud_firsts, point_cloud_nexts,
+                    pred_flow, longterm_pred_flow, sample, train_flow, device):
+    """Compute KNN distance loss."""
+    if config.lr_multi.KNN_loss > 0 and train_flow:
+        knn_dist_loss = 0
+        for i in range(len(point_cloud_firsts)):
+            pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
+            knn_dist_loss += loss_functions['knn'](
+                point_cloud_nexts[i][:, :3].to(device), pred_second_point)
+        if len(longterm_pred_flow) > 0:
+            for idx in longterm_pred_flow:
+                pred_points = longterm_pred_flow[idx][:, :3]
+                real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
+                knn_dist_loss += loss_functions['knn'](real_points, pred_points)
+        knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
+    else:
+        knn_dist_loss = torch.tensor(0.0, device=device)
+        
+    return knn_dist_loss
+
+
+def compute_regularization_loss(config, pred_flow, reverse_pred_flow, longterm_pred_flow, 
+                               train_flow, device):
+    """Compute L1 regularization loss."""
+    if config.lr_multi.l1_regularization > 0 and train_flow:
+        l1_regularization_loss = 0
+        thres = config.loss.l1_regularization.threshold
+        
+        for flow in pred_flow:
+            dist = torch.norm(flow, dim=1)
+            dist = torch.where(dist > thres, torch.zeros_like(dist), dist)
+            l1_regularization_loss += dist.mean()
+            
+        for flow in reverse_pred_flow:
+            dist = torch.norm(flow, dim=1)
+            dist = torch.where(dist > thres, torch.zeros_like(dist), dist)
+            l1_regularization_loss += dist.mean()
+            
+        for idx in longterm_pred_flow:
+            dist = torch.norm(longterm_pred_flow[idx], dim=1)
+            dist = torch.where(dist > thres, torch.zeros_like(dist), dist)
+            l1_regularization_loss += dist.mean()
+            
+        l1_regularization_loss = l1_regularization_loss * config.lr_multi.l1_regularization
+    else:
+        l1_regularization_loss = torch.tensor(0.0, device=device)
+        
+    return l1_regularization_loss
+
+
+def compute_all_losses(config, loss_functions, scene_flow_predictor, mask_predictor,
+                      point_cloud_firsts, point_cloud_nexts, pred_flow, reverse_pred_flow,
+                      longterm_pred_flow, pred_mask, sample, step, scene_flow_smoothness_scheduler,
+                      train_flow, train_mask, device):
+    """Compute all losses and return loss dictionary and total loss."""
+    # Reconstruction losses
+    rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts, 
+        pred_mask, pred_flow, train_mask, device)
+    
+    # Flow losses
+    flow_loss = compute_flow_losses(
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts,
+        pred_flow, reverse_pred_flow, longterm_pred_flow, sample, device)
+    
+    # Scene flow smoothness loss
+    scene_flow_smooth_loss = compute_scene_flow_smoothness_loss(
+        config, loss_functions, point_cloud_firsts, pred_mask, pred_flow,
+        step, scene_flow_smoothness_scheduler, device)
+    
+    # Point smoothness loss
+    point_smooth_loss = compute_point_smoothness_loss(
+        config, loss_functions, point_cloud_firsts, pred_mask, device)
+    
+    # Euler flow loss
+    eular_flow_loss = compute_euler_flow_loss(
+        config, scene_flow_predictor, point_cloud_firsts, point_cloud_nexts,
+        pred_flow, reverse_pred_flow, sample, train_flow, device)
+    
+    # Euler mask loss
+    eular_mask_loss = compute_euler_mask_loss(
+        config, mask_predictor, point_cloud_firsts, pred_flow, pred_mask,
+        sample, train_mask, device)
+    
+    # KDTree loss
+    kdtree_dist_loss = compute_kdtree_loss(
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts,
+        pred_flow, longterm_pred_flow, sample, train_flow, device)
+    
+    # KNN loss
+    knn_dist_loss = compute_knn_loss(
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts,
+        pred_flow, longterm_pred_flow, sample, train_flow, device)
+    
+    # Regularization loss
+    l1_regularization_loss = compute_regularization_loss(
+        config, pred_flow, reverse_pred_flow, longterm_pred_flow, train_flow, device)
+    
+    # Create loss dictionary
+    loss_dict = {
+        "rec_loss": rec_loss,
+        "flow_loss": flow_loss,
+        "scene_flow_smooth_loss": scene_flow_smooth_loss,
+        "rec_flow_loss": rec_flow_loss,
+        "point_smooth_loss": point_smooth_loss,
+        "eular_flow_loss": eular_flow_loss,
+        "kdtree_dist_loss": kdtree_dist_loss,
+        "knn_dist_loss": knn_dist_loss,
+        "l1_regularization_loss": l1_regularization_loss,
+        "eular_mask_loss": eular_mask_loss,
+    }
+    
+    # Total loss
+    total_loss = sum(loss_dict.values())
+    
+    return loss_dict, total_loss, reconstructed_points

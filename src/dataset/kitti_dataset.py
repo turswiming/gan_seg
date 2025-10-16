@@ -67,7 +67,8 @@ class KITTIPerSceneDataset(nn.Module):
         num_points (int): Number of points to sample from each point cloud
     """
     
-    def __init__(self, data_root, downsampled=False, fixed_scene_id=None, num_points=8192):
+    def __init__(self, data_root, downsampled=False, fixed_scene_id=None, num_points=8192,
+                 processed_subdir="processed", data_subdir="data"):
         """
         Initialize the KITTI dataset loader.
         
@@ -77,14 +78,16 @@ class KITTIPerSceneDataset(nn.Module):
             fixed_scene_id (str, optional): If set, always return this specific scene.
                                           Format should be like "000000". Defaults to None.
             num_points (int): Number of points to sample from each point cloud
+            processed_subdir (str): Subdirectory name for processed data
+            data_subdir (str): Subdirectory name for downsampled data
         """
         super(KITTIPerSceneDataset, self).__init__()
         
         # Initialize dataset paths
         if downsampled:
-            self.data_root = osp.join(data_root, 'data')
+            self.data_root = osp.join(data_root, data_subdir)
         else:
-            self.data_root = osp.join(data_root, 'processed')
+            self.data_root = osp.join(data_root, processed_subdir)
             
         self.fixed_scene_id = fixed_scene_id
         self.num_points = num_points

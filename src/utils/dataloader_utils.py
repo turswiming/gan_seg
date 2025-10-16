@@ -51,40 +51,96 @@ def create_dataloaders(config):
     """
     # Create dataset based on config
     if config.dataset.name == "AV2":
-        dataset = AV2PerSceneDataset(fixed_scene_idx=config.dataset.AV2.fixed_scene_idx)
+        dataset = AV2PerSceneDataset(
+            fixed_scene_idx=config.dataset.AV2.fixed_scene_idx,
+            fix_ego_motion=config.dataset.AV2.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2.apply_ego_motion,
+            train_scene_path=config.dataset.AV2.train_scene_path,
+            test_scene_path=config.dataset.AV2.test_scene_path,
+            motion_threshold=config.dataset.AV2.motion_threshold
+        )
     elif config.dataset.name == "AV2Sequence":
-        dataset = AV2SequenceDataset(max_k=3)
+        dataset = AV2SequenceDataset(
+            max_k=config.dataset.AV2Sequence.max_k,
+            fix_ego_motion=config.dataset.AV2Sequence.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2Sequence.apply_ego_motion,
+            train_scene_path=config.dataset.AV2.train_scene_path,  # Use AV2 paths
+            test_scene_path=config.dataset.AV2.test_scene_path,
+            motion_threshold=config.dataset.AV2Sequence.motion_threshold
+        )
     elif config.dataset.name == "MOVI_F":
-        dataset = MOVIFPerSceneDataset()
+        dataset = MOVIFPerSceneDataset(
+            dataset_path=config.dataset.MOVI_F.dataset_path,
+            motion_threshold=config.dataset.MOVI_F.motion_threshold
+        )
     elif config.dataset.name == "MOVI_FSequence":
         dataset = MOVIFSequenceDataset(
-            dataset_path=config.dataset.MOVI_F.dataset_path,
-            max_k=3,
-            motion_threshold=0.05
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=config.dataset.MOVI_FSequence.max_k,
+            motion_threshold=config.dataset.MOVI_FSequence.motion_threshold
         )
     elif config.dataset.name == "KITTISF":
         dataset = KITTIPerSceneDataset(
             data_root=config.dataset.KITTISF.data_root, 
             downsampled=config.dataset.KITTISF.downsampled, 
-            fixed_scene_id=config.dataset.KITTISF.fixed_scene_id
-            )
+            fixed_scene_id=config.dataset.KITTISF.fixed_scene_id,
+            num_points=config.dataset.KITTISF.num_points,
+            processed_subdir=config.dataset.KITTISF.processed_subdir,
+            data_subdir=config.dataset.KITTISF.data_subdir
+        )
+    elif config.dataset.name == "KITTISequence":
+        dataset = KITTISequenceDataset(
+            data_root=config.dataset.KITTISequence.data_root,
+            max_k=config.dataset.KITTISequence.max_k,
+            num_points=config.dataset.KITTISequence.num_points,
+            downsampled=config.dataset.KITTISequence.downsampled,
+            motion_threshold=config.dataset.KITTISequence.motion_threshold
+        )
 
     else:
         raise ValueError(f"Dataset {config.dataset.name} not supported")
     if config.dataset.val_name == "AV2Sequence":
-        val_dataset = AV2SequenceDataset(max_k=3)
+        val_dataset = AV2SequenceDataset(
+            max_k=config.dataset.AV2Sequence.max_k,
+            fix_ego_motion=config.dataset.AV2Sequence.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2Sequence.apply_ego_motion,
+            train_scene_path=config.dataset.AV2.train_scene_path,
+            test_scene_path=config.dataset.AV2.test_scene_path,
+            motion_threshold=config.dataset.AV2Sequence.motion_threshold
+        )
     elif config.dataset.val_name == "AV2":
-        val_dataset = AV2PerSceneDataset(fixed_scene_idx=config.dataset.AV2.fixed_scene_idx)
+        val_dataset = AV2PerSceneDataset(
+            fixed_scene_idx=config.dataset.AV2.fixed_scene_idx,
+            fix_ego_motion=config.dataset.AV2.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2.apply_ego_motion,
+            train_scene_path=config.dataset.AV2.train_scene_path,
+            test_scene_path=config.dataset.AV2.test_scene_path,
+            motion_threshold=config.dataset.AV2.motion_threshold
+        )
     elif config.dataset.val_name == "AV2Sequence_val":
-        val_dataset = AV2SequenceDataset(max_k=1)
+        val_dataset = AV2SequenceDataset(
+            max_k=1,
+            fix_ego_motion=config.dataset.AV2Sequence.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2Sequence.apply_ego_motion,
+            train_scene_path=config.dataset.AV2.train_scene_path,
+            test_scene_path=config.dataset.AV2.test_scene_path,
+            motion_threshold=config.dataset.AV2Sequence.motion_threshold
+        )
     elif config.dataset.val_name == "MOVI_FSequence_val":
         val_dataset = MOVIFSequenceDataset(
-            dataset_path=config.dataset.MOVI_F.dataset_path,
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
             max_k=1,
-            motion_threshold=0.05
+            motion_threshold=config.dataset.MOVI_FSequence.motion_threshold
         )
     elif config.dataset.val_name == "KITTISF":
-        val_dataset = KITTIPerSceneDataset(data_root=config.dataset.KITTISF.data_root, downsampled=config.dataset.KITTISF.downsampled, fixed_scene_id=config.dataset.KITTISF.fixed_scene_id)
+        val_dataset = KITTIPerSceneDataset(
+            data_root=config.dataset.KITTISF.data_root, 
+            downsampled=config.dataset.KITTISF.downsampled, 
+            fixed_scene_id=config.dataset.KITTISF.fixed_scene_id,
+            num_points=config.dataset.KITTISF.num_points,
+            processed_subdir=config.dataset.KITTISF.processed_subdir,
+            data_subdir=config.dataset.KITTISF.data_subdir
+        )
     else:
         raise ValueError(f"Dataset {config.dataset.val_name} not supported")
     # Create dataloader with batch dimension handling

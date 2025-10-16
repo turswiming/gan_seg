@@ -28,18 +28,31 @@ class AV2SequenceDataset(nn.Module):
         flow (torch.Tensor): Ground truth flow vectors
     """
     
-    def __init__(self, fix_ego_motion=True,max_k=1,apply_ego_motion=True):
+    def __init__(self, fix_ego_motion=True, max_k=1, apply_ego_motion=True, 
+                 train_scene_path=None, test_scene_path=None, motion_threshold=0.05):
         """
         Initialize the AV2 dataset loader.
+        
+        Args:
+            fix_ego_motion (bool): Whether to fix ego motion
+            max_k (int): Maximum k value for sequence length
+            apply_ego_motion (bool): Whether to apply ego motion
+            train_scene_path (str): Path to training scene file
+            test_scene_path (str): Path to test scene file
+            motion_threshold (float): Threshold for motion filtering
         """
         super(AV2SequenceDataset, self).__init__()
         self.point_cloud_first = None
         self.apply_ego_motion = apply_ego_motion
-        self.av2_scene_path = "/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
-        self.av2_test_scene_path = "/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
+        self.motion_threshold = motion_threshold
+        
+        # Use provided paths or fallback to default
+        self.av2_scene_path = train_scene_path or "/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
+        self.av2_test_scene_path = test_scene_path or "/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
+        
         if self.apply_ego_motion:
-            assert fix_ego_motion,"fix_ego_motion must be True when apply_ego_motion is True"
-        self.av2_dataset = read_av2_scene(self.av2_scene_path,apply_ego_motion=apply_ego_motion)
+            assert fix_ego_motion, "fix_ego_motion must be True when apply_ego_motion is True"
+        self.av2_dataset = read_av2_scene(self.av2_scene_path, apply_ego_motion=apply_ego_motion)
         self.sequence_length = len(list(self.av2_dataset.keys()))
         self.fix_ego_motion = fix_ego_motion
         self.max_k = max_k
@@ -83,7 +96,7 @@ class AV2SequenceDataset(nn.Module):
         flow = first_value["flow"]
         if not self.apply_ego_motion:
             flow = torch.matmul(flow - ego_motion[:3, 3], ego_motion[:3, :3].T)
-        motion_mask = torch.linalg.norm(flow, dim=1) > 0.05
+        motion_mask = torch.linalg.norm(flow, dim=1) > self.motion_threshold
         if self.fix_ego_motion:
             pass
         else:

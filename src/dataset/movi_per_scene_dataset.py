@@ -45,12 +45,18 @@ class MOVIPerSceneDataset(nn.Module):
         point_cloud_second (torch.Tensor): Second frame point cloud
     """
     
-    def __init__(self):
+    def __init__(self, dataset_path=None, motion_threshold=0.01):
         """
         Initialize the per scene dataset loader.
+        
+        Args:
+            dataset_path (str): Path to the MOVI-F dataset directory
+            motion_threshold (float): Threshold for motion filtering
         """
         super(MOVIPerSceneDataset, self).__init__()
         self.traj = None
+        self.dataset_path = dataset_path
+        self.motion_threshold = motion_threshold
         
     def __len__(self):
         """
