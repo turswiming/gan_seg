@@ -15,7 +15,7 @@ model:
     name: "EulerMaskMLPResidual"
     lr : 0.0001
 
-    slot_num: 25
+    slot_num: 1
     use_normalization: false  # 启用normalization
     normalization_type: "group_norm"  # 使用group_norm节省内存
     MLP:
@@ -36,7 +36,7 @@ training:
   begin_train_mask: 0
 
 lr_multi:
-  rec_loss: 1.0
+  rec_loss: 0.0
   flow_loss: 0.0
   scene_flow_smoothness: 0
   rec_flow_loss: 0.0

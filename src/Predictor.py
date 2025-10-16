@@ -9,6 +9,7 @@ import torch
 
 from model.scene_flow_predict_model import OptimizedFLowPredictor, Neural_Prior
 from model.mask_predict_model import OptimizedMaskPredictor, Neural_Mask_Prior
+from typing import Optional
 
 def get_scene_flow_predictor(flow_model_config,N):
     """
@@ -57,6 +58,21 @@ def get_scene_flow_predictor(flow_model_config,N):
                             latent_dim=128,
                             act_fn=ActivationFn.RELU,
                             num_layers=9)
+    elif flow_model_config.name == "FastFlow3D":
+        # Lazy import to avoid SceneFlowZoo dependency unless used
+        from model.fastflow3d_wrapper import FastFlow3DInference
+        scene_flow_zoo_root: str = getattr(flow_model_config, "scene_flow_zoo_root", "/workspace/gan_seg/SceneFlowZoo")
+        ckpt_path: Optional[str] = getattr(flow_model_config, "ckpt_path", None)
+        device: Optional[str] = getattr(flow_model_config, "device", None)
+        class _Adapter(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.wrapper = FastFlow3DInference(scene_flow_zoo_root=scene_flow_zoo_root, ckpt_path=ckpt_path, device=device)
+            def forward(self, pc0: torch.Tensor, pc1: Optional[torch.Tensor]=None, pose0: Optional[torch.Tensor]=None, pose1: Optional[torch.Tensor]=None):
+                if pc1 is None or pose0 is None or pose1 is None:
+                    raise ValueError("FastFlow3D requires pc1, pose0, pose1 for inference")
+                return self.wrapper.predict(pc0[:, :3], pc1[:, :3], pose0, pose1)
+        return _Adapter()
     else:
         raise NotImplementedError("scene flow predictor not implemented")
     

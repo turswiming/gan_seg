@@ -6,3 +6,4 @@ kittisf/*
 *.zip
 .github
 .venv
+data/*

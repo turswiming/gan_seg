@@ -128,7 +128,23 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
             # Predict scene flow
             for i  in range(len(point_cloud_firsts)):
                 try:
-                    flow_pred = scene_flow_predictor(point_cloud_firsts[i])
+                    if getattr(config.model.flow, "name", "") == "FastFlow3D":
+                        cur_idx = batch["idx"][i]
+                        total_frames = batch["total_frames"][i]
+                        # fetch next frame within bounds
+                        next_idx = min(int(cur_idx) + 1, int(total_frames) - 1)
+                        next_item = batch["self"][0].get_item(next_idx)
+                        pc0 = point_cloud_firsts[i][:, :3]
+                        pc1 = next_item["point_cloud_first"].to(device)[:, :3]
+                        pose0 = batch.get("pose")
+                        if pose0 is not None:
+                            pose0 = pose0[i].to(device)
+                        else:
+                            pose0 = torch.eye(4, device=device)
+                        pose1 = next_item.get("pose", torch.eye(4)).to(device)
+                        flow_pred = scene_flow_predictor(pc0, pc1, pose0, pose1)
+                    else:
+                        flow_pred = scene_flow_predictor(point_cloud_firsts[i])
                     pred_flows.extend([flow_pred])
                 except Exception as e:
                     from model.eulerflow_raw_mlp import QueryDirection

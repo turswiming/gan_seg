@@ -1,7 +1,7 @@
 __base__: "baseconfig.yaml"
 checkpoint:
   resume: false          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251010_202438beststable/checkpoints/step_14000.pt"
+  resume_path: "/workspace/gan_seg/outputs/exp/20251014_232352/checkpoints/step_8000.pt"
   save_every_iters: 1000
 model:
   flow:
@@ -48,9 +48,9 @@ lr_multi:
   eular_mask_loss: 1
   scene_flow_smoothness_scheduler:
     begin_iter: 0
-    end_iter: 15000
+    end_iter: 8000
     begin_value: 1.0
-    end_value: 15.0
+    end_value: 10.0
 
 # alternate:
 #   flow: [[50,true],[50,false]]
