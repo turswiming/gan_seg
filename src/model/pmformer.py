@@ -63,7 +63,7 @@ class NaiveSparseSyncBatchNorm1d(nn.BatchNorm1d):
     def forward(self, input):
         assert input.dtype == torch.float32, \
             f'input should be in float32 type, got {input.dtype}'
-        if not self.training or dist.get_world_size() == 1:
+        if (not self.training) or (not dist.is_available()) or (not dist.is_initialized()) or (dist.get_world_size() == 1):
             return super().forward(input)
         assert input.shape[0] > 0, 'SyncBN does not support empty inputs'
         C = input.shape[1]
@@ -313,8 +313,8 @@ class pmformer(nn.Module):
         
         self.multi_scale_top_layers = nn.ModuleDict()
         self.feature_list = {
-            "0.5": [10, 64],
-            "1": [10, 64],
+            "0.5": [9, 64],
+            "1": [9, 64],
         }
         self.target_scale = 1
         for scale in self.scales:
@@ -375,7 +375,7 @@ class pmformer(nn.Module):
                 mask_classification=True,
                 num_classes=self.num_class,
                 hidden_dim=256, 
-                num_queries=params['num_quries'], #50
+                num_queries=params['num_queries'], #50
                 nheads=8,
                 dim_feedforward=2048,
                 dec_layers=params['dec_layers'],

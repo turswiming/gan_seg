@@ -59,8 +59,8 @@ def main():
     if len(seq) >= 2:
         frame0, raw0 = seq.load(0, 1, with_flow=True)
         # frame0 is expected to be a TimeSyncedSceneFlowFrame
-        pc0 = frame0.pc_0.points
-        pc1 = frame0.pc_1.points
+        pc0 = frame0.pc.pc.points
+        pc1 = frame0.pc.pc.points
         flow = frame0.flow.vecs if hasattr(frame0.flow, "vecs") else None
         print(
             f"pc0: {pc0.shape}, pc1: {pc1.shape}, flow: {None if flow is None else flow.shape}"

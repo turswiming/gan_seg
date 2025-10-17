@@ -193,3 +193,118 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
     )
 
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
+
+def eval_model_general(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step):
+    """
+    General evaluator aligned with new data structures (TimeSyncedSceneFlowFrame).
+    Expects each batch to provide a list of frames or a dict with key 'frames'.
+    """
+    scene_flow_predictor.eval()
+    mask_predictor.eval()
+
+    pred_flows = []
+    gt_flows = []
+    pred_masks = []
+    gt_masks = []
+
+    background_static_masks = []
+    foreground_static_masks = []
+    foreground_dynamic_masks = []
+
+    with torch.no_grad():
+        for batch in dataloader:
+            # Normalize batch format to list[TimeSyncedSceneFlowFrame]
+            if isinstance(batch, dict) and "frames" in batch:
+                frames = batch["frames"]
+            else:
+                frames = batch  # assume batch is already list[TimeSyncedSceneFlowFrame]
+
+            # Per-frame eval
+            for frame in frames:
+                # 1) Inputs: global point cloud (masked) and GT flow
+                # pc points (visible subset) in world frame
+                pc_points = torch.from_numpy(frame.pc.global_pc.points).to(device=device, dtype=torch.float32)  # [N,3]
+                # GT flow in ego coordinates; align to visible points
+                gt_mask_bool = frame.flow.mask  # numpy bool over full_pc
+                # valid_flow is already masked to mask==True
+                gt_flow_np = frame.flow.valid_flow  # [M,3] where M=sum(mask)
+                # visible pc points correspond to frame.pc.pc (mask applied).
+                # Align shape: both should have same length; if not, re-index via pc.mask
+                visible_mask = frame.pc.mask  # numpy bool over full_pc
+                # Map GT to visible subset: expected gt_mask_bool == visible_mask
+                if gt_flow_np.shape[0] != visible_mask.sum():
+                    # Fallback: align by mask intersection
+                    common = (gt_mask_bool & visible_mask)
+                    gt_flow_np = frame.flow.full_flow[common]
+
+                gt_flow = torch.from_numpy(gt_flow_np).to(device=device, dtype=torch.float32)  # [N,3] aligned to pc_points
+
+                # 2) Predict scene flow. If your predictor expects pc0->pc1 or only pc0, adapt accordingly.
+                # Minimal API: predictor(pc_points) -> [N,3]
+                try:
+                    flow_pred = scene_flow_predictor(pc_points)  # torch [N,3]
+                except TypeError:
+                    # Alternative signature: predictor(pc_points, extra_args...)
+                    flow_pred = scene_flow_predictor(pc_points)
+
+                pred_flows.append(flow_pred)
+                gt_flows.append(gt_flow)
+
+                # 3) Predict masks
+                # If your mask predictor expects a single tensor [N,3]:
+                try:
+                    masks_pred = mask_predictor(pc_points)  # shape [K,N] or [N,K]; normalize to [K,N]
+                except TypeError:
+                    masks_pred = mask_predictor(pc_points)
+                if masks_pred.dim() == 2 and masks_pred.shape[0] < masks_pred.shape[1]:
+                    # [K,N]
+                    pred_masks.append(masks_pred)
+                elif masks_pred.dim() == 2:
+                    # [N,K] -> [K,N]
+                    pred_masks.append(masks_pred.transpose(0, 1).contiguous())
+                else:
+                    # If mask predictor returns dict
+                    logits = masks_pred.get("pred_logits", None)
+                    masks = masks_pred.get("pred_masks", None)
+                    if logits is not None and masks is not None:
+                        # reduce to per-point segmentation if needed; for simplicity keep masks as-is
+                        pred_masks.append(masks.squeeze(0))
+                    else:
+                        # fallback: identity single-class mask
+                        pred_masks.append(torch.ones(1, pc_points.shape[0], device=device, dtype=torch.float32))
+
+                # 4) GT masks: if you have dynamic instance mask per point
+                # Here we use a single-class placeholder. Replace with your ground-truth mask if available:
+                gt_masks.append(torch.zeros(pc_points.shape[0], device=device, dtype=torch.long))
+
+                # 5) Optional AV2 three-way masks
+                # If your dataloader provides per-point background/foreground masks, append them; otherwise skip.
+                if isinstance(batch, dict):
+                    for name, buf in [("background_static_mask", background_static_masks),
+                                      ("foreground_static_mask", foreground_static_masks),
+                                      ("foreground_dynamic_mask", foreground_dynamic_masks)]:
+                        arr = batch.get(name, None)
+                        if arr is not None:
+                            # Expect numpy bool aligned to visible points
+                            vis_mask = torch.from_numpy(arr).to(device=device)
+                            buf.append(vis_mask)
+
+    # Convert optionals
+    bg_masks = background_static_masks if len(background_static_masks) > 0 else None
+    fg_static_masks = foreground_static_masks if len(foreground_static_masks) > 0 else None
+    fg_dynamic_masks = foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
+
+    epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = evaluate_predictions(
+        pred_flows,
+        gt_flows,
+        pred_masks,
+        gt_masks,
+        device,
+        writer=writer,
+        step=step,
+        argoverse2=(getattr(config.dataset, "name", "") in ["AV2", "AV2Sequence"]),
+        background_static_mask=bg_masks,
+        foreground_static_mask=fg_static_masks,
+        foreground_dynamic_mask=fg_dynamic_masks,
+    )
+    return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean

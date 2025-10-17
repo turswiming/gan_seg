@@ -60,19 +60,15 @@ def get_scene_flow_predictor(flow_model_config,N):
                             num_layers=9)
     elif flow_model_config.name == "FastFlow3D":
         # Lazy import to avoid SceneFlowZoo dependency unless used
-        from model.fastflow3d_wrapper import FastFlow3DInference
-        scene_flow_zoo_root: str = getattr(flow_model_config, "scene_flow_zoo_root", "/workspace/gan_seg/SceneFlowZoo")
-        ckpt_path: Optional[str] = getattr(flow_model_config, "ckpt_path", None)
-        device: Optional[str] = getattr(flow_model_config, "device", None)
-        class _Adapter(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.wrapper = FastFlow3DInference(scene_flow_zoo_root=scene_flow_zoo_root, ckpt_path=ckpt_path, device=device)
-            def forward(self, pc0: torch.Tensor, pc1: Optional[torch.Tensor]=None, pose0: Optional[torch.Tensor]=None, pose1: Optional[torch.Tensor]=None):
-                if pc1 is None or pose0 is None or pose1 is None:
-                    raise ValueError("FastFlow3D requires pc1, pose0, pose1 for inference")
-                return self.wrapper.predict(pc0[:, :3], pc1[:, :3], pose0, pose1)
-        return _Adapter()
+        from SceneFlowZoo.models.feed_forward.fast_flow_3d import FastFlow3D
+        model_config = flow_model_config.FastFlow3D
+        return FastFlow3D(
+            VOXEL_SIZE=model_config.VOXEL_SIZE,
+            PSEUDO_IMAGE_DIMS=model_config.PSEUDO_IMAGE_DIMS,
+            POINT_CLOUD_RANGE=model_config.POINT_CLOUD_RANGE,
+            FEATURE_CHANNELS=model_config.FEATURE_CHANNELS,
+            SEQUENCE_LENGTH=model_config.SEQUENCE_LENGTH,
+        )
     else:
         raise NotImplementedError("scene flow predictor not implemented")
     
@@ -137,5 +133,26 @@ def get_mask_predictor(mask_model_config,N):
                             filter_size=model_detail.num_hidden,
                             act_fn=ActivationFn.RELU,
                             layer_size=model_detail.num_layers,).to(device)
+    elif mask_model_config.name == "PointMaskFormer":
+        from model.pmformer import pmformer
+        config = dict(
+            lims=[[-48, 48], [-48, 48], [-3, 1.8]],
+            offset=0.5,
+            target_scale=1,
+            grid_meters=[0.2, 0.2, 0.1],
+            scales=[0.5, 1],
+            pooling_scale=[0.5, 1, 2, 4, 6, 8, 12],
+            sizes=[480, 480, 48],
+            n_class=mask_model_config.slot_num,
+            class_weight=1.0,
+            dice_weight=20.0,
+            mask_weight=50.0,
+            match_class_weight=1.0,
+            match_dice_weight=2.0,
+            match_mask_weight=5.0,
+            num_queries=30,
+            dec_layers=6
+        )
+        return pmformer(config).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")

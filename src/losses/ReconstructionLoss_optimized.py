@@ -229,7 +229,6 @@ class ReconstructionLossOptimized():
         point_cloud_second = [item.to(self.device) for item in point_cloud_second]
         pred_mask = [item.to(self.device) for item in pred_mask]
         pred_flow = [item.to(self.device) for item in pred_flow]
-        
         batch_size = len(point_cloud_first)
         
         if self.use_parallel and batch_size > 1:

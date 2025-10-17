@@ -197,5 +197,5 @@ class ReconstructionLoss():
             loss = self.knn_distance(rec_pc, current_point_cloud_second, bidirectional=True)
             loss_summ += loss
             rec_point_cloud.append(scene_flow_rec + current_point_cloud_first)
-        return loss, rec_point_cloud
+        return loss_summ, rec_point_cloud
         pass

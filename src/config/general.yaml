@@ -1,0 +1,80 @@
+__base__: "baseconfig.yaml"
+checkpoint:
+  resume: false          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20251014_232352/checkpoints/step_8000.pt"
+  save_every_iters: 1000
+model:
+  flow:
+    name: "FastFlow3D"
+    FastFlow3D:
+      VOXEL_SIZE: [0.2, 0.2, 6]
+      PSEUDO_IMAGE_DIMS: [512, 512]
+      POINT_CLOUD_RANGE: [-51.2, -51.2, -3, 51.2, 51.2, 3]
+      FEATURE_CHANNELS: 32
+      SEQUENCE_LENGTH: 2
+  mask:
+    name: "PointMaskFormer"
+    slot_num: 19
+
+dataset:
+  name: "AV2_SceneFlowZoo"
+  AV2_SceneFlowZoo:
+    root_dir: "/workspace/av2data/train"
+    subsequence_length: 2
+    sliding_window_step_size: 1
+    with_ground: false
+    with_rgb: false
+    eval_type: "bucketed_epe"
+    expected_camera_shape: (194, 256, 3)
+    cache_root: "/workspace/av2data/cache"
+    use_gt_flow: false
+    flow_data_path: "/workspace/av2flow/train/"
+
+  val_name: "AV2_SceneFlowZoo_val"
+  AV2_SceneFlowZoo_val:
+    root_dir: "/workspace/av2data/val"
+    with_ground: false
+    with_rgb: false
+    eval_type: "bucketed_epe"
+    expected_camera_shape: (194, 256, 3)
+    use_gt_flow: true
+    cache_root: "/workspace/av2data/cache"
+    flow_data_path: "/workspace/av2flow/val/"
+    eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
+
+lr_multi:
+  rec_loss: 1.0
+  flow_loss: 0.0
+  scene_flow_smoothness: 1
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.01
+  eular_flow_loss: 0.01
+  KDTree_loss: 3.0
+  KNN_loss: 3.0
+  l1_regularization: 0.0
+  eular_mask_loss: 1
+  scene_flow_smoothness_scheduler:
+    begin_iter: 0
+    end_iter: 8000
+    begin_value: 1.0
+    end_value: 10.0
+
+# alternate:
+#   flow: [[50,true],[50,false]]
+#   mask: [[50,false],[50,true]]
+training:
+  max_epochs: 100
+loss:
+  scene_flow_smoothness:
+    scale_flow_grad: 0.001
+    each_mask_item:
+      relative_gradient: 0.9
+      criterion: "L2"
+    sum_mask_item:
+      relative_gradient: 0
+      criterion: "L2"
+
+
+vis:
+  show_window: false
+  debug_grad: false

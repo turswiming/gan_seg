@@ -176,7 +176,7 @@ def compute_knn_loss(config, loss_functions, point_cloud_firsts, point_cloud_nex
             pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
             knn_dist_loss += loss_functions['knn'](
                 point_cloud_nexts[i][:, :3].to(device), pred_second_point)
-        if len(longterm_pred_flow) > 0:
+        if longterm_pred_flow is not None and len(longterm_pred_flow) > 0:
             for idx in longterm_pred_flow:
                 pred_points = longterm_pred_flow[idx][:, :3]
                 real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
@@ -277,6 +277,44 @@ def compute_all_losses(config, loss_functions, scene_flow_predictor, mask_predic
         "knn_dist_loss": knn_dist_loss,
         "l1_regularization_loss": l1_regularization_loss,
         "eular_mask_loss": eular_mask_loss,
+    }
+    
+    # Total loss
+    total_loss = sum(loss_dict.values())
+    
+    return loss_dict, total_loss, reconstructed_points
+
+def compute_all_losses_general(config, loss_functions, scene_flow_predictor, mask_predictor,
+                      point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
+                      train_flow, train_mask, device):
+    """Compute all losses and return loss dictionary and total loss."""
+    # Reconstruction losses
+    rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts, 
+        pred_mask, pred_flow, train_mask, device)
+    
+    
+    # Scene flow smoothness loss
+    scene_flow_smooth_loss = compute_scene_flow_smoothness_loss(
+        config, loss_functions, point_cloud_firsts, pred_mask, pred_flow,
+        step, scene_flow_smoothness_scheduler, device)
+    
+    # Point smoothness loss
+    point_smooth_loss = compute_point_smoothness_loss(
+        config, loss_functions, point_cloud_firsts, pred_mask, device)
+    
+
+    # KNN loss
+    knn_dist_loss = compute_knn_loss(
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts,
+        pred_flow, None, None, train_flow, device)
+    
+    # Create loss dictionary
+    loss_dict = {
+        "rec_loss": rec_loss,
+        "scene_flow_smooth_loss": scene_flow_smooth_loss,
+        "point_smooth_loss": point_smooth_loss,
+        "knn_dist_loss": knn_dist_loss,
     }
     
     # Total loss

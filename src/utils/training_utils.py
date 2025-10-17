@@ -15,7 +15,7 @@ from torch.nn import functional as F
 from eval import eval_model
 from utils.visualization_utils import remap_instance_labels, color_mask
 from visualize.open3d_func import visualize_vectors, update_vector_visualization
-
+from eval import eval_model_general
 
 def determine_training_modes(step, config, alter_scheduler):
     """Determine which models should be trained at current step.
@@ -209,6 +209,25 @@ def handle_evaluation(config, step, scene_flow_predictor, mask_predictor, datalo
         if threeway_mean is not None:
             writer.add_scalar("val_threeway_mean", threeway_mean.mean().item(), step)
 
+def handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor, dataloader, device, writer):
+    """Handle model evaluation and logging."""
+    if step % config.training.eval_loop == 1:
+        epe, miou, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = eval_model_general(
+            scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
+        
+        # Log evaluation metrics
+        writer.add_scalar("val_epe", epe.mean().item(), step)
+        writer.add_scalar("val_miou", miou.item(), step)
+        
+        if bg_epe is not None:
+            writer.add_scalar("val_bg_epe", bg_epe.mean().item(), step)
+        if fg_static_epe is not None:
+            writer.add_scalar("val_fg_static_epe", fg_static_epe.mean().item(), step)
+        if fg_dynamic_epe is not None:
+            writer.add_scalar("val_fg_dynamic_epe", fg_dynamic_epe.mean().item(), step)
+
+        if threeway_mean is not None:
+            writer.add_scalar("val_threeway_mean", threeway_mean.mean().item(), step)
 
 def log_prediction_histograms(config, writer, pred_flow, pred_mask, step):
     """Log prediction histograms to TensorBoard."""
