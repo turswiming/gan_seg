@@ -1,4 +1,9 @@
 __base__: "baseconfig.yaml"
+log:
+  name: "defaultname"
+  dir: "" # default save to /output/exp
+  tensorboard_log_interval: 7  # Log losses every N steps
+
 checkpoint:
   resume: false          # 是否从断点恢复
   resume_path: "/workspace/gan_seg/outputs/exp/20251014_232352/checkpoints/step_8000.pt"
@@ -29,15 +34,26 @@ dataset:
     cache_root: "/workspace/av2data/cache"
     use_gt_flow: false
     flow_data_path: "/workspace/av2flow/train/"
+    downsample_factor: 4
 
   val_name: "AV2_SceneFlowZoo_val"
-  AV2_SceneFlowZoo_val:
+  AV2_SceneFlowZoo_val_flow:
     root_dir: "/workspace/av2data/val"
     with_ground: false
     with_rgb: false
     eval_type: "bucketed_epe"
     expected_camera_shape: (194, 256, 3)
     use_gt_flow: true
+    cache_root: "/workspace/av2data/cache"
+    flow_data_path: "/workspace/av2flow/val/"
+    eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
+  AV2_SceneFlowZoo_val_mask:
+    root_dir: "/workspace/av2data/val"
+    with_ground: false
+    with_rgb: false
+    eval_type: "bucketed_epe"
+    expected_camera_shape: (194, 256, 3)
+    use_gt_flow: false
     cache_root: "/workspace/av2data/cache"
     flow_data_path: "/workspace/av2flow/val/"
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
@@ -63,7 +79,13 @@ lr_multi:
 #   flow: [[50,true],[50,false]]
 #   mask: [[50,false],[50,true]]
 training:
-  max_epochs: 100
+  max_iter: 300000
+  eval_loop: 1000
+  begin_train_smooth: 0
+  begin_train_mask: 0
+dataloader:
+  batchsize: 1
+  num_workers: 0
 loss:
   scene_flow_smoothness:
     scale_flow_grad: 0.001

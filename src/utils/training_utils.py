@@ -209,11 +209,20 @@ def handle_evaluation(config, step, scene_flow_predictor, mask_predictor, datalo
         if threeway_mean is not None:
             writer.add_scalar("val_threeway_mean", threeway_mean.mean().item(), step)
 
-def handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor, dataloader, device, writer):
+def handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer, downsample_factor):
     """Handle model evaluation and logging."""
     if step % config.training.eval_loop == 1:
         epe, miou, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = eval_model_general(
-            scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
+            scene_flow_predictor, 
+            mask_predictor, 
+            val_flow_dataloader, 
+            val_mask_dataloader, 
+            config, 
+            device, 
+            writer, 
+            step, 
+            downsample_factor
+            )
         
         # Log evaluation metrics
         writer.add_scalar("val_epe", epe.mean().item(), step)

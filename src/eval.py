@@ -194,7 +194,7 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
 
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
 
-def eval_model_general(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step):
+def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step,downsample_factor):
     """
     General evaluator aligned with new data structures (TimeSyncedSceneFlowFrame).
     Expects each batch to provide a list of frames or a dict with key 'frames'.
@@ -210,84 +210,44 @@ def eval_model_general(scene_flow_predictor, mask_predictor, dataloader, config,
     background_static_masks = []
     foreground_static_masks = []
     foreground_dynamic_masks = []
-
+    eval_size =100
     with torch.no_grad():
-        for batch in dataloader:
-            # Normalize batch format to list[TimeSyncedSceneFlowFrame]
-            if isinstance(batch, dict) and "frames" in batch:
-                frames = batch["frames"]
-            else:
-                frames = batch  # assume batch is already list[TimeSyncedSceneFlowFrame]
-
-            # Per-frame eval
-            for frame in frames:
-                # 1) Inputs: global point cloud (masked) and GT flow
-                # pc points (visible subset) in world frame
-                pc_points = torch.from_numpy(frame.pc.global_pc.points).to(device=device, dtype=torch.float32)  # [N,3]
-                # GT flow in ego coordinates; align to visible points
-                gt_mask_bool = frame.flow.mask  # numpy bool over full_pc
-                # valid_flow is already masked to mask==True
-                gt_flow_np = frame.flow.valid_flow  # [M,3] where M=sum(mask)
-                # visible pc points correspond to frame.pc.pc (mask applied).
-                # Align shape: both should have same length; if not, re-index via pc.mask
-                visible_mask = frame.pc.mask  # numpy bool over full_pc
-                # Map GT to visible subset: expected gt_mask_bool == visible_mask
-                if gt_flow_np.shape[0] != visible_mask.sum():
-                    # Fallback: align by mask intersection
-                    common = (gt_mask_bool & visible_mask)
-                    gt_flow_np = frame.flow.full_flow[common]
-
-                gt_flow = torch.from_numpy(gt_flow_np).to(device=device, dtype=torch.float32)  # [N,3] aligned to pc_points
-
-                # 2) Predict scene flow. If your predictor expects pc0->pc1 or only pc0, adapt accordingly.
-                # Minimal API: predictor(pc_points) -> [N,3]
-                try:
-                    flow_pred = scene_flow_predictor(pc_points)  # torch [N,3]
-                except TypeError:
-                    # Alternative signature: predictor(pc_points, extra_args...)
-                    flow_pred = scene_flow_predictor(pc_points)
-
-                pred_flows.append(flow_pred)
+        for i, batch in enumerate(val_flow_dataloader):
+            if i >= eval_size:
+                break
+            for sample in batch:
+                point_cloud_first = sample[0].pc.full_global_pc.points[sample[0].flow.mask,:][::downsample_factor,:]
+                point_cloud_next = sample[1].pc.full_global_pc.points[sample[1].pc.mask,:][::downsample_factor,:]
+                point_cloud_first = torch.from_numpy(point_cloud_first).to(device).float()
+                point_cloud_next = torch.from_numpy(point_cloud_next).to(device).float()
+                ego_motion_first = torch.from_numpy(sample[0].pc.pose.sensor_to_ego.to_array()).to(device).float()
+                firstmask = torch.ones(point_cloud_first.shape[0], device=device).bool()
+                nextmask = torch.ones(point_cloud_next.shape[0], device=device).bool()
+                flow_pred = scene_flow_predictor._model_forward([(point_cloud_first, firstmask)], [(point_cloud_next, nextmask)], [(torch.eye(4, device=device), ego_motion_first)])
+                pred_flows.append(flow_pred[0].ego_flows.squeeze(0))
+                gt_flow = sample[0].flow.full_flow[sample[0].flow.mask,:][::downsample_factor,:]
+                gt_flow = torch.from_numpy(gt_flow).to(device).float()
                 gt_flows.append(gt_flow)
+                if pred_flows[-1].shape[0] != gt_flows[-1].shape[0]:
+                    #pop the last element
+                    pred_flows.pop()
+                    gt_flows.pop()
 
-                # 3) Predict masks
-                # If your mask predictor expects a single tensor [N,3]:
-                try:
-                    masks_pred = mask_predictor(pc_points)  # shape [K,N] or [N,K]; normalize to [K,N]
-                except TypeError:
-                    masks_pred = mask_predictor(pc_points)
-                if masks_pred.dim() == 2 and masks_pred.shape[0] < masks_pred.shape[1]:
-                    # [K,N]
-                    pred_masks.append(masks_pred)
-                elif masks_pred.dim() == 2:
-                    # [N,K] -> [K,N]
-                    pred_masks.append(masks_pred.transpose(0, 1).contiguous())
-                else:
-                    # If mask predictor returns dict
-                    logits = masks_pred.get("pred_logits", None)
-                    masks = masks_pred.get("pred_masks", None)
-                    if logits is not None and masks is not None:
-                        # reduce to per-point segmentation if needed; for simplicity keep masks as-is
-                        pred_masks.append(masks.squeeze(0))
-                    else:
-                        # fallback: identity single-class mask
-                        pred_masks.append(torch.ones(1, pc_points.shape[0], device=device, dtype=torch.float32))
-
-                # 4) GT masks: if you have dynamic instance mask per point
-                # Here we use a single-class placeholder. Replace with your ground-truth mask if available:
-                gt_masks.append(torch.zeros(pc_points.shape[0], device=device, dtype=torch.long))
-
-                # 5) Optional AV2 three-way masks
-                # If your dataloader provides per-point background/foreground masks, append them; otherwise skip.
-                if isinstance(batch, dict):
-                    for name, buf in [("background_static_mask", background_static_masks),
-                                      ("foreground_static_mask", foreground_static_masks),
-                                      ("foreground_dynamic_mask", foreground_dynamic_masks)]:
-                        arr = batch.get(name, None)
-                        if arr is not None:
-                            # Expect numpy bool aligned to visible points
-                            vis_mask = torch.from_numpy(arr).to(device=device)
-                            buf.append(vis_mask)
+        for i, batch in enumerate(val_mask_dataloader):
+            if i >= eval_size:
+                break
+            for sample in batch:
+                point_cloud_first = sample[0].pc.full_global_pc.points[sample[0].pc.mask,:][::downsample_factor,:]
+                masks_pred = mask_predictor.forward_train({'points': [torch.from_numpy(point_cloud_first).to(device).float()]})
+                pred_masks.append(masks_pred["pred_masks"].to(device).float())
+                gt_mask = sample[0].instance_ids[sample[0].pc.mask,][::downsample_factor,]
+                gt_mask = torch.from_numpy(gt_mask).to(device).long()
+                gt_masks.append(gt_mask)
+                # assert pred_masks[-1].shape[1] == gt_masks[-1].shape[0], f"pred_masks shape: {pred_masks[-1].shape}, gt_masks shape: {gt_masks[-1].shape}"
+                if pred_masks[-1].shape[1] != gt_masks[-1].shape[0]:
+                    #pop the last element
+                    pred_masks.pop()
+                    gt_masks.pop()
 
     # Convert optionals
     bg_masks = background_static_masks if len(background_static_masks) > 0 else None

@@ -18,6 +18,7 @@ from .dataclasses import (
     TimeSyncedSceneFlowBoxFrame,
     TimeSyncedSceneFlowFrame,
     VectorArray,
+    InstanceId,
 )
 from .line_mesh import LineMesh
 from .o3d_visualizer import O3DVisualizer

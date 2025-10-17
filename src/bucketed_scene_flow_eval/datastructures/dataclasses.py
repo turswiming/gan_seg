@@ -13,6 +13,8 @@ SemanticClassId = np.int8
 SemanticClassIdArray = NDArray[SemanticClassId]
 MaskArray = NDArray[np.bool_]
 VectorArray = NDArray[np.float32]
+InstanceId = np.int32
+InstanceIdArray = NDArray[InstanceId]
 
 
 @dataclass
@@ -349,9 +351,17 @@ class TimeSyncedSceneFlowFrame(TimeSyncedRawFrame):
 @dataclass(kw_only=True)
 class TimeSyncedSceneFlowBoxFrame(TimeSyncedSceneFlowFrame):
     boxes: list[BoundingBox]
+    instance_ids: InstanceIdArray | None = None
 
     def __post_init__(self):
         assert isinstance(self.boxes, list), f"boxes must be a list, got {type(self.boxes)}"
         assert all(
             isinstance(box, BoundingBox) for box in self.boxes
         ), f"all boxes must be BoundingBox objects, got {self.boxes}"
+        if self.instance_ids is not None:
+            assert isinstance(self.instance_ids, np.ndarray), f"instance_ids must be ndarray, got {type(self.instance_ids)}"
+            assert self.instance_ids.ndim == 1, f"instance_ids must be 1D, got {self.instance_ids.ndim}"
+            assert self.instance_ids.dtype == InstanceId, f"instance_ids must be int32, got {self.instance_ids.dtype}"
+            assert len(self.instance_ids) == len(self.pc.full_pc), (
+                f"instance_ids must match number of points, got {len(self.instance_ids)} and {len(self.pc.full_pc)}"
+            )
