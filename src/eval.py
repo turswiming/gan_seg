@@ -1,9 +1,11 @@
 from utils.metrics import calculate_miou, calculate_epe
+from utils.bucketed_epe_utils import extract_classid_from_argoverse2_data, compute_bucketed_epe_metrics
 import torch
 import torch.nn.functional as F
-from utils.visualization_utils import remap_instance_labels, create_label_colormap, color_mask
+from utils.visualization_utils import remap_instance_labels
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+from pathlib import Path
 def evaluate_predictions(
         pred_flows, 
         gt_flows, 
@@ -86,6 +88,56 @@ def evaluate_predictions(
     if argoverse2:
         return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
     else:
+        return epe_mean, miou_mean, None, None, None, None
+
+def evaluate_predictions_general(
+        pred_flows, 
+        gt_flows, 
+        pred_masks, 
+        gt_masks, 
+        class_labels,
+        device, 
+        writer=None, 
+        step=0,
+        ):
+    """
+    Evaluate model predictions by computing EPE and mIoU metrics.
+    
+    Args:
+        pred_flows (list[torch.Tensor]): Predicted scene flows
+        gt_flows (list[torch.Tensor]): Ground truth scene flows
+        pred_masks (list[torch.Tensor]): Predicted instance masks
+        gt_masks (list[torch.Tensor]): Ground truth instance masks
+        device (torch.device): Device to run computations on
+        writer (SummaryWriter): TensorBoard writer for logging
+        step (int): Current training step
+        
+    Returns:
+        tuple: (epe_mean, miou_mean) containing the computed metrics
+    """
+    # Compute EPE
+    epe_mean = calculate_epe(pred_flows, gt_flows)
+    # tqdm.write(f"\rEPE: {epe_mean.item()}", end="")
+    if writer is not None:
+        writer.add_scalar("epe", epe_mean.item(), step)
+    
+    # Compute mIoU
+    miou_list = []
+    for i in range(len(pred_masks)):
+        gt_mask = remap_instance_labels(gt_masks[i],ignore_label=[-1])
+        # tqdm.write(f"gt_mask size {max(gt_mask)}")
+        miou = calculate_miou(
+                pred_masks[i], 
+                F.one_hot(gt_mask.to(torch.long)).permute(1, 0).to(device=device)
+            )
+        if miou is not None:
+            miou_list.append(miou) #if no instance is found, miou is None
+        
+    miou_mean = torch.mean(torch.stack(miou_list))
+    # tqdm.write(f"miou {miou_mean.item()}")
+    if writer is not None:
+        writer.add_scalar("miou", miou_mean.item(), step)
+    
         return epe_mean, miou_mean, None, None, None, None
 
 def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step):
@@ -206,6 +258,8 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
     gt_flows = []
     pred_masks = []
     gt_masks = []
+    class_ids = []
+    point_clouds = []
 
     background_static_masks = []
     foreground_static_masks = []
@@ -228,11 +282,14 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
                 gt_flow = sample[0].flow.full_flow[sample[0].flow.mask,:][::downsample_factor,:]
                 gt_flow = torch.from_numpy(gt_flow).to(device).float()
                 gt_flows.append(gt_flow)
+                class_ids.append(extract_classid_from_argoverse2_data(sample[0]))
+                point_clouds.append(point_cloud_first.cpu())
                 if pred_flows[-1].shape[0] != gt_flows[-1].shape[0]:
                     #pop the last element
                     pred_flows.pop()
                     gt_flows.pop()
-
+                    class_ids.pop()
+                    point_clouds.pop()
         for i, batch in enumerate(val_mask_dataloader):
             if i >= eval_size:
                 break
@@ -253,18 +310,63 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
     bg_masks = background_static_masks if len(background_static_masks) > 0 else None
     fg_static_masks = foreground_static_masks if len(foreground_static_masks) > 0 else None
     fg_dynamic_masks = foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
-
-    epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = evaluate_predictions(
+    class_labels = None
+    epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = evaluate_predictions_general(
         pred_flows,
         gt_flows,
         pred_masks,
         gt_masks,
+        class_labels,
         device,
         writer=writer,
         step=step,
-        argoverse2=(getattr(config.dataset, "name", "") in ["AV2", "AV2Sequence"]),
-        background_static_mask=bg_masks,
-        foreground_static_mask=fg_static_masks,
-        foreground_dynamic_mask=fg_dynamic_masks,
     )
+    output_path = Path(config.log.dir) / "bucketed_epe"/f"step_{step}"
+    standard_results = compute_bucketed_epe_metrics(
+        point_clouds=point_clouds,
+        pred_flows=pred_flows,
+        gt_flows=gt_flows,
+        class_ids=class_ids,
+        output_path=output_path
+    )
+    for class_name, (static_epe, dynamic_error) in standard_results.items():
+        writer.add_scalar(f"bucketed_epe/standard/{class_name}_static", static_epe, step)
+        writer.add_scalar(f"bucketed_epe/standard/{class_name}_dynamic", dynamic_error, step)
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
+
+
+def eval_model_with_bucketed_epe(scene_flow_predictor, dataloader, config, device, writer, step, output_path=None):
+    """
+    使用Bucketed EPE评估模型，参考论文 "I Can't Believe It's Not Scene Flow!"
+    
+    Args:
+        scene_flow_predictor: 场景流预测模型
+        dataloader: 数据加载器
+        config: 配置字典
+        device: 设备
+        writer: TensorBoard writer
+        step: 当前训练步骤
+        output_path: 输出路径
+        
+    Returns:
+        bucketed EPE评估结果
+    """
+    if output_path is None:
+        output_path = Path("/tmp/bucketed_epe_eval")
+    
+    # 直接使用compute_bucketed_epe_metrics函数
+    # 这里需要从dataloader中提取数据，但为了简化，我们假设已经有了pred_flows, gt_flows, class_ids
+    # 在实际使用中，这些数据应该从dataloader中获取
+    
+    print("注意: eval_model_with_bucketed_epe函数需要在实际使用中实现数据提取逻辑")
+    print("建议直接使用compute_bucketed_epe_metrics函数")
+    
+    # 示例用法（需要实际的数据）
+    # results = compute_bucketed_epe_metrics(
+    #     pred_flows=pred_flows,
+    #     gt_flows=gt_flows, 
+    #     class_ids=class_ids,
+    #     output_path=output_path
+    # )
+    
+    return {"message": "请直接使用compute_bucketed_epe_metrics函数"}

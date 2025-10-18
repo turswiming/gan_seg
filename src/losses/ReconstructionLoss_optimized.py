@@ -110,7 +110,7 @@ class ReconstructionLossOptimized():
         Memory-efficient batch SVD computation with chunking.
         """
         if self.use_checkpointing:
-            return checkpoint(self._fit_motion_svd_chunk, pc1, pc2, mask)
+            return checkpoint(self._fit_motion_svd_chunk, pc1, pc2, mask, use_reentrant=True)
         else:
             return self._fit_motion_svd_chunk(pc1, pc2, mask)
     
@@ -331,7 +331,7 @@ class ReconstructionLossOptimized():
         
         # Parallel SVD computation
         if self.use_checkpointing:
-            R_batch, t_batch = checkpoint(self._fit_motion_svd_parallel, pc1_batch, pc2_batch, mask_batch)
+            R_batch, t_batch = checkpoint(self._fit_motion_svd_parallel, pc1_batch, pc2_batch, mask_batch, use_reentrant=True)
         else:
             R_batch, t_batch = self._fit_motion_svd_parallel(pc1_batch, pc2_batch, mask_batch)
         

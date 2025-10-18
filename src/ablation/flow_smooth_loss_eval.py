@@ -14,26 +14,7 @@ from utils.dataloader_utils import create_dataloaders
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 from losses.KNNDistanceLoss import KNNDistanceLoss
-def remap_instance_labels(labels):
-    """
-    将任意整数标签重映射为连续的标签编号，从0开始
-    例如: [0,1,8,1] -> [0,1,2,1]
-    
-    Args:
-        labels: 输入标签张量
-    
-    Returns:
-        重映射后的标签张量
-    """
-    unique_labels = torch.unique(labels)
-    mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
-    print(f"remap {mapping}")
-    # 创建新的标签张量
-    remapped = torch.zeros_like(labels)
-    for old_label, new_label in mapping.items():
-        remapped[labels == old_label] = new_label
-        
-    return remapped
+from utils.visualization_utils import remap_instance_labels
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 config_obj = load_config_with_inheritance("/workspace/gan_seg/src/config/altereular.yaml")

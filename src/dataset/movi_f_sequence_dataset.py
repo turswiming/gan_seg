@@ -17,27 +17,7 @@ from typing import Dict, List, Optional
 
 cache = {}
 
-
-def remap_instance_labels(labels):
-    """
-    Remap arbitrary integer labels to consecutive label numbers starting from 0.
-    
-    For example: [0,1,8,1] -> [0,1,2,1]
-    
-    Args:
-        labels (torch.Tensor): Input label tensor with arbitrary integer values
-        
-    Returns:
-        torch.Tensor: Remapped label tensor with consecutive integers starting from 0
-    """
-    unique_labels = torch.unique(labels)
-    mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
-    # Create new label tensor
-    remapped = torch.zeros_like(labels)
-    for old_label, new_label in mapping.items():
-        remapped[labels == old_label] = new_label
-        
-    return remapped
+from utils.visualization_utils import remap_instance_labels
 
 
 class MOVIFSequenceDataset(nn.Module):

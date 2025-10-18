@@ -10,27 +10,7 @@ from torch import nn
 from torch.nn import functional as F
 from .gen_point_traj_flow import process_one_sample,rgb_array_to_int32
 import cv2
-def remap_instance_labels(labels):
-    """
-    Remap arbitrary integer labels to consecutive label numbers starting from 0.
-    
-    For example: [0,1,8,1] -> [0,1,2,1]
-    
-    Args:
-        labels (torch.Tensor): Input label tensor with arbitrary integer values
-        
-    Returns:
-        torch.Tensor: Remapped label tensor with consecutive integers starting from 0
-    """
-    unique_labels = torch.unique(labels)
-    mapping = {label.item(): idx for idx, label in enumerate(sorted(unique_labels))}
-    # print(f"remap {mapping}")
-    # Create new label tensor
-    remapped = torch.zeros_like(labels)
-    for old_label, new_label in mapping.items():
-        remapped[labels == old_label] = new_label
-        
-    return remapped
+from utils.visualization_utils import remap_instance_labels
 class MOVIPerSceneDataset(nn.Module):
     """
     Dataset class for loading and processing individual scenes.

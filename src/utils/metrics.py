@@ -53,6 +53,8 @@ def calculate_miou(pred_mask, gt_mask):
         max_iou_list.append(max_iou)
         # print(f"Instance {j}: Max IoU = {max_iou:.4f} Size = {gt_mask_size[j]}")
     mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
+    if torch.isnan(mean_iou):
+        return None
     return mean_iou
 
 def calculate_epe(pred_flows, gt_flows):
