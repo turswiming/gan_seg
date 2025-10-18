@@ -287,7 +287,30 @@ def compute_all_losses(config, loss_functions, scene_flow_predictor, mask_predic
 def compute_all_losses_general(config, loss_functions, scene_flow_predictor, mask_predictor,
                       point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
                       train_flow, train_mask, device):
-    """Compute all losses and return loss dictionary and total loss."""
+    """
+    Compute all losses for general training with new data structure.
+    
+    Args:
+        config: Configuration object
+        loss_functions: Dictionary of loss functions
+        scene_flow_predictor: Scene flow prediction model
+        mask_predictor: Mask prediction model
+        point_cloud_firsts: List of first frame point clouds
+        point_cloud_nexts: List of next frame point clouds
+        pred_flow: Predicted scene flows
+        pred_mask: Predicted masks
+        step: Current training step
+        scene_flow_smoothness_scheduler: Scheduler for flow smoothness
+        train_flow: Whether to train flow model
+        train_mask: Whether to train mask model
+        device: Device to run computations on
+        
+    Returns:
+        tuple: (loss_dict, total_loss, reconstructed_points)
+            - loss_dict: Dictionary of individual losses
+            - total_loss: Total combined loss
+            - reconstructed_points: Reconstructed point clouds (if available)
+    """
     # Reconstruction losses
     rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
         config, loss_functions, point_cloud_firsts, point_cloud_nexts, 

@@ -48,6 +48,18 @@ from utils.training_utils import (
 from losses.loss_functions import compute_all_losses, compute_all_losses_general
 
 def create_dataloaders_general(config):
+    """
+    Create dataloaders for general training with AV2 SceneFlowZoo dataset.
+    
+    Args:
+        config: Configuration object containing dataset parameters
+        
+    Returns:
+        tuple: (dataloader, val_flow_dataloader, val_mask_dataloader)
+            - dataloader: Main training dataloader
+            - val_flow_dataloader: Validation dataloader for flow evaluation
+            - val_mask_dataloader: Validation dataloader for mask evaluation
+    """
     if config.dataset.name == "AV2_SceneFlowZoo":
         from bucketed_scene_flow_eval.datasets.argoverse2 import Argoverse2CausalSceneFlow
         
@@ -119,7 +131,19 @@ def create_dataloaders_general(config):
     )
     return dataloader, val_flow_dataloader, val_mask_dataloader
     pass
-def forward_scene_flow_general(sample_firsts, sample_nexts, scene_flow_predictor,downsample_factor):
+def forward_scene_flow_general(sample_firsts, sample_nexts, scene_flow_predictor, downsample_factor):
+    """
+    Perform forward pass for scene flow prediction with general data structure.
+    
+    Args:
+        sample_firsts: List of first frame samples
+        sample_nexts: List of next frame samples  
+        scene_flow_predictor: Scene flow prediction model
+        downsample_factor: Factor to downsample point clouds
+        
+    Returns:
+        pred_flow: Predicted scene flow vectors
+    """
     device = next(scene_flow_predictor.parameters()).device
     visible_valid_mask_first = [item.pc.mask for item in sample_firsts] 
     visible_valid_mask_next = [item.pc.mask for item in sample_nexts]
@@ -131,7 +155,18 @@ def forward_scene_flow_general(sample_firsts, sample_nexts, scene_flow_predictor
     pred_flow = scene_flow_predictor._model_forward(pc0s, pc1s, pc0_transforms)
     return pred_flow
 
-def forward_mask_prediction_general(sample_firsts, mask_predictor,downsample_factor):
+def forward_mask_prediction_general(sample_firsts, mask_predictor, downsample_factor):
+    """
+    Perform forward pass for mask prediction with general data structure.
+    
+    Args:
+        sample_firsts: List of first frame samples
+        mask_predictor: Mask prediction model
+        downsample_factor: Factor to downsample point clouds
+        
+    Returns:
+        list: Predicted mask tensors
+    """
     device = next(mask_predictor.parameters()).device
     visible_valid_mask_first = [item.pc.mask for item in sample_firsts]
     pc0 = [item.pc.full_global_pc.points[mask,:][::downsample_factor,:] for item, mask in zip(sample_firsts, visible_valid_mask_first)]

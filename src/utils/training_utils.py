@@ -210,7 +210,20 @@ def handle_evaluation(config, step, scene_flow_predictor, mask_predictor, datalo
             writer.add_scalar("val_threeway_mean", threeway_mean.mean().item(), step)
 
 def handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer, downsample_factor):
-    """Handle model evaluation and logging."""
+    """
+    Handle model evaluation and logging with general data structure.
+    
+    Args:
+        config: Configuration object
+        step: Current training step
+        scene_flow_predictor: Scene flow prediction model
+        mask_predictor: Mask prediction model
+        val_flow_dataloader: Validation dataloader for flow evaluation
+        val_mask_dataloader: Validation dataloader for mask evaluation
+        device: Device to run computations on
+        writer: TensorBoard writer for logging
+        downsample_factor: Factor to downsample point clouds
+    """
     if step % config.training.eval_loop == 1:
         epe, miou, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = eval_model_general(
             scene_flow_predictor, 

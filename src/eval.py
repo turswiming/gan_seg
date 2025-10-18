@@ -101,19 +101,26 @@ def evaluate_predictions_general(
         step=0,
         ):
     """
-    Evaluate model predictions by computing EPE and mIoU metrics.
+    Evaluate model predictions by computing EPE and mIoU metrics for general data structure.
     
     Args:
         pred_flows (list[torch.Tensor]): Predicted scene flows
         gt_flows (list[torch.Tensor]): Ground truth scene flows
         pred_masks (list[torch.Tensor]): Predicted instance masks
         gt_masks (list[torch.Tensor]): Ground truth instance masks
+        class_labels: Class labels for evaluation
         device (torch.device): Device to run computations on
         writer (SummaryWriter): TensorBoard writer for logging
         step (int): Current training step
         
     Returns:
-        tuple: (epe_mean, miou_mean) containing the computed metrics
+        tuple: (epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean)
+            - epe_mean: Mean end-point error
+            - miou_mean: Mean intersection over union
+            - bg_epe: Background EPE (None if not available)
+            - fg_static_epe: Foreground static EPE (None if not available)  
+            - fg_dynamic_epe: Foreground dynamic EPE (None if not available)
+            - threeway_mean: Three-way mean EPE (None if not available)
     """
     # Compute EPE
     epe_mean = calculate_epe(pred_flows, gt_flows)
@@ -246,10 +253,25 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
 
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
 
-def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step,downsample_factor):
+def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step, downsample_factor):
     """
     General evaluator aligned with new data structures (TimeSyncedSceneFlowFrame).
     Expects each batch to provide a list of frames or a dict with key 'frames'.
+    
+    Args:
+        scene_flow_predictor: Scene flow prediction model
+        mask_predictor: Mask prediction model
+        val_flow_dataloader: Validation dataloader for flow evaluation
+        val_mask_dataloader: Validation dataloader for mask evaluation
+        config: Configuration object
+        device: Device to run computations on
+        writer: TensorBoard writer for logging
+        step: Current training step
+        downsample_factor: Factor to downsample point clouds
+        
+    Returns:
+        tuple: (epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean)
+            Evaluation metrics for the model
     """
     scene_flow_predictor.eval()
     mask_predictor.eval()
