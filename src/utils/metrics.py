@@ -9,7 +9,7 @@ This module provides metrics for evaluating model performance, including:
 import torch
 import torch.nn.functional as F
 
-def calculate_miou(pred_mask, gt_mask):
+def calculate_miou(pred_mask, gt_mask, min_points=100):
     """
     Calculate Mean Intersection over Union (mIoU) between predicted and ground truth instance masks.
     
@@ -39,7 +39,7 @@ def calculate_miou(pred_mask, gt_mask):
     pred_mask_size = torch.sum(pred_mask, dim=1)
     for j in range(gt_mask.shape[0]):
         max_iou = 0
-        if gt_mask_size[j] <= 50:
+        if gt_mask_size[j] <= min_points:
             continue  # Skip small masks to avoid noise in IoU calculation
         if j==0:
             continue

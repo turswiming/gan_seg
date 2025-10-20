@@ -25,7 +25,7 @@ from omegaconf import OmegaConf
 from config.config import print_config
 from tqdm import tqdm
 from pathlib import Path
-
+from typing import List
 # Local imports
 from eval import evaluate_predictions, eval_model, eval_model_general
 from utils.config_utils import load_config_with_inheritance, save_config_and_code
@@ -46,6 +46,12 @@ from utils.training_utils import (
     log_prediction_histograms, handle_visualization, cleanup_memory
 )
 from losses.loss_functions import compute_all_losses, compute_all_losses_general
+
+from SceneFlowZoo.dataloaders import (
+    TorchFullFrameInputSequence,
+    TorchFullFrameOutputSequence,
+    TorchFullFrameOutputSequenceWithDistance,
+)
 
 def create_dataloaders_general(config):
     """
@@ -80,7 +86,7 @@ def create_dataloaders_general(config):
     if config.dataset.val_name == "AV2_SceneFlowZoo_val":
         from bucketed_scene_flow_eval.datasets.argoverse2 import Argoverse2CausalSceneFlow
         val_flow_config = config.dataset.AV2_SceneFlowZoo_val_flow
-        val_dataset = Argoverse2CausalSceneFlow(
+        val_flow_dataset = Argoverse2CausalSceneFlow(
             root_dir=Path(val_flow_config.root_dir),
             with_ground=val_flow_config.with_ground,
             use_gt_flow=val_flow_config.use_gt_flow,
@@ -116,7 +122,7 @@ def create_dataloaders_general(config):
         collate_fn=collect_fn
     )
     val_flow_dataloader = torch.utils.data.DataLoader(
-        val_dataset, 
+        val_flow_dataset, 
         batch_size=config.dataloader.batchsize, 
         shuffle=False, 
         num_workers=config.dataloader.num_workers,
@@ -129,54 +135,47 @@ def create_dataloaders_general(config):
         num_workers=config.dataloader.num_workers,
         collate_fn=collect_fn
     )
-    return dataloader, val_flow_dataloader, val_mask_dataloader
+    return (dataset, dataloader, 
+            val_flow_dataset, val_flow_dataloader, 
+            val_mask_dataset, val_mask_dataloader)
     pass
-def forward_scene_flow_general(sample_firsts, sample_nexts, scene_flow_predictor, downsample_factor):
-    """
-    Perform forward pass for scene flow prediction with general data structure.
-    
-    Args:
-        sample_firsts: List of first frame samples
-        sample_nexts: List of next frame samples  
-        scene_flow_predictor: Scene flow prediction model
-        downsample_factor: Factor to downsample point clouds
-        
-    Returns:
-        pred_flow: Predicted scene flow vectors
-    """
-    device = next(scene_flow_predictor.parameters()).device
-    visible_valid_mask_first = [item.pc.mask for item in sample_firsts] 
-    visible_valid_mask_next = [item.pc.mask for item in sample_nexts]
-    pc0 = [item.pc.full_global_pc.points[mask,:][::downsample_factor,:] for item, mask in zip(sample_firsts, visible_valid_mask_first)]
-    pc1 = [item.pc.full_global_pc.points[mask,:][::downsample_factor,:] for item, mask in zip(sample_nexts, visible_valid_mask_next)]
-    pc0s = [(torch.from_numpy(item).to(device).float(), torch.ones(item.shape[0], device=device).bool()) for item in pc0]
-    pc1s = [(torch.from_numpy(item).to(device).float(), torch.ones(item.shape[0], device=device).bool()) for item in pc1]
-    pc0_transforms = [(torch.from_numpy(item.pc.pose.sensor_to_ego.to_array()).to(device).float(), torch.from_numpy(item.pc.pose.ego_to_global.to_array()).to(device).float()) for item in sample_firsts] #(pc0_sensor_to_ego, pc0_ego_to_global)
-    pred_flow = scene_flow_predictor._model_forward(pc0s, pc1s, pc0_transforms)
-    return pred_flow
+def forward_scene_flow_general(sequences, flow_predictor)-> List[TorchFullFrameOutputSequence]:
+    flow_out_seqs = flow_predictor.forward(sequences)
+    return flow_out_seqs
 
-def forward_mask_prediction_general(sample_firsts, mask_predictor, downsample_factor):
-    """
-    Perform forward pass for mask prediction with general data structure.
-    
-    Args:
-        sample_firsts: List of first frame samples
-        mask_predictor: Mask prediction model
-        downsample_factor: Factor to downsample point clouds
-        
-    Returns:
-        list: Predicted mask tensors
-    """
+def forward_mask_prediction_general(sequences, mask_predictor):
     device = next(mask_predictor.parameters()).device
-    visible_valid_mask_first = [item.pc.mask for item in sample_firsts]
-    pc0 = [item.pc.full_global_pc.points[mask,:][::downsample_factor,:] for item, mask in zip(sample_firsts, visible_valid_mask_first)]
-    data = {'points': [torch.from_numpy(item).to(device).float() for item in pc0]}
+    pc_tensors = [sequence.get_full_global_pc(0) for sequence in sequences]
+    data = {'points': [item.to(device).float() for item in pc_tensors]}
     pred_mask = mask_predictor.forward_train(data)
     
     logits = pred_mask["pred_logits"]
     pred_masks = pred_mask["pred_masks"]
     logits = [item.permute(1, 0) for item in logits]
     return [pred_masks.to(device).float() ]
+
+def inference_models(flow_predictor,mask_predictor, sequences):
+    flow_out_seqs = forward_scene_flow_general(sequences, flow_predictor)
+    pred_flow_full = [item.ego_flows.squeeze(0) for item in flow_out_seqs]
+    # Forward pass for mask prediction
+    pred_mask_full = forward_mask_prediction_general(sequences, mask_predictor)
+    #print the shape of pred_mask
+    pred_flows_ego = [flow[seq.get_full_pc_gt_flow_mask(0)] for flow,seq in zip(pred_flow_full,sequences)]
+    pred_flows_global = [flow_predictor.ego_to_global_flow(seq.get_full_ego_pc(0)[seq.get_full_pc_mask(0)],flow,seq.get_pc_transform_matrices(0)[1]) for flow,seq in zip(pred_flows_ego,sequences)]
+    pred_masks = [mask[:,seq.get_full_pc_gt_flow_mask(0)] for mask,seq in zip(pred_mask_full,sequences)]
+    # Build first/next point clouds in ego frame (masked valid points)
+    point_cloud_firsts = [seq.get_full_global_pc(0)[seq.get_full_pc_mask(0)] for seq in sequences]
+    point_cloud_nexts = [seq.get_full_global_pc(1)[seq.get_full_pc_mask(1)] for seq in sequences]
+
+    
+    return pred_flows_global,pred_masks,point_cloud_firsts,point_cloud_nexts
+
+def downsample_point_clouds(pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts,downsample_factor):
+    pred_flow = [item[::downsample_factor,:] for item in pred_flow]
+    pred_mask = [item[:,::downsample_factor] for item in pred_mask]
+    point_cloud_firsts = [item[::downsample_factor,:] for item in point_cloud_firsts]
+    point_cloud_nexts = [item[::downsample_factor,:] for item in point_cloud_nexts]
+    return pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts
 
 def main(config, writer):
     """
@@ -190,7 +189,9 @@ def main(config, writer):
     device = setup_device_and_training()
     
     # Create dataloaders
-    dataloader, val_flow_dataloader, val_mask_dataloader = create_dataloaders_general(config)
+    (dataset, dataloader,
+    val_flow_dataset, val_flow_dataloader,
+    val_mask_dataset, val_mask_dataloader) = create_dataloaders_general(config)
     # step = 0
     # for i in range(config.training.num_epochs):
     #     for sample in dataloader:
@@ -205,7 +206,7 @@ def main(config, writer):
     #         pass
     # pass
     # # Initialize models, optimizers and schedulers
-    (mask_predictor, scene_flow_predictor, optimizer_flow, optimizer_mask, 
+    (mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, 
      alter_scheduler, scene_flow_smoothness_scheduler) = initialize_models_and_optimizers(config,None,device)
     
     # # Initialize loss functions
@@ -219,11 +220,11 @@ def main(config, writer):
     checkpoint_dir, save_every_iters, step, resume, resume_path = setup_checkpointing(config, device)
     
     # # Load checkpoint if resuming
-    step = load_checkpoint(resume, resume_path, checkpoint_dir, device, scene_flow_predictor, 
+    step = load_checkpoint(resume, resume_path, checkpoint_dir, device, flow_predictor, 
                           mask_predictor, optimizer_flow, optimizer_mask, alter_scheduler)
     
     # Create checkpoint saver
-    save_checkpoint = create_checkpoint_saver(checkpoint_dir, scene_flow_predictor, mask_predictor,
+    save_checkpoint = create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor,
                                             optimizer_flow, optimizer_mask, alter_scheduler, config)
     
     first_iteration = True
@@ -231,41 +232,34 @@ def main(config, writer):
     # Main training loop
     with tqdm(dataloader, desc="Training", total=config.training.max_iter-step) as dataloader:
         tqdm.write("Starting training...")
-        for sample in dataloader:
+        for framelists in dataloader:
             step += 1
 
 
             if step > config.training.max_iter:
                 tqdm.write("Reached maximum training iterations, stopping.")
                 break
-            # print(sample[0][0].keys())
-            sample_firsts = [item[0] for item in sample]
-            sample_nexts = [item[1] for item in sample]
-            visible_valid_mask_first = [(item.pc.mask).reshape(-1) for item in sample_firsts]
-            downsample_factor = config.dataset.AV2_SceneFlowZoo.downsample_factor
-            point_cloud_firsts = [item.pc.full_global_pc.points[mask,:][::downsample_factor,:] for item, mask in zip(sample_firsts, visible_valid_mask_first)]
-            visible_valid_mask_next = [(item.pc.mask).reshape(-1) for item in sample_nexts]
-            point_cloud_nexts = [item.pc.full_global_pc.points[mask,:][::downsample_factor,:] for item, mask in zip(sample_nexts, visible_valid_mask_next)]
-            point_cloud_firsts = [torch.from_numpy(item).to(device).float() for item in point_cloud_firsts]
-            point_cloud_nexts = [torch.from_numpy(item).to(device).float() for item in point_cloud_nexts]
-
+            sequences = [TorchFullFrameInputSequence.from_frame_list(
+                    idx=0,
+                    frame_list=framelist,
+                    pc_max_len=120000,  # Maximum point cloud points
+                    loader_type=dataset.loader_type(),
+                    allow_pc_slicing=False
+                ).to(device) for framelist in framelists]
             # Determine training modes and set model states
             train_flow, train_mask = determine_training_modes(step, config, alter_scheduler)
-            set_model_training_modes(scene_flow_predictor, mask_predictor, train_flow, train_mask)  
-            scene_flow_predictor.to(device)
+            set_model_training_modes(flow_predictor, mask_predictor, train_flow, train_mask)  
+            flow_predictor.to(device)
             mask_predictor.to(device)
-            # Forward pass for scene flow
-            pred_flow_object = forward_scene_flow_general(sample_firsts, sample_nexts, scene_flow_predictor,downsample_factor)
-            pred_flow = [item.ego_flows.squeeze(0) for item in pred_flow_object]
-            # Forward pass for mask prediction
-            pred_mask = forward_mask_prediction_general(sample_firsts, mask_predictor,downsample_factor )
-            
-            # Compute all losses
+            # Forward pamss for scene flow
+            pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = inference_models(flow_predictor,mask_predictor,sequences)
+            pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = downsample_point_clouds(pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts,config.dataset.AV2_SceneFlowZoo.downsample_factor)
+                    # Compute all losses
             loss_dict, total_loss, reconstructed_points = compute_all_losses_general(
-                config, loss_functions, scene_flow_predictor, mask_predictor,
+                config, loss_functions, flow_predictor, mask_predictor,
                 point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
                 train_flow, train_mask, device)
-                #def compute_all_losses_general(config, loss_functions, scene_flow_predictor, mask_predictor,
+                #def compute_all_losses_general(config, loss_functions, flow_predictor, mask_predictor,
                     #   point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
                     #   train_flow, train_mask, device):
 
@@ -277,12 +271,12 @@ def main(config, writer):
                 writer.add_scalars("losses", loss_log_dict, step)
             
             # Log gradient debugging information
-            log_gradient_debug_info(config, writer, loss_dict, scene_flow_predictor, mask_predictor, step)
+            log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_predictor, step)
             
             # Perform optimization step
             optimization_success = perform_optimization_step(
                 config, total_loss, optimizer_flow, optimizer_mask,
-                scene_flow_predictor, mask_predictor, train_flow, train_mask)
+                flow_predictor, mask_predictor, train_flow, train_mask)
             
             if not optimization_success:
                 continue
@@ -294,7 +288,7 @@ def main(config, writer):
             handle_checkpoint_saving(save_every_iters, step, checkpoint_dir, save_checkpoint)
             
             # Handle evaluation
-            handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer,downsample_factor)
+            handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer)
             
             # Clear memory cache
             if step % config.hardware.clear_cache_interval == 0:

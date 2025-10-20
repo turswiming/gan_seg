@@ -5,8 +5,8 @@ log:
   tensorboard_log_interval: 7  # Log losses every N steps
 
 checkpoint:
-  resume: false          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251014_232352/checkpoints/step_8000.pt"
+  resume: true          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20251020_100829/checkpoints/step_5000.pt"
   save_every_iters: 1000
 model:
   flow:
@@ -59,21 +59,21 @@ dataset:
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
 
 lr_multi:
-  rec_loss: 1.0
+  rec_loss: 0.01
   flow_loss: 0.0
-  scene_flow_smoothness: 1
+  scene_flow_smoothness: 0.01
   rec_flow_loss: 0.0
   point_smooth_loss: 0.01
-  eular_flow_loss: 0.01
+  eular_flow_loss: 0.0
   KDTree_loss: 3.0
   KNN_loss: 3.0
   l1_regularization: 0.0
-  eular_mask_loss: 1
+  eular_mask_loss: 0
   scene_flow_smoothness_scheduler:
     begin_iter: 0
     end_iter: 8000
     begin_value: 1.0
-    end_value: 10.0
+    end_value: 1.0
 
 # alternate:
 #   flow: [[50,true],[50,false]]
@@ -100,3 +100,7 @@ loss:
 vis:
   show_window: false
   debug_grad: false
+
+eval:
+  eval_size: 300
+  min_points: 200
