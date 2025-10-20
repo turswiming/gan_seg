@@ -95,7 +95,7 @@ def compute_point_smoothness_loss(config, loss_functions, point_cloud_firsts, pr
     return point_smooth_loss
 
 
-def compute_euler_flow_loss(config, scene_flow_predictor, point_cloud_firsts, point_cloud_nexts, 
+def compute_euler_flow_loss(config, flow_predictor, point_cloud_firsts, point_cloud_nexts, 
                            pred_flow, reverse_pred_flow, sample, train_flow, device):
     """Compute Euler flow consistency loss."""
     if (config.lr_multi.eular_flow_loss > 0 and 
@@ -103,7 +103,7 @@ def compute_euler_flow_loss(config, scene_flow_predictor, point_cloud_firsts, po
         eular_flow_loss = 0
         for i in range(len(point_cloud_firsts)):
             point_cloud_first_forward = point_cloud_firsts[i][:, :3] + pred_flow[i]
-            forward_reverse = scene_flow_predictor(
+            forward_reverse = flow_predictor(
                 point_cloud_first_forward, sample["idx"][i]+1, 
                 sample["total_frames"][i], QueryDirection.REVERSE)
             l2_error = torch.norm(pred_flow[i] + forward_reverse, dim=1)
@@ -111,7 +111,7 @@ def compute_euler_flow_loss(config, scene_flow_predictor, point_cloud_firsts, po
             
             if len(reverse_pred_flow) > 0:
                 point_cloud_next_reverse = point_cloud_nexts[i][:, :3] + reverse_pred_flow[i]
-                reverse_forward = scene_flow_predictor(
+                reverse_forward = flow_predictor(
                     point_cloud_next_reverse, sample["idx"][i], 
                     sample["total_frames"][i], QueryDirection.FORWARD)
                 l2_error = torch.norm(reverse_pred_flow[i] + reverse_forward, dim=1)
@@ -217,7 +217,7 @@ def compute_regularization_loss(config, pred_flow, reverse_pred_flow, longterm_p
     return l1_regularization_loss
 
 
-def compute_all_losses(config, loss_functions, scene_flow_predictor, mask_predictor,
+def compute_all_losses(config, loss_functions, flow_predictor, mask_predictor,
                       point_cloud_firsts, point_cloud_nexts, pred_flow, reverse_pred_flow,
                       longterm_pred_flow, pred_mask, sample, step, scene_flow_smoothness_scheduler,
                       train_flow, train_mask, device):
@@ -243,7 +243,7 @@ def compute_all_losses(config, loss_functions, scene_flow_predictor, mask_predic
     
     # Euler flow loss
     eular_flow_loss = compute_euler_flow_loss(
-        config, scene_flow_predictor, point_cloud_firsts, point_cloud_nexts,
+        config, flow_predictor, point_cloud_firsts, point_cloud_nexts,
         pred_flow, reverse_pred_flow, sample, train_flow, device)
     
     # Euler mask loss
@@ -284,7 +284,7 @@ def compute_all_losses(config, loss_functions, scene_flow_predictor, mask_predic
     
     return loss_dict, total_loss, reconstructed_points
 
-def compute_all_losses_general(config, loss_functions, scene_flow_predictor, mask_predictor,
+def compute_all_losses_general(config, loss_functions, flow_predictor, mask_predictor,
                       point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
                       train_flow, train_mask, device):
     """
@@ -293,7 +293,7 @@ def compute_all_losses_general(config, loss_functions, scene_flow_predictor, mas
     Args:
         config: Configuration object
         loss_functions: Dictionary of loss functions
-        scene_flow_predictor: Scene flow prediction model
+        flow_predictor: Scene flow prediction model
         mask_predictor: Mask prediction model
         point_cloud_firsts: List of first frame point clouds
         point_cloud_nexts: List of next frame point clouds

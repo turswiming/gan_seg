@@ -228,7 +228,7 @@ def compute_volume_based_bucketed_epe(
 only AI can do
 """
 # def evaluate_with_bucketed_epe(
-#     scene_flow_predictor,
+#     flow_predictor,
 #     dataloader,
 #     device,
 #     config,
@@ -238,7 +238,7 @@ only AI can do
 #     使用Bucketed EPE评估模型
     
 #     Args:
-#         scene_flow_predictor: 场景流预测模型
+#         flow_predictor: 场景流预测模型
 #         dataloader: 数据加载器
 #         device: 设备
 #         config: 配置
@@ -247,7 +247,7 @@ only AI can do
 #     Returns:
 #         评估结果字典
 #     """
-#     scene_flow_predictor.eval()
+#     flow_predictor.eval()
     
 #     pred_flows = []
 #     gt_flows = []
@@ -277,15 +277,15 @@ only AI can do
 #                         else:
 #                             pose0 = torch.eye(4, device=device)
 #                         pose1 = next_item.get("pose", torch.eye(4)).to(device)
-#                         flow_pred = scene_flow_predictor(pc0, pc1, pose0, pose1)
+#                         flow_pred = flow_predictor(pc0, pc1, pose0, pose1)
 #                     else:
-#                         flow_pred = scene_flow_predictor(point_cloud_first)
+#                         flow_pred = flow_predictor(point_cloud_first)
                     
 #                     pred_flows.append(flow_pred)
                     
 #                 except Exception as e:
 #                     # 备用预测方法
-#                     flow_pred = scene_flow_predictor(point_cloud_first)
+#                     flow_pred = flow_predictor(point_cloud_first)
 #                     pred_flows.append(flow_pred)
             
 #             gt_flows.extend(flow_gt)

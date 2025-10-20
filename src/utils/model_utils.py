@@ -30,22 +30,22 @@ def initialize_models_and_optimizers(config, N, device):
         device: Training device
         
     Returns:
-        tuple: (mask_predictor, scene_flow_predictor, optimizer_flow, optimizer_mask, schedulers)
+        tuple: (mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, schedulers)
     """
     # Initialize models
     mask_predictor = get_mask_predictor(config.model.mask, N)
-    scene_flow_predictor = get_scene_flow_predictor(config.model.flow, N)
-    scene_flow_predictor.to(device)
+    flow_predictor = get_scene_flow_predictor(config.model.flow, N)
+    flow_predictor.to(device)
 
     # Initialize optimizers
-    optimizer_flow = torch.optim.AdamW(scene_flow_predictor.parameters(), lr=config.model.flow.lr)
+    optimizer_flow = torch.optim.AdamW(flow_predictor.parameters(), lr=config.model.flow.lr)
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
     
     # Initialize schedulers
     alter_scheduler = AlterScheduler(config.alternate)
     scene_flow_smoothness_scheduler = SceneFlowSmoothnessScheduler(config.lr_multi.scene_flow_smoothness_scheduler)
     
-    return mask_predictor, scene_flow_predictor, optimizer_flow, optimizer_mask, alter_scheduler, scene_flow_smoothness_scheduler
+    return mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, alter_scheduler, scene_flow_smoothness_scheduler
 
 
 def initialize_loss_functions(config, device):
@@ -160,16 +160,13 @@ def setup_checkpointing(config, device):
     return checkpoint_dir, save_every_iters, step, resume, resume_path
 
 
-def load_checkpoint(resume, resume_path, checkpoint_dir, device, scene_flow_predictor, mask_predictor, 
+def load_checkpoint(config, flow_predictor, mask_predictor, 
                    optimizer_flow, optimizer_mask, alter_scheduler):
     """Load checkpoint if resume is enabled.
     
     Args:
-        resume: Whether to resume training
-        resume_path: Path to specific checkpoint
-        checkpoint_dir: Directory containing checkpoints
-        device: Training device
-        scene_flow_predictor: Scene flow model
+        config: Configuration object
+        flow_predictor: Scene flow model
         mask_predictor: Mask prediction model
         optimizer_flow: Flow optimizer
         optimizer_mask: Mask optimizer
@@ -179,11 +176,17 @@ def load_checkpoint(resume, resume_path, checkpoint_dir, device, scene_flow_pred
         int: Starting step number
     """
     step = 0
-    if resume:
+    if config.checkpoint.resume:
+        resume_path = config.checkpoint.resume_path
+        checkpoint_dir = config.log.dir
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         candidate_path = resume_path if resume_path else os.path.join(checkpoint_dir, "latest.pt")
         if os.path.exists(candidate_path):
             ckpt = torch.load(candidate_path, map_location=device)
-            scene_flow_predictor.load_state_dict(ckpt["scene_flow_predictor"])
+            if "scene_flow_predictor" in ckpt:
+                flow_predictor.load_state_dict(ckpt["scene_flow_predictor"])
+            else:
+                flow_predictor.load_state_dict(ckpt["flow_predictor"])
             mask_predictor.load_state_dict(ckpt["mask_predictor"])
             optimizer_flow.load_state_dict(ckpt.get("optimizer_flow", optimizer_flow.state_dict()))
             optimizer_mask.load_state_dict(ckpt.get("optimizer_mask", optimizer_mask.state_dict()))
@@ -196,10 +199,24 @@ def load_checkpoint(resume, resume_path, checkpoint_dir, device, scene_flow_pred
             tqdm.write(f"Resumed from checkpoint: {candidate_path} (step={step})")
         else:
             tqdm.write(f"No checkpoint found at {candidate_path}, starting fresh.")
+    if config.checkpoint.overwrite_flow_predictor:
+        print("Overwriting flow predictor with checkpoint: ", config.checkpoint.overwrite_flow_path)
+        flow_predictor = load_flow_predictor_from_checkpoint(flow_predictor, config.checkpoint.overwrite_flow_path, device)
     return step
 
-
-def create_checkpoint_saver(checkpoint_dir, scene_flow_predictor, mask_predictor, 
+def load_flow_predictor_from_checkpoint(flow_predictor, ckpt_path, device):
+    ckpt = torch.load(ckpt_path, map_location=device)
+    if "scene_flow_predictor" in ckpt:
+        flow_predictor.load_state_dict(ckpt["scene_flow_predictor"])
+    elif "flow_predictor" in ckpt:
+        flow_predictor.load_state_dict(ckpt["flow_predictor"])
+    else:
+        state_dict = ckpt["state_dict"]
+        #remove the "model." prefix from the state_dict
+        state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
+        flow_predictor.load_state_dict(state_dict)
+    return flow_predictor
+def create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor, 
                           optimizer_flow, optimizer_mask, alter_scheduler, config):
     """Create checkpoint saving function.
     
@@ -209,7 +226,7 @@ def create_checkpoint_saver(checkpoint_dir, scene_flow_predictor, mask_predictor
     def save_checkpoint(path_latest: str, step_value: int):
         state = {
             "step": step_value,
-            "scene_flow_predictor": scene_flow_predictor.state_dict(),
+            "flow_predictor": flow_predictor.state_dict(),
             "mask_predictor": mask_predictor.state_dict(),
             "optimizer_flow": optimizer_flow.state_dict(),
             "optimizer_mask": optimizer_mask.state_dict(),

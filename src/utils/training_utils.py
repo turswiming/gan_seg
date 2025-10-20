@@ -39,19 +39,19 @@ def determine_training_modes(step, config, alter_scheduler):
     return train_flow, train_mask
 
 
-def set_model_training_modes(scene_flow_predictor, mask_predictor, train_flow, train_mask):
+def set_model_training_modes(flow_predictor, mask_predictor, train_flow, train_mask):
     """Set training/evaluation modes for models.
     
     Args:
-        scene_flow_predictor: Scene flow model
+        flow_predictor: Scene flow model
         mask_predictor: Mask prediction model
         train_flow: Whether to train flow model
         train_mask: Whether to train mask model
     """
     if train_flow:
-        scene_flow_predictor.train()
+        flow_predictor.train()
     else:
-        scene_flow_predictor.eval()
+        flow_predictor.eval()
         
     if train_mask:
         mask_predictor.train()
@@ -98,14 +98,14 @@ def compute_individual_gradients(loss_dict, model, retain_graph=False):
     return grad_contributions
 
 
-def log_gradient_debug_info(config, writer, loss_dict, scene_flow_predictor, mask_predictor, step):
+def log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_predictor, step):
     """Log gradient debugging information to TensorBoard."""
     if not config.vis.debug_grad:
         return
         
     with torch.no_grad():  # Avoid affecting actual gradient computation
         flow_grads = compute_individual_gradients(
-            loss_dict, scene_flow_predictor, retain_graph=True)
+            loss_dict, flow_predictor, retain_graph=True)
         mask_grads = compute_individual_gradients(
             loss_dict, mask_predictor, retain_graph=True)
 
@@ -124,7 +124,7 @@ def log_gradient_debug_info(config, writer, loss_dict, scene_flow_predictor, mas
 
 
 def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask, 
-                             scene_flow_predictor, mask_predictor, train_flow, train_mask):
+                             flow_predictor, mask_predictor, train_flow, train_mask):
     """Perform optimization step with gradient clipping and error handling.
     
     Args:
@@ -132,7 +132,7 @@ def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask
         total_loss: Total loss tensor
         optimizer_flow: Flow model optimizer
         optimizer_mask: Mask model optimizer
-        scene_flow_predictor: Scene flow model
+        flow_predictor: Scene flow model
         mask_predictor: Mask model
         train_flow: Whether to train flow model
         train_mask: Whether to train mask model
@@ -164,7 +164,7 @@ def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask
     
     # Gradient clipping
     if hasattr(config.training, "flow_model_grad_clip"):
-        torch.nn.utils.clip_grad_norm_(scene_flow_predictor.parameters(), 
+        torch.nn.utils.clip_grad_norm_(flow_predictor.parameters(), 
                                      config.training.flow_model_grad_clip)
     if hasattr(config.training, "mask_model_grad_clip"):
         torch.nn.utils.clip_grad_norm_(mask_predictor.parameters(), 
@@ -190,11 +190,11 @@ def handle_checkpoint_saving(save_every_iters, step, checkpoint_dir, save_checkp
             tqdm.write(f"Failed to save checkpoint: {e}")
 
 
-def handle_evaluation(config, step, scene_flow_predictor, mask_predictor, dataloader, device, writer):
+def handle_evaluation(config, step, flow_predictor, mask_predictor, dataloader, device, writer):
     """Handle model evaluation and logging."""
     if step % config.training.eval_loop == 1:
         epe, miou, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = eval_model(
-            scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step)
+            flow_predictor, mask_predictor, dataloader, config, device, writer, step)
         
         # Log evaluation metrics
         writer.add_scalar("val_epe", epe.mean().item(), step)
@@ -209,14 +209,14 @@ def handle_evaluation(config, step, scene_flow_predictor, mask_predictor, datalo
         if threeway_mean is not None:
             writer.add_scalar("val_threeway_mean", threeway_mean.mean().item(), step)
 
-def handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer):
+def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer):
     """
     Handle model evaluation and logging with general data structure.
     
     Args:
         config: Configuration object
         step: Current training step
-        scene_flow_predictor: Scene flow prediction model
+        flow_predictor: Scene flow prediction model
         mask_predictor: Mask prediction model
         val_flow_dataloader: Validation dataloader for flow evaluation
         val_mask_dataloader: Validation dataloader for mask evaluation
@@ -226,7 +226,7 @@ def handle_evaluation_general(config, step, scene_flow_predictor, mask_predictor
     if step % config.training.eval_loop == 1:
         print("Evaluating model at step ", step)
         eval_model_general(
-            scene_flow_predictor, 
+            flow_predictor, 
             mask_predictor, 
             val_flow_dataloader, 
             val_mask_dataloader, 

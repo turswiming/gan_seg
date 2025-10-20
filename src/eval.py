@@ -1,3 +1,4 @@
+from typing import Sequence
 from utils.metrics import calculate_miou, calculate_epe
 from utils.bucketed_epe_utils import extract_classid_from_argoverse2_data, compute_bucketed_epe_metrics
 import torch
@@ -6,6 +7,12 @@ from utils.visualization_utils import remap_instance_labels
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from pathlib import Path
+from SceneFlowZoo.dataloaders import (
+    TorchFullFrameInputSequence,
+    TorchFullFrameOutputSequence,
+    TorchFullFrameOutputSequenceWithDistance,
+)
+from bucketed_scene_flow_eval.interfaces.abstract_dataset import LoaderType
 def evaluate_predictions(
         pred_flows, 
         gt_flows, 
@@ -149,12 +156,12 @@ def evaluate_predictions_general(
     
         return epe_mean, miou_mean, None, None, None, None
 
-def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device, writer, step):
+def eval_model(flow_predictor, mask_predictor, dataloader, config, device, writer, step):
     """
     Evaluate the model on the validation dataset.
     
     Args:
-        scene_flow_predictor (nn.Module): Scene flow prediction model
+        flow_predictor (nn.Module): Scene flow prediction model
         mask_predictor (nn.Module): Mask prediction model
         dataloader (DataLoader): DataLoader for the validation dataset
         config (dict): Configuration dictionary
@@ -162,7 +169,7 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
         writer (SummaryWriter): TensorBoard writer for logging
         step (int): Current training step
     """
-    scene_flow_predictor.eval()
+    flow_predictor.eval()
     mask_predictor.eval()
 
     pred_flows = []
@@ -203,13 +210,13 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
                         else:
                             pose0 = torch.eye(4, device=device)
                         pose1 = next_item.get("pose", torch.eye(4)).to(device)
-                        flow_pred = scene_flow_predictor(pc0, pc1, pose0, pose1)
+                        flow_pred = flow_predictor(pc0, pc1, pose0, pose1)
                     else:
-                        flow_pred = scene_flow_predictor(point_cloud_firsts[i])
+                        flow_pred = flow_predictor(point_cloud_firsts[i])
                     pred_flows.extend([flow_pred])
                 except Exception as e:
                     from model.eulerflow_raw_mlp import QueryDirection
-                    pred_flows.append(scene_flow_predictor(point_cloud_firsts[i], batch["idx"][i], batch["total_frames"][i], QueryDirection.FORWARD))  # Shape: [B, N, 3]
+                    pred_flows.append(flow_predictor(point_cloud_firsts[i], batch["idx"][i], batch["total_frames"][i], QueryDirection.FORWARD))  # Shape: [B, N, 3]
 
             gt_flows.extend(flow_gt)
 
@@ -255,13 +262,13 @@ def eval_model(scene_flow_predictor, mask_predictor, dataloader, config, device,
 
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
 
-def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step):
+def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step):
     """
     General evaluator aligned with new data structures (TimeSyncedSceneFlowFrame).
     Expects each batch to provide a list of frames or a dict with key 'frames'.
     
     Args:
-        scene_flow_predictor: Scene flow prediction model
+        flow_predictor: Scene flow prediction model
         mask_predictor: Mask prediction model
         val_flow_dataloader: Validation dataloader for flow evaluation
         val_mask_dataloader: Validation dataloader for mask evaluation
@@ -274,7 +281,7 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
         tuple: (epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean)
             Evaluation metrics for the model
     """
-    scene_flow_predictor.eval()
+    flow_predictor.eval()
     mask_predictor.eval()
 
     pred_flows = []
@@ -293,27 +300,25 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
             if i >= eval_size:
                 break
             for sample in batch:
-                point_cloud_first = sample[0].pc.full_global_pc.points[sample[0].flow.mask,:]
-                point_cloud_next = sample[1].pc.full_global_pc.points[sample[1].pc.mask,:]
-                point_cloud_first = torch.from_numpy(point_cloud_first).to(device).float()
-                point_cloud_next = torch.from_numpy(point_cloud_next).to(device).float()
-                ego_motion_first = torch.from_numpy(sample[0].pc.pose.sensor_to_ego.to_array()).to(device).float()
-                firstmask = torch.ones(point_cloud_first.shape[0], device=device).bool()
-                nextmask = torch.ones(point_cloud_next.shape[0], device=device).bool()
-                flow_pred_object = scene_flow_predictor._model_forward([(point_cloud_first, firstmask)], [(point_cloud_next, nextmask)], [(torch.eye(4, device=device), ego_motion_first)])
-                flow_pred_global = flow_pred_object[0].ego_flows.squeeze(0)
+                Sequence = TorchFullFrameInputSequence.from_frame_list(
+                    idx=0,
+                    frame_list=sample,
+                    pc_max_len=120000,  # Maximum point cloud points
+                    loader_type=LoaderType.CAUSAL,
+                    allow_pc_slicing=False
+                ).to(device)
+                flow_pred_object = flow_predictor.forward([Sequence])
+                flow_pred = flow_pred_object[0].ego_flows.squeeze(0)
+                ego_pc = Sequence.get_full_ego_pc(0)
+                print(Sequence.pc_poses_ego_to_global[0])
+                flow_pred_global = flow_predictor.ego_to_global_flow(ego_pc[sample[0].pc.mask,:], flow_pred[sample[0].pc.mask,:], Sequence.pc_poses_ego_to_global[0])
                 pred_flows.append(flow_pred_global)
-                gt_flow = sample[0].flow.full_flow[sample[0].flow.mask,:]
-                gt_flow = torch.from_numpy(gt_flow).to(device).float()
-                gt_flows.append(gt_flow)
-                class_ids.append(extract_classid_from_argoverse2_data(sample[0]))
-                point_clouds.append(point_cloud_first.cpu())
-                if pred_flows[-1].shape[0] != gt_flows[-1].shape[0]:
-                    #pop the last element
-                    pred_flows.pop()
-                    gt_flows.pop()
-                    class_ids.pop()
-                    point_clouds.pop()
+                ego_gt_flow = torch.from_numpy(sample[0].flow.full_flow[sample[0].pc.mask,:]).to(device).float()
+                global_gt_flow = flow_predictor.global_to_ego_flow(ego_pc[sample[0].pc.mask,:], ego_gt_flow, Sequence.pc_poses_ego_to_global[0])
+                gt_flows.append(global_gt_flow)
+                class_ids.append(extract_classid_from_argoverse2_data(sample[0])[sample[0].pc.mask])
+                point_clouds.append(sample[0].pc.full_global_pc.points[sample[0].pc.mask,:])
+        # exit(0)
         for i, batch in enumerate(val_mask_dataloader):
             if i >= eval_size:
                 break
@@ -324,7 +329,6 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
                 gt_mask = sample[0].instance_ids[sample[0].pc.mask,]
                 gt_mask = torch.from_numpy(gt_mask).to(device).long()
                 gt_masks.append(gt_mask)
-                # assert pred_masks[-1].shape[1] == gt_masks[-1].shape[0], f"pred_masks shape: {pred_masks[-1].shape}, gt_masks shape: {gt_masks[-1].shape}"
                 if pred_masks[-1].shape[1] != gt_masks[-1].shape[0]:
                     #pop the last element
                     pred_masks.pop()
@@ -358,38 +362,5 @@ def eval_model_general(scene_flow_predictor, mask_predictor, val_flow_dataloader
         writer.add_scalar(f"bucketed_epe/standard/{class_name}_static", static_epe, step)
         writer.add_scalar(f"bucketed_epe/standard/{class_name}_dynamic", dynamic_error, step)
 
-def eval_model_with_bucketed_epe(scene_flow_predictor, dataloader, config, device, writer, step, output_path=None):
-    """
-    使用Bucketed EPE评估模型，参考论文 "I Can't Believe It's Not Scene Flow!"
-    
-    Args:
-        scene_flow_predictor: 场景流预测模型
-        dataloader: 数据加载器
-        config: 配置字典
-        device: 设备
-        writer: TensorBoard writer
-        step: 当前训练步骤
-        output_path: 输出路径
-        
-    Returns:
-        bucketed EPE评估结果
-    """
-    if output_path is None:
-        output_path = Path("/tmp/bucketed_epe_eval")
-    
-    # 直接使用compute_bucketed_epe_metrics函数
-    # 这里需要从dataloader中提取数据，但为了简化，我们假设已经有了pred_flows, gt_flows, class_ids
-    # 在实际使用中，这些数据应该从dataloader中获取
-    
-    print("注意: eval_model_with_bucketed_epe函数需要在实际使用中实现数据提取逻辑")
-    print("建议直接使用compute_bucketed_epe_metrics函数")
-    
-    # 示例用法（需要实际的数据）
-    # results = compute_bucketed_epe_metrics(
-    #     pred_flows=pred_flows,
-    #     gt_flows=gt_flows, 
-    #     class_ids=class_ids,
-    #     output_path=output_path
-    # )
-    
-    return {"message": "请直接使用compute_bucketed_epe_metrics函数"}
+def eval_model_with_bucketed_epe(flow_predictor, dataloader, config, device, writer, step, output_path=None):
+    pass

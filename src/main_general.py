@@ -220,7 +220,7 @@ def main(config, writer):
     checkpoint_dir, save_every_iters, step, resume, resume_path = setup_checkpointing(config, device)
     
     # # Load checkpoint if resuming
-    step = load_checkpoint(resume, resume_path, checkpoint_dir, device, flow_predictor, 
+    step = load_checkpoint(config, flow_predictor, 
                           mask_predictor, optimizer_flow, optimizer_mask, alter_scheduler)
     
     # Create checkpoint saver
@@ -234,6 +234,7 @@ def main(config, writer):
         tqdm.write("Starting training...")
         for framelists in dataloader:
             step += 1
+            handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer)
 
 
             if step > config.training.max_iter:
@@ -288,7 +289,6 @@ def main(config, writer):
             handle_checkpoint_saving(save_every_iters, step, checkpoint_dir, save_checkpoint)
             
             # Handle evaluation
-            handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer)
             
             # Clear memory cache
             if step % config.hardware.clear_cache_interval == 0:

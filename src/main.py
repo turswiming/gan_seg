@@ -62,7 +62,7 @@ def main(config, writer):
     dataloader, infinite_loader, val_dataloader, batch_size, N = create_dataloaders(config)
     
     # Initialize models, optimizers and schedulers
-    (mask_predictor, scene_flow_predictor, optimizer_flow, optimizer_mask, 
+    (mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, 
      alter_scheduler, scene_flow_smoothness_scheduler) = initialize_models_and_optimizers(config, N, device)
     
     # Initialize loss functions
@@ -76,11 +76,11 @@ def main(config, writer):
     checkpoint_dir, save_every_iters, step, resume, resume_path = setup_checkpointing(config, device)
     
     # Load checkpoint if resuming
-    step = load_checkpoint(resume, resume_path, checkpoint_dir, device, scene_flow_predictor, 
+    step = load_checkpoint(resume, resume_path, checkpoint_dir, device, flow_predictor, 
                           mask_predictor, optimizer_flow, optimizer_mask, alter_scheduler)
     
     # Create checkpoint saver
-    save_checkpoint = create_checkpoint_saver(checkpoint_dir, scene_flow_predictor, mask_predictor,
+    save_checkpoint = create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor,
                                             optimizer_flow, optimizer_mask, alter_scheduler, config)
     
     first_iteration = True
@@ -100,7 +100,7 @@ def main(config, writer):
                 
             # Determine training modes and set model states
             train_flow, train_mask = determine_training_modes(step, config, alter_scheduler)
-            set_model_training_modes(scene_flow_predictor, mask_predictor, train_flow, train_mask)
+            set_model_training_modes(flow_predictor, mask_predictor, train_flow, train_mask)
             
             # Prepare input data
             point_cloud_firsts = [item.to(device) for item in sample["point_cloud_first"]]
@@ -110,7 +110,7 @@ def main(config, writer):
             
             # Forward pass for scene flow
             pred_flow, reverse_pred_flow, longterm_pred_flow = forward_scene_flow(
-                point_cloud_firsts, point_cloud_nexts, sample, scene_flow_predictor, 
+                point_cloud_firsts, point_cloud_nexts, sample, flow_predictor, 
                 config, train_flow, device)
             
             # Forward pass for mask prediction
@@ -118,7 +118,7 @@ def main(config, writer):
             
             # Compute all losses
             loss_dict, total_loss, reconstructed_points = compute_all_losses(
-                config, loss_functions, scene_flow_predictor, mask_predictor,
+                config, loss_functions, flow_predictor, mask_predictor,
                 point_cloud_firsts, point_cloud_nexts, pred_flow, reverse_pred_flow,
                 longterm_pred_flow, pred_mask, sample, step, scene_flow_smoothness_scheduler,
                 train_flow, train_mask, device)
@@ -131,12 +131,12 @@ def main(config, writer):
                 writer.add_scalars("losses", loss_log_dict, step)
             
             # Log gradient debugging information
-            log_gradient_debug_info(config, writer, loss_dict, scene_flow_predictor, mask_predictor, step)
+            log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_predictor, step)
             
             # Perform optimization step
             optimization_success = perform_optimization_step(
                 config, total_loss, optimizer_flow, optimizer_mask,
-                scene_flow_predictor, mask_predictor, train_flow, train_mask)
+                flow_predictor, mask_predictor, train_flow, train_mask)
             
             if not optimization_success:
                 continue
@@ -148,7 +148,7 @@ def main(config, writer):
             handle_checkpoint_saving(save_every_iters, step, checkpoint_dir, save_checkpoint)
             
             # Handle evaluation
-            handle_evaluation(config, step, scene_flow_predictor, mask_predictor, dataloader, device, writer)
+            handle_evaluation(config, step, flow_predictor, mask_predictor, dataloader, device, writer)
             
             # Clear memory cache
             if step % config.hardware.clear_cache_interval == 0:
