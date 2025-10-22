@@ -8,11 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from pathlib import Path
 from tqdm import tqdm
-from SceneFlowZoo.dataloaders import (
-    TorchFullFrameInputSequence,
-    TorchFullFrameOutputSequence,
-    TorchFullFrameOutputSequenceWithDistance,
-)
+
 from bucketed_scene_flow_eval.interfaces.abstract_dataset import LoaderType
 def evaluate_predictions(
         pred_flows, 
@@ -305,23 +301,24 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                 if i >= eval_size:
                     break
                 for sample in batch:
-                    Sequence = TorchFullFrameInputSequence.from_frame_list(
-                        idx=0,
-                        frame_list=sample,
-                        pc_max_len=120000,  # Maximum point cloud points
-                        loader_type=LoaderType.CAUSAL,
-                        allow_pc_slicing=False
-                    ).to(device)
-                    flow_pred_object = flow_predictor.forward([Sequence])
-                    flow_pred = flow_pred_object[0].ego_flows.squeeze(0)
-                    ego_pc = Sequence.get_full_ego_pc(0)
-                    flow_pred_global = flow_predictor.ego_to_global_flow(ego_pc[sample[0].pc.mask,:], flow_pred[sample[0].pc.mask,:], Sequence.pc_poses_ego_to_global[0])
-                    pred_flows.append(flow_pred_global)
-                    ego_gt_flow = torch.from_numpy(sample[0].flow.full_flow[sample[0].pc.mask,:]).to(device).float()
-                    global_gt_flow = flow_predictor.global_to_ego_flow(ego_pc[sample[0].pc.mask,:], ego_gt_flow, Sequence.pc_poses_ego_to_global[0])
-                    gt_flows.append(global_gt_flow)
-                    class_ids.append(extract_classid_from_argoverse2_data(sample[0])[sample[0].pc.mask])
-                    point_clouds.append(sample[0].pc.full_global_pc.points[sample[0].pc.mask,:])
+                    point_cloud_first = sample["point_cloud_first"]
+                    point_cloud_first = point_cloud_first.to(device).float()
+                    point_cloud_first_ones = torch.ones(point_cloud_first.shape[0],device=point_cloud_first.device).bool()
+                    point_cloud_next = sample["point_cloud_next"].to(device).float()
+                    point_cloud_next_ones = torch.ones(point_cloud_next.shape[0],device=point_cloud_next.device).bool()
+                    transform = torch.eye(4,device=point_cloud_first.device)
+                    flow_pred = flow_predictor._model_forward(
+                        [[point_cloud_first,point_cloud_first_ones]], 
+                        [[point_cloud_next,point_cloud_next_ones]], 
+                        [[transform,transform]])[0].ego_flows.squeeze(0)
+                     #because the transform is identity, here it is the global flow
+                    
+                    pred_flows.append(flow_pred)
+
+                    gt_flows.append(sample["flow"].to(device).float())
+                    if config.dataset.name in ["AV2_SceneFlowZoo"]:
+                        class_ids.append(sample["class_ids"])
+                    point_clouds.append(point_cloud_first)
         # exit(0)
         print("Evaluating mask model")
         with tqdm(total=eval_size, desc="Evaluating mask model") as pbar:
@@ -330,14 +327,13 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                 if i >= eval_size:
                     break
                 for sample in batch:
-                    downsample_factor = config.dataset.AV2_SceneFlowZoo.downsample_factor
-                    point_cloud_first = sample[0].pc.full_global_pc.points[sample[0].pc.mask,:][::downsample_factor,:]
-                    point_cloud_first = torch.from_numpy(point_cloud_first).to(device).float()
+                    point_cloud_first = sample["point_cloud_first"]
+                    point_cloud_first = point_cloud_first.to(device).float()
                     point_cloud_first = point_cloud_first.unsqueeze(0).contiguous()
                     masks_pred = mask_predictor.forward(point_cloud_first,point_cloud_first)
                     pred_masks.append(masks_pred.squeeze(0).permute(1,0))
-                    gt_mask = sample[0].instance_ids[sample[0].pc.mask,][::downsample_factor,]
-                    gt_mask = torch.from_numpy(gt_mask).to(device).long()
+                    gt_mask = sample["mask"]
+                    gt_mask = gt_mask.to(device).long()
                     gt_masks.append(gt_mask)
                     if pred_masks[-1].shape[1] != gt_masks[-1].shape[0]:
                         #pop the last element
@@ -362,16 +358,17 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
         min_points=config.eval.min_points,
     )
     output_path = Path(config.log.dir) / "bucketed_epe"/f"step_{step}"
-    standard_results = compute_bucketed_epe_metrics(
-        point_clouds=point_clouds,
-        pred_flows=pred_flows,
-        gt_flows=gt_flows,
-        class_ids=class_ids,
-        output_path=output_path
-    )
-    for class_name, (static_epe, dynamic_error) in standard_results.items():
-        writer.add_scalar(f"bucketed_epe/standard/{class_name}_static", static_epe, step)
-        writer.add_scalar(f"bucketed_epe/standard/{class_name}_dynamic", dynamic_error, step)
+    if config.dataset.name in ["AV2_SceneFlowZoo"]:
+        standard_results = compute_bucketed_epe_metrics(
+            point_clouds=point_clouds,
+            pred_flows=pred_flows,
+            gt_flows=gt_flows,
+            class_ids=class_ids,
+            output_path=output_path
+        )
+        for class_name, (static_epe, dynamic_error) in standard_results.items():
+            writer.add_scalar(f"bucketed_epe/standard/{class_name}_static", static_epe, step)
+            writer.add_scalar(f"bucketed_epe/standard/{class_name}_dynamic", dynamic_error, step)
 
 def eval_model_with_bucketed_epe(flow_predictor, dataloader, config, device, writer, step, output_path=None):
     pass

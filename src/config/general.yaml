@@ -1,4 +1,5 @@
 __base__: "baseconfig.yaml"
+seed: 42
 log:
   name: "defaultname"
   dir: "" # default save to /output/exp
@@ -9,7 +10,7 @@ checkpoint:
   resume_path: "/workspace/gan_seg/outputs/exp/20251021_204453/checkpoints/step_17000.pt"
   overwrite_flow_predictor: true
   overwrite_flow_path: "/workspace/zeroflow_weights/argo/supervised/supervised.ckpt"
-  save_every_iters: 1000
+  save_every_iters: 80
 model:
   flow:
     name: "FastFlow3D"
@@ -26,7 +27,7 @@ model:
     slot_num: 19
 
 dataset:
-  name: "AV2_SceneFlowZoo"
+  name: "KITTISF_new"
   AV2_SceneFlowZoo:
     root_dir: "/workspace/av2data/train"
     subsequence_length: 2
@@ -39,8 +40,12 @@ dataset:
     use_gt_flow: false
     flow_data_path: "/workspace/av2flow/train/"
     downsample_factor: 8
-
-  val_name: "AV2_SceneFlowZoo_val"
+  KITTISF_new:
+    data_root: "/workspace/kittisf/processed"
+    split: "train"
+    num_points: 8192
+    seed: 42
+  val_name: "KITTISF_new"
   AV2_SceneFlowZoo_val_flow:
     root_dir: "/workspace/av2data/val"
     with_ground: false
@@ -65,7 +70,7 @@ dataset:
 lr_multi:
   rec_loss: 1
   flow_loss: 0.0
-  scene_flow_smoothness: 0
+  scene_flow_smoothness: 1
   rec_flow_loss: 0.0
   point_smooth_loss: 0.0
   eular_flow_loss: 0.0
@@ -106,5 +111,5 @@ vis:
   debug_grad: false
 
 eval:
-  eval_size: 300
-  min_points: 200
+  eval_size: 80
+  min_points: 50

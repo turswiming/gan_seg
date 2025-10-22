@@ -96,6 +96,14 @@ def create_dataloaders(config):
             downsampled=config.dataset.KITTISequence.downsampled,
             motion_threshold=config.dataset.KITTISequence.motion_threshold
         )
+    elif config.dataset.name == "KITTISF_new":
+        from dataset.kittisf_sceneflow import KittisfSceneFlowDataset
+        dataset = KittisfSceneFlowDataset(
+            data_root=config.dataset.KITTISF_new.data_root,
+            split=config.dataset.KITTISF_new.split,
+            num_points=config.dataset.KITTISF_new.num_points,
+            seed=config.dataset.KITTISF_new.seed
+        )
 
     else:
         raise ValueError(f"Dataset {config.dataset.name} not supported")
