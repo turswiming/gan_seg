@@ -123,14 +123,14 @@ def create_dataloaders_general(config):
     )
     val_flow_dataloader = torch.utils.data.DataLoader(
         val_flow_dataset, 
-        batch_size=config.dataloader.batchsize, 
+        batch_size=1, 
         shuffle=False, 
         num_workers=config.dataloader.num_workers,
         collate_fn=collect_fn
     )
     val_mask_dataloader = torch.utils.data.DataLoader(
         val_mask_dataset, 
-        batch_size=config.dataloader.batchsize, 
+        batch_size=1, 
         shuffle=False, 
         num_workers=config.dataloader.num_workers,
         collate_fn=collect_fn
@@ -143,38 +143,47 @@ def forward_scene_flow_general(sequences, flow_predictor)-> List[TorchFullFrameO
     flow_out_seqs = flow_predictor.forward(sequences)
     return flow_out_seqs
 
-def forward_mask_prediction_general(sequences, mask_predictor):
-    device = next(mask_predictor.parameters()).device
-    pc_tensors = [sequence.get_full_global_pc(0) for sequence in sequences]
-    data = {'points': [item.to(device).float() for item in pc_tensors]}
-    pred_mask = mask_predictor.forward_train(data)
-    
-    logits = pred_mask["pred_logits"]
-    pred_masks = pred_mask["pred_masks"]
-    logits = [item.permute(1, 0) for item in logits]
-    return [pred_masks.to(device).float() ]
+def forward_mask_prediction_general(pc_tensors, mask_predictor):
+    pred_masks = []
+    for pc_tensor in pc_tensors:
+        pc_tensor = pc_tensor.unsqueeze(0).contiguous()
+        pred_mask = mask_predictor.forward(pc_tensor,pc_tensor)
+        pred_mask = pred_mask.squeeze(0)
+        pred_mask = pred_mask.permute(1,0)
+        pred_masks.append(pred_mask)
+    return pred_masks
 
-def inference_models(flow_predictor,mask_predictor, sequences):
+
+
+def inference_models(flow_predictor,mask_predictor, sequences,downsample_factor):
     flow_out_seqs = forward_scene_flow_general(sequences, flow_predictor)
     pred_flow_full = [item.ego_flows.squeeze(0) for item in flow_out_seqs]
     # Forward pass for mask prediction
-    pred_mask_full = forward_mask_prediction_general(sequences, mask_predictor)
     #print the shape of pred_mask
     pred_flows_ego = [flow[seq.get_full_pc_gt_flow_mask(0)] for flow,seq in zip(pred_flow_full,sequences)]
     pred_flows_global = [flow_predictor.ego_to_global_flow(seq.get_full_ego_pc(0)[seq.get_full_pc_mask(0)],flow,seq.get_pc_transform_matrices(0)[1]) for flow,seq in zip(pred_flows_ego,sequences)]
-    pred_masks = [mask[:,seq.get_full_pc_gt_flow_mask(0)] for mask,seq in zip(pred_mask_full,sequences)]
+    pc_tensors = [sequence.get_full_global_pc(0) for sequence in sequences]
+
+    pc_tensors = [pc[seq.get_full_pc_gt_flow_mask(0),:] for pc,seq in zip(pc_tensors,sequences)]
     # Build first/next point clouds in ego frame (masked valid points)
+    _, _, pc_tensors, _ = downsample_point_clouds(None, None, pc_tensors, None, downsample_factor)
+    pred_masks = forward_mask_prediction_general(pc_tensors, mask_predictor)
+
     point_cloud_firsts = [seq.get_full_global_pc(0)[seq.get_full_pc_mask(0)] for seq in sequences]
     point_cloud_nexts = [seq.get_full_global_pc(1)[seq.get_full_pc_mask(1)] for seq in sequences]
+    pred_flows_global,_,point_cloud_firsts,point_cloud_nexts = downsample_point_clouds(pred_flows_global,None,point_cloud_firsts,point_cloud_nexts,downsample_factor)
 
-    
     return pred_flows_global,pred_masks,point_cloud_firsts,point_cloud_nexts
 
 def downsample_point_clouds(pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts,downsample_factor):
-    pred_flow = [item[::downsample_factor,:] for item in pred_flow]
-    pred_mask = [item[:,::downsample_factor] for item in pred_mask]
-    point_cloud_firsts = [item[::downsample_factor,:] for item in point_cloud_firsts]
-    point_cloud_nexts = [item[::downsample_factor,:] for item in point_cloud_nexts]
+    if pred_flow is not None:
+        pred_flow = [item[::downsample_factor,:] for item in pred_flow]
+    if pred_mask is not None:
+        pred_mask = [item[:,::downsample_factor] for item in pred_mask]
+    if point_cloud_firsts is not None:
+        point_cloud_firsts = [item[::downsample_factor,:] for item in point_cloud_firsts]
+    if point_cloud_nexts is not None:
+        point_cloud_nexts = [item[::downsample_factor,:] for item in point_cloud_nexts]
     return pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts
 
 def main(config, writer):
@@ -234,12 +243,14 @@ def main(config, writer):
         tqdm.write("Starting training...")
         for framelists in dataloader:
             step += 1
+            
             handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer)
 
 
             if step > config.training.max_iter:
                 tqdm.write("Reached maximum training iterations, stopping.")
                 break
+            #
             sequences = [TorchFullFrameInputSequence.from_frame_list(
                     idx=0,
                     frame_list=framelist,
@@ -253,13 +264,21 @@ def main(config, writer):
             flow_predictor.to(device)
             mask_predictor.to(device)
             # Forward pamss for scene flow
-            pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = inference_models(flow_predictor,mask_predictor,sequences)
-            pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = downsample_point_clouds(pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts,config.dataset.AV2_SceneFlowZoo.downsample_factor)
-                    # Compute all losses
+            ego_gt_flows = [torch.from_numpy(framelist[0].flow.full_flow[framelist[0].pc.mask,:]).to(device).float() for framelist in framelists]
+            global_gt_flows = [
+                flow_predictor.global_to_ego_flow(
+                    sequence.get_full_ego_pc(0)[framelist[0].pc.mask,:], 
+                    ego_gt_flow, 
+                    sequence.get_pc_transform_matrices(0)[1]
+                ) for ego_gt_flow,sequence,framelist in zip(ego_gt_flows,sequences,framelists)]
+
+            pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = inference_models(flow_predictor,mask_predictor,sequences,config.dataset.AV2_SceneFlowZoo.downsample_factor)
+
+            # Compute all losses
             loss_dict, total_loss, reconstructed_points = compute_all_losses_general(
-                config, loss_functions, flow_predictor, mask_predictor,
-                point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
-                train_flow, train_mask, device)
+                config=config, loss_functions=loss_functions, flow_predictor=flow_predictor, mask_predictor=mask_predictor,
+                point_cloud_firsts=point_cloud_firsts, point_cloud_nexts=point_cloud_nexts, pred_flow=pred_flow, pred_mask=pred_mask, step=step, scene_flow_smoothness_scheduler=scene_flow_smoothness_scheduler,
+                train_flow=train_flow, train_mask=train_mask, device=device)
                 #def compute_all_losses_general(config, loss_functions, flow_predictor, mask_predictor,
                     #   point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
                     #   train_flow, train_mask, device):

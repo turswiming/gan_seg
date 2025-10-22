@@ -64,7 +64,7 @@ def initialize_loss_functions(config, device):
     if config.lr_multi.rec_loss > 0:
         from losses.ReconstructionLoss import ReconstructionLoss
         from losses.ReconstructionLoss_optimized import ReconstructionLossOptimized
-        loss_functions['reconstruction'] = ReconstructionLossOptimized(device)
+        loss_functions['reconstruction'] = ReconstructionLoss(device)
     else:
         loss_functions['reconstruction'] = None
         
@@ -176,10 +176,10 @@ def load_checkpoint(config, flow_predictor, mask_predictor,
         int: Starting step number
     """
     step = 0
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if config.checkpoint.resume:
         resume_path = config.checkpoint.resume_path
         checkpoint_dir = config.log.dir
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         candidate_path = resume_path if resume_path else os.path.join(checkpoint_dir, "latest.pt")
         if os.path.exists(candidate_path):
             ckpt = torch.load(candidate_path, map_location=device)

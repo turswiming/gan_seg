@@ -5,15 +5,15 @@ log:
   tensorboard_log_interval: 7  # Log losses every N steps
 
 checkpoint:
-  resume: true          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251020_100829/checkpoints/step_5000.pt"
+  resume: false          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20251021_204453/checkpoints/step_17000.pt"
   overwrite_flow_predictor: true
   overwrite_flow_path: "/workspace/zeroflow_weights/argo/supervised/supervised.ckpt"
   save_every_iters: 1000
 model:
   flow:
     name: "FastFlow3D"
-    lr: 2e-6
+    lr: 2e-8
     FastFlow3D:
       VOXEL_SIZE: [0.2, 0.2, 6]
       PSEUDO_IMAGE_DIMS: [512, 512]
@@ -21,7 +21,7 @@ model:
       FEATURE_CHANNELS: 32
       SEQUENCE_LENGTH: 2
   mask:
-    name: "PointMaskFormer"
+    name: "MaskFormer3D"
     lr: 2e-6
     slot_num: 19
 
@@ -38,7 +38,7 @@ dataset:
     cache_root: "/workspace/av2data/cache"
     use_gt_flow: false
     flow_data_path: "/workspace/av2flow/train/"
-    downsample_factor: 4
+    downsample_factor: 8
 
   val_name: "AV2_SceneFlowZoo_val"
   AV2_SceneFlowZoo_val_flow:
@@ -63,14 +63,14 @@ dataset:
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
 
 lr_multi:
-  rec_loss: 0.01
+  rec_loss: 1
   flow_loss: 0.0
-  scene_flow_smoothness: 0.01
+  scene_flow_smoothness: 0
   rec_flow_loss: 0.0
-  point_smooth_loss: 0.01
+  point_smooth_loss: 0.0
   eular_flow_loss: 0.0
   KDTree_loss: 0
-  KNN_loss: 3.0
+  KNN_loss: 1
   l1_regularization: 0.0
   eular_mask_loss: 0
   scene_flow_smoothness_scheduler:
@@ -79,20 +79,20 @@ lr_multi:
     begin_value: 1.0
     end_value: 1.0
 
-# alternate:
-#   flow: [[50,true],[50,false]]
-#   mask: [[50,false],[50,true]]
+alternate:
+  flow: [[50,false],[50,false]]
+  mask: [[50,true],[50,true]]
 training:
   max_iter: 300000
   eval_loop: 1000
   begin_train_smooth: 0
   begin_train_mask: 0
 dataloader:
-  batchsize: 1
+  batchsize: 4
   num_workers: 0
 loss:
   scene_flow_smoothness:
-    scale_flow_grad: 0.001
+    scale_flow_grad: 0.01
     each_mask_item:
       relative_gradient: 0.9
       criterion: "L2"

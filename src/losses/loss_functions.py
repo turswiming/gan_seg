@@ -175,12 +175,12 @@ def compute_knn_loss(config, loss_functions, point_cloud_firsts, point_cloud_nex
         for i in range(len(point_cloud_firsts)):
             pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
             knn_dist_loss += loss_functions['knn'](
-                point_cloud_nexts[i][:, :3].to(device), pred_second_point)
+                point_cloud_nexts[i][:, :3].to(device), pred_second_point, forward_only=True)
         if longterm_pred_flow is not None and len(longterm_pred_flow) > 0:
             for idx in longterm_pred_flow:
                 pred_points = longterm_pred_flow[idx][:, :3]
                 real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
-                knn_dist_loss += loss_functions['knn'](real_points, pred_points)
+                knn_dist_loss += loss_functions['knn'](real_points, pred_points, forward_only=True)
         knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
     else:
         knn_dist_loss = torch.tensor(0.0, device=device)

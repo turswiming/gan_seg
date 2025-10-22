@@ -7,6 +7,7 @@ from utils.visualization_utils import remap_instance_labels
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from pathlib import Path
+from tqdm import tqdm
 from SceneFlowZoo.dataloaders import (
     TorchFullFrameInputSequence,
     TorchFullFrameOutputSequence,
@@ -296,49 +297,59 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
     foreground_dynamic_masks = []
     eval_size =config.eval.eval_size
     with torch.no_grad():
-        for i, batch in enumerate(val_flow_dataloader):
-            if i >= eval_size:
-                break
-            for sample in batch:
-                Sequence = TorchFullFrameInputSequence.from_frame_list(
-                    idx=0,
-                    frame_list=sample,
-                    pc_max_len=120000,  # Maximum point cloud points
-                    loader_type=LoaderType.CAUSAL,
-                    allow_pc_slicing=False
-                ).to(device)
-                flow_pred_object = flow_predictor.forward([Sequence])
-                flow_pred = flow_pred_object[0].ego_flows.squeeze(0)
-                ego_pc = Sequence.get_full_ego_pc(0)
-                print(Sequence.pc_poses_ego_to_global[0])
-                flow_pred_global = flow_predictor.ego_to_global_flow(ego_pc[sample[0].pc.mask,:], flow_pred[sample[0].pc.mask,:], Sequence.pc_poses_ego_to_global[0])
-                pred_flows.append(flow_pred_global)
-                ego_gt_flow = torch.from_numpy(sample[0].flow.full_flow[sample[0].pc.mask,:]).to(device).float()
-                global_gt_flow = flow_predictor.global_to_ego_flow(ego_pc[sample[0].pc.mask,:], ego_gt_flow, Sequence.pc_poses_ego_to_global[0])
-                gt_flows.append(global_gt_flow)
-                class_ids.append(extract_classid_from_argoverse2_data(sample[0])[sample[0].pc.mask])
-                point_clouds.append(sample[0].pc.full_global_pc.points[sample[0].pc.mask,:])
+        print("Evaluating flow model")
+        #add a progress bar
+        with tqdm(total=eval_size, desc="Evaluating flow model") as pbar:
+            for i, batch in enumerate(val_flow_dataloader):
+                pbar.update(1)
+                if i >= eval_size:
+                    break
+                for sample in batch:
+                    Sequence = TorchFullFrameInputSequence.from_frame_list(
+                        idx=0,
+                        frame_list=sample,
+                        pc_max_len=120000,  # Maximum point cloud points
+                        loader_type=LoaderType.CAUSAL,
+                        allow_pc_slicing=False
+                    ).to(device)
+                    flow_pred_object = flow_predictor.forward([Sequence])
+                    flow_pred = flow_pred_object[0].ego_flows.squeeze(0)
+                    ego_pc = Sequence.get_full_ego_pc(0)
+                    flow_pred_global = flow_predictor.ego_to_global_flow(ego_pc[sample[0].pc.mask,:], flow_pred[sample[0].pc.mask,:], Sequence.pc_poses_ego_to_global[0])
+                    pred_flows.append(flow_pred_global)
+                    ego_gt_flow = torch.from_numpy(sample[0].flow.full_flow[sample[0].pc.mask,:]).to(device).float()
+                    global_gt_flow = flow_predictor.global_to_ego_flow(ego_pc[sample[0].pc.mask,:], ego_gt_flow, Sequence.pc_poses_ego_to_global[0])
+                    gt_flows.append(global_gt_flow)
+                    class_ids.append(extract_classid_from_argoverse2_data(sample[0])[sample[0].pc.mask])
+                    point_clouds.append(sample[0].pc.full_global_pc.points[sample[0].pc.mask,:])
         # exit(0)
-        for i, batch in enumerate(val_mask_dataloader):
-            if i >= eval_size:
-                break
-            for sample in batch:
-                point_cloud_first = sample[0].pc.full_global_pc.points[sample[0].pc.mask,:]
-                masks_pred = mask_predictor.forward_train({'points': [torch.from_numpy(point_cloud_first).to(device).float()]})
-                pred_masks.append(masks_pred["pred_masks"].to(device).float())
-                gt_mask = sample[0].instance_ids[sample[0].pc.mask,]
-                gt_mask = torch.from_numpy(gt_mask).to(device).long()
-                gt_masks.append(gt_mask)
-                if pred_masks[-1].shape[1] != gt_masks[-1].shape[0]:
-                    #pop the last element
-                    pred_masks.pop()
-                    gt_masks.pop()
+        print("Evaluating mask model")
+        with tqdm(total=eval_size, desc="Evaluating mask model") as pbar:
+            for i, batch in enumerate(val_mask_dataloader):
+                pbar.update(1)
+                if i >= eval_size:
+                    break
+                for sample in batch:
+                    downsample_factor = config.dataset.AV2_SceneFlowZoo.downsample_factor
+                    point_cloud_first = sample[0].pc.full_global_pc.points[sample[0].pc.mask,:][::downsample_factor,:]
+                    point_cloud_first = torch.from_numpy(point_cloud_first).to(device).float()
+                    point_cloud_first = point_cloud_first.unsqueeze(0).contiguous()
+                    masks_pred = mask_predictor.forward(point_cloud_first,point_cloud_first)
+                    pred_masks.append(masks_pred.squeeze(0).permute(1,0))
+                    gt_mask = sample[0].instance_ids[sample[0].pc.mask,][::downsample_factor,]
+                    gt_mask = torch.from_numpy(gt_mask).to(device).long()
+                    gt_masks.append(gt_mask)
+                    if pred_masks[-1].shape[1] != gt_masks[-1].shape[0]:
+                        #pop the last element
+                        pred_masks.pop()
+                        gt_masks.pop()
 
     # Convert optionals
     bg_masks = background_static_masks if len(background_static_masks) > 0 else None
     fg_static_masks = foreground_static_masks if len(foreground_static_masks) > 0 else None
     fg_dynamic_masks = foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
     class_labels = None
+    print("Evaluating predictions")
     evaluate_predictions_general(
         pred_flows,
         gt_flows,
