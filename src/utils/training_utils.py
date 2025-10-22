@@ -28,14 +28,16 @@ def determine_training_modes(step, config, alter_scheduler):
     Returns:
         tuple: (train_flow, train_mask)
     """
+    assert not ((config.training.begin_train_flow !=0) and (config.training.begin_train_mask !=0)), f"your training is idle for the first {min(config.training.begin_train_flow, config.training.begin_train_mask)} steps?"
     train_flow = alter_scheduler.flow_train()
     train_mask = alter_scheduler.mask_train()
     
     # Override mask training if before begin_train_mask step
     if step < config.training.begin_train_mask:
         train_mask = False
-        train_flow = True
-        
+    if step < config.training.begin_train_flow:
+        train_flow = False
+    
     return train_flow, train_mask
 
 

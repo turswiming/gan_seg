@@ -69,6 +69,9 @@ def get_scene_flow_predictor(flow_model_config,N):
             FEATURE_CHANNELS=model_config.FEATURE_CHANNELS,
             SEQUENCE_LENGTH=model_config.SEQUENCE_LENGTH,
         )
+    elif flow_model_config.name == "FlowStep3D":
+        from OGCModel.flownet_kitti import FlowStep3D
+        return FlowStep3D(npoint=8192, use_instance_norm=False).cuda()
     else:
         raise NotImplementedError("scene flow predictor not implemented")
     

@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from pathlib import Path
 import random
-
+from OGCModel.icp_util import icp
 
 class KittisfSceneFlowDataset(Dataset):
     """
@@ -13,7 +13,7 @@ class KittisfSceneFlowDataset(Dataset):
     """
     
     def __init__(self, 
-                 data_root: str = "/workspace/kittisf/processed",
+                 data_root: str = "/workspace/kittisf_downwampled/kittisf_downsampled/data",
                  split: str = "train",  # "train" or "val"
                  num_points: int = 8192,
                  seed: int = 42):
@@ -35,9 +35,9 @@ class KittisfSceneFlowDataset(Dataset):
         
         # 固定分割：前160个为train，后40个为val
         if split == "train":
-            self.sequence_ids = all_sequence_ids[:160]  # 000000-000159
+            self.sequence_ids = all_sequence_ids[:100]  # 000000-000159
         else:  # val
-            self.sequence_ids = all_sequence_ids[160:]  # 000160-000199
+            self.sequence_ids = all_sequence_ids[100:]  # 000160-000199
         
         print(f"KittisfSceneFlowDataset - {split}: {len(self.sequence_ids)} sequences")
     
@@ -51,28 +51,36 @@ class KittisfSceneFlowDataset(Dataset):
         # 检查数据是否存在
         pc1_path = sequence_path / "pc1.npy"
         pc2_path = sequence_path / "pc2.npy"
-        segm_path = sequence_path / "segm.npy"
+        flow1_path = sequence_path / "flow1.npy"    
+        segm_path = sequence_path / "segm1.npy"
         
-        if not all([pc1_path.exists(), pc2_path.exists(), segm_path.exists()]):
+        if not all([pc1_path.exists(), pc2_path.exists(), flow1_path.exists(), segm_path.exists()]):
             raise FileNotFoundError(f"Missing data files for sequence {sequence_id}")
         
         # 加载数据
         pc1 = np.load(pc1_path)  # (N, 3)
         pc2 = np.load(pc2_path)  # (N, 3)
+        flow = np.load(flow1_path)  # (N, 3)
         segm = np.load(segm_path)  # (N,)
         
-        # 计算 flow = pc2 - pc1
-        flow = pc2 - pc1  # (N, 3)
-        
+        # Regard fitted transformation as flows 
+        # from OGC
+        # T, _, _ = icp(pc1, pc2, max_iterations=50)
+        # rot, transl = T[:3, :3], T[:3, 3].transpose()
+        # flow = np.einsum('ij,nj->ni', rot, pc1.copy()) + transl - pc1.copy()
+        # flow = flow.astype(np.float32)
+
+        # pc1 = np.einsum('ij,nj->ni', rot, pc1) + transl
+        # pc1 = pc1.astype(np.float32)
         # 下采样到固定点数
-        pc1, pc2, flow, segm = self._downsample_points(pc1, pc2, flow, segm)
+        # pc1, pc2, flow, segm = self._downsample_points(pc1, pc2, flow, segm)
         
         # 转换为 torch tensor
+        flow = torch.from_numpy(flow)
         point_cloud_first = torch.from_numpy(pc1).float()
         point_cloud_next = torch.from_numpy(pc2).float()
-        flow = torch.from_numpy(flow).float()
         mask = torch.from_numpy(segm).long()
-        
+
         # 返回与 AV2SceneFlowZoo 相同的格式
         sample = {
             "point_cloud_first": point_cloud_first,

@@ -205,7 +205,7 @@ def load_checkpoint(config, flow_predictor, mask_predictor,
     return step
 
 def load_flow_predictor_from_checkpoint(flow_predictor, ckpt_path, device):
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     if "scene_flow_predictor" in ckpt:
         flow_predictor.load_state_dict(ckpt["scene_flow_predictor"])
     elif "flow_predictor" in ckpt:

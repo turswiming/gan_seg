@@ -32,7 +32,7 @@ from eval import evaluate_predictions, eval_model, eval_model_general
 from utils.config_utils import load_config_with_inheritance, save_config_and_code
 from utils.dataloader_utils import create_dataloaders, infinite_dataloader  
 from config.config import correct_datatype
-
+from OGCModel.flownet_kitti import FlowStep3D
 # Import refactored modules
 from utils.model_utils import (
     setup_device_and_training, initialize_models_and_optimizers, 
@@ -166,14 +166,26 @@ def create_dataloaders_general(config):
             val_mask_dataset, val_mask_dataloader)
     pass
 def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor)-> List[TorchFullFrameOutputSequence]:
-    
-    first_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_firsts]
-    next_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_nexts]
-    first_inputs = [[pc,mask] for pc,mask in zip(point_cloud_firsts,first_masks)]
-    next_inputs = [[pc,mask] for pc,mask in zip(point_cloud_nexts,next_masks)]
-    transform_inputs = [[torch.eye(4,device=pc.device),torch.eye(4,device=pc.device)] for pc in point_cloud_firsts]
-    flow_out_seqs = flow_predictor._model_forward(first_inputs, next_inputs, transform_inputs)
-    return flow_out_seqs
+    if isinstance(flow_predictor, FlowStep3D):
+        point_cloud_firsts = [pc.unsqueeze(0) for pc in point_cloud_firsts]
+        point_cloud_nexts = [pc.unsqueeze(0) for pc in point_cloud_nexts]
+        flow_outs = []
+        for pc1,pc2 in zip(point_cloud_firsts, point_cloud_nexts):
+            flow_out = flow_predictor(pc1, pc2,pc1, pc2, iters=5)
+            flow_outs.append(flow_out)
+        flow_out = [flow.squeeze(0) for flow in flow_out] 
+        return flow_out
+    elif isinstance(flow_predictor, FastFlow3D):
+        first_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_firsts]
+        next_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_nexts]
+        first_inputs = [[pc,mask] for pc,mask in zip(point_cloud_firsts,first_masks)]
+        next_inputs = [[pc,mask] for pc,mask in zip(point_cloud_nexts,next_masks)]
+        transform_inputs = [[torch.eye(4,device=pc.device),torch.eye(4,device=pc.device)] for pc in point_cloud_firsts]
+        flow_out_seqs = flow_predictor._model_forward(first_inputs, next_inputs, transform_inputs)
+        flow = [item.ego_flows.squeeze(0) for item in flow_out_seqs]
+        return flow
+    else:
+        raise ValueError(f"Flow predictor {flow_predictor.name} not supported")
 
 def forward_mask_prediction_general(pc_tensors, mask_predictor):
     pred_masks = []
@@ -192,12 +204,11 @@ def set_seed(seed):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-def inference_models(flow_predictor,mask_predictor, sample,downsample_factor):
+def inference_models(flow_predictor,mask_predictor, sample):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     point_cloud_first = [s["point_cloud_first"].to(device).float() for s in sample]
     point_cloud_next = [s["point_cloud_next"].to(device).float() for s in sample]
-    flow_out_seqs = forward_scene_flow_general(point_cloud_first, point_cloud_next, flow_predictor)
-    flow = [item.ego_flows.squeeze(0) for item in flow_out_seqs]
+    flow = forward_scene_flow_general(point_cloud_first, point_cloud_next, flow_predictor)
     pred_masks = forward_mask_prediction_general(point_cloud_first, mask_predictor)
     return flow,pred_masks,point_cloud_first,point_cloud_next
 
@@ -271,8 +282,13 @@ def main(config, writer):
             flow_predictor.to(device)
             mask_predictor.to(device)
             
-
-            pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = inference_models(flow_predictor,mask_predictor,sample,config.dataset.AV2_SceneFlowZoo.downsample_factor)
+            try:
+                pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts = inference_models(flow_predictor,mask_predictor,sample)
+            except Exception as e:
+                print(e)
+                import traceback
+                print(traceback.format_exc())
+                continue
 
             # Compute all losses
             loss_dict, total_loss, reconstructed_points = compute_all_losses_general(
