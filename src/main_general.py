@@ -172,8 +172,8 @@ def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predi
         flow_outs = []
         for pc1,pc2 in zip(point_cloud_firsts, point_cloud_nexts):
             flow_out = flow_predictor(pc1, pc2,pc1, pc2, iters=5)
-            flow_outs.append(flow_out)
-        flow_out = [flow.squeeze(0) for flow in flow_out] 
+            flow_outs.append(flow_out[0])
+        flow_out = [flow.squeeze(0) for flow in flow_outs] 
         return flow_out
     elif isinstance(flow_predictor, FastFlow3D):
         first_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_firsts]
@@ -206,11 +206,11 @@ def set_seed(seed):
 
 def inference_models(flow_predictor,mask_predictor, sample):
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    point_cloud_first = [s["point_cloud_first"].to(device).float() for s in sample]
-    point_cloud_next = [s["point_cloud_next"].to(device).float() for s in sample]
-    flow = forward_scene_flow_general(point_cloud_first, point_cloud_next, flow_predictor)
-    pred_masks = forward_mask_prediction_general(point_cloud_first, mask_predictor)
-    return flow,pred_masks,point_cloud_first,point_cloud_next
+    point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in sample]
+    point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in sample]
+    flow = forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor)
+    pred_masks = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)
+    return flow,pred_masks,point_cloud_firsts,point_cloud_nexts
 
 def downsample_point_clouds(pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts,downsample_factor):
     if pred_flow is not None:
@@ -241,7 +241,7 @@ def main(config, writer):
 
     # # Initialize models, optimizers and schedulers
     (mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, 
-     alter_scheduler, scene_flow_smoothness_scheduler) = initialize_models_and_optimizers(config,None,device)
+     alter_scheduler, scene_flow_smoothness_scheduler, mask_scheduler) = initialize_models_and_optimizers(config,None,device)
     #infinite dataloader
     dataloader = infinite_dataloader(dataloader)
     # # Initialize loss functions
@@ -256,14 +256,14 @@ def main(config, writer):
     
     # # Load checkpoint if resuming
     step = load_checkpoint(config, flow_predictor, 
-                          mask_predictor, optimizer_flow, optimizer_mask, alter_scheduler)
+                          mask_predictor, optimizer_flow, optimizer_mask, alter_scheduler, mask_scheduler)
     
     # Create checkpoint saver
     save_checkpoint = create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor,
-                                            optimizer_flow, optimizer_mask, alter_scheduler, config)
+                                            optimizer_flow, optimizer_mask, alter_scheduler, config, mask_scheduler)
     
     first_iteration = True
-
+    loss_dict_move_average = []
     # Main training loop
     with tqdm(dataloader, desc="Training", total=config.training.max_iter-step) as dataloader:
         tqdm.write("Starting training...")
@@ -299,12 +299,13 @@ def main(config, writer):
                     #   point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
                     #   train_flow, train_mask, device):
 
-                
             # Log to tensorboard
+            loss_dict_move_average.append(loss_dict)
             if step % config.log.tensorboard_log_interval == 0:
-                loss_log_dict = {name: loss.item() for name, loss in loss_dict.items()}
-                loss_log_dict["total_loss"] = total_loss.item()
-                writer.add_scalars("losses", loss_log_dict, step)
+                loss_mean_dict = {name: np.mean([loss_dict[name].cpu().item() for loss_dict in loss_dict_move_average]) for name in loss_dict_move_average[0].keys()}
+                loss_mean_dict["total_loss"] = np.sum([loss_mean_dict[key] for key in loss_mean_dict.keys()])
+                writer.add_scalars("losses", loss_mean_dict, step)
+                loss_dict_move_average = []
             
             # Log gradient debugging information
             log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_predictor, step)
@@ -319,6 +320,10 @@ def main(config, writer):
 
 
             alter_scheduler.step()
+            
+            # Step mask scheduler if available
+            if mask_scheduler is not None:
+                mask_scheduler.step()
             
             # Handle checkpoint saving
             handle_checkpoint_saving(save_every_iters, step, checkpoint_dir, save_checkpoint)

@@ -28,6 +28,7 @@ class KittisfSceneFlowDataset(Dataset):
         self.split = split
         self.num_points = num_points
         self.seed = seed
+        self.cache ={}
         
         
         # 获取所有可用的序列ID (000000 到 000199)
@@ -46,6 +47,8 @@ class KittisfSceneFlowDataset(Dataset):
     
     def __getitem__(self, idx):
         sequence_id = self.sequence_ids[idx]
+        if sequence_id in self.cache:
+            return self.cache[sequence_id]
         sequence_path = self.data_root / sequence_id
         
         # 检查数据是否存在
@@ -61,8 +64,45 @@ class KittisfSceneFlowDataset(Dataset):
         pc1 = np.load(pc1_path)  # (N, 3)
         pc2 = np.load(pc2_path)  # (N, 3)
         flow = np.load(flow1_path)  # (N, 3)
+        #get flow transform matrix
+        #assume nearly all flow woule be zero, to we try to optimiza a transform matrix that make flow be zero
+        zero_flow = np.zeros((pc1.shape[0], 3))
+        homogeneous_pc1 = np.hstack((pc1, np.ones((pc1.shape[0], 1))))
+        homogeneous_flowaddpc1 = np.hstack((flow+pc1, np.ones((flow.shape[0], 1))))
+        result = np.linalg.lstsq(homogeneous_pc1, homogeneous_flowaddpc1, rcond=None)
+        initial_transform_matrix = result[0]
         segm = np.load(segm_path)  # (N,)
+        ground_mask_pc1 = pc1[:, 1] < -1.4
+        ground_mask_pc2 = pc2[:, 1] < -1.4
+
+
+        pc1_without_ground = pc1[~ground_mask_pc1]
+        pc2_without_ground = pc2[~ground_mask_pc2]
+        flow_without_ground = flow[~ground_mask_pc1]
+        segm_without_ground = segm[~ground_mask_pc1]
+        if pc1_without_ground.shape[0] > pc2_without_ground.shape[0]:
+            pc1_without_ground = pc1_without_ground[:pc2_without_ground.shape[0]]
+            flow_without_ground = flow_without_ground[:pc2_without_ground.shape[0]]
+            segm_without_ground = segm_without_ground[:pc2_without_ground.shape[0]]
+        elif pc1_without_ground.shape[0] < pc2_without_ground.shape[0]:
+            pc2_without_ground = pc2_without_ground[:pc1_without_ground.shape[0]]
+
+
+
+        icp_pc1 = pc1_without_ground.copy()
+        icp_pc2 = pc2_without_ground.copy()
+        #temp downsample to 1024 points
+        icp_pc1, icp_pc2, _, _ = self._downsample_points(icp_pc1, icp_pc2, icp_pc1, icp_pc2,1024)
         
+        T,distances,i = icp(icp_pc1, icp_pc2, initial_transform_matrix.T,max_iterations=50)
+        # print(f"ICP distances: {np.mean(distances)}")
+        # if np.mean(distances) > 0.3:
+        #     T,distances,i = icp(icp_pc1, icp_pc2,max_iterations=50)
+        rot, transl = T[:3, :3], T[:3, 3].transpose()
+
+        flow_without_ground = np.einsum('ij,nj->ni', rot.T, flow_without_ground+pc1_without_ground.copy()-transl) -pc1_without_ground.copy()
+        pc1_without_ground = np.einsum('ij,nj->ni', rot, pc1_without_ground) + transl
+        pc1_without_ground = pc1_without_ground.astype(np.float32)
         # Regard fitted transformation as flows 
         # from OGC
         # T, _, _ = icp(pc1, pc2, max_iterations=50)
@@ -76,22 +116,25 @@ class KittisfSceneFlowDataset(Dataset):
         # pc1, pc2, flow, segm = self._downsample_points(pc1, pc2, flow, segm)
         
         # 转换为 torch tensor
-        flow = torch.from_numpy(flow)
-        point_cloud_first = torch.from_numpy(pc1).float()
-        point_cloud_next = torch.from_numpy(pc2).float()
-        mask = torch.from_numpy(segm).long()
+        flow = torch.from_numpy(flow_without_ground)
+        point_cloud_first = torch.from_numpy(pc1_without_ground).float()
+        point_cloud_next = torch.from_numpy(pc2_without_ground).float()
+        mask = torch.from_numpy(segm_without_ground).long()
 
         # 返回与 AV2SceneFlowZoo 相同的格式
         sample = {
             "point_cloud_first": point_cloud_first,
             "point_cloud_next": point_cloud_next,
             "flow": flow,
-            "mask": mask
+            "mask": mask,
+            "icp_distances": np.mean(distances),
+            "sequence_id": sequence_id
         }
         
+        self.cache[sequence_id] = sample
         return sample
     
-    def _downsample_points(self, pc1, pc2, flow, segm):
+    def _downsample_points(self, pc1, pc2, flow, segm, num_points=1024):
         """
         下采样到固定点数
         """

@@ -198,7 +198,7 @@ class FlowSmoothLoss():
             # Normalize flow
             # scene_flow_b = normalize_useing_other(scene_flow_b, scene_flow_b)
             scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(),self.scale_flow_grad)
-            scene_flow_b = scene_flow_b+torch.ones_like(scene_flow_b.clone().detach()) * torch.tensor([1,0.5,0.1]).to(self.device)*0.01
+            # scene_flow_b = scene_flow_b+torch.ones_like(scene_flow_b.clone().detach()) * torch.tensor([1,0.5,0.1]).to(self.device)*0.01
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 5)
             

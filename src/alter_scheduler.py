@@ -1,3 +1,4 @@
+import torch
 class AlterScheduler:
     def __init__(self, alter_config):
         self.flow_list = alter_config.flow
@@ -57,3 +58,73 @@ class SceneFlowSmoothnessScheduler:
             return self.end_value
         else:
             return (iter-self.begin_iter)/(self.end_iter-self.begin_iter)*(self.end_value-self.begin_value)+self.begin_value
+
+
+class MaskLRScheduler:
+    """学习率调度器，用于mask model的学习率调整"""
+    def __init__(self, optimizer, scheduler_config):
+        self.optimizer = optimizer
+        self.scheduler_config = scheduler_config
+        self.scheduler = None
+        
+        # 根据配置创建相应的scheduler
+        if hasattr(scheduler_config, 'type'):
+            scheduler_type = scheduler_config.type
+        else:
+            scheduler_type = 'step'  # 默认使用StepLR
+            
+        if scheduler_type == 'step':
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer, 
+                step_size=scheduler_config.step_size,
+                gamma=scheduler_config.gamma
+            )
+        elif scheduler_type == 'exponential':
+            self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
+                optimizer,
+                gamma=scheduler_config.gamma
+            )
+        elif scheduler_type == 'cosine':
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=scheduler_config.T_max,
+                eta_min=scheduler_config.eta_min
+            )
+        elif scheduler_type == 'plateau':
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode=scheduler_config.mode,
+                factor=scheduler_config.factor,
+                patience=scheduler_config.patience,
+                threshold=scheduler_config.threshold
+            )
+        else:
+            raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
+    
+    def step(self, metrics=None):
+        """执行scheduler step"""
+        if self.scheduler is not None:
+            if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                if metrics is not None:
+                    self.scheduler.step(metrics)
+                else:
+                    self.scheduler.step()
+            else:
+                self.scheduler.step()
+    
+    def get_last_lr(self):
+        """获取当前学习率"""
+        if self.scheduler is not None:
+            return self.scheduler.get_last_lr()
+        return [group['lr'] for group in self.optimizer.param_groups]
+    
+    def state_dict(self):
+        """保存scheduler状态"""
+        if self.scheduler is not None:
+            return self.scheduler.state_dict()
+        return {}
+    
+    def load_state_dict(self, state_dict):
+        """加载scheduler状态"""
+        if self.scheduler is not None:
+            self.scheduler.load_state_dict(state_dict)

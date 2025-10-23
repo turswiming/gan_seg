@@ -8,7 +8,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from pathlib import Path
 from tqdm import tqdm
-
+from OGCModel.icp_util import icp
+import numpy as np
 from bucketed_scene_flow_eval.interfaces.abstract_dataset import LoaderType
 def evaluate_predictions(
         pred_flows, 
@@ -307,17 +308,11 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                     point_cloud_next = sample["point_cloud_next"].to(device).float()
                     point_cloud_next_ones = torch.ones(point_cloud_next.shape[0],device=point_cloud_next.device).bool()
                     if getattr(config.model.flow, "name", "") == "FlowStep3D":
-                        is_ground = (point_cloud_first[:, 1] < -1.4)&( point_cloud_next[:, 1] < -1.4)
-                        point_cloud_first = point_cloud_first[~is_ground]
-                        point_cloud_next = point_cloud_next[~is_ground]
                         point_cloud_first = point_cloud_first.unsqueeze(0).to(device).float()
                         point_cloud_next = point_cloud_next.unsqueeze(0).to(device).float()
                         flow_pred = flow_predictor(point_cloud_first, point_cloud_next,point_cloud_first, point_cloud_next, iters=5)
                         
                         flow_pred = flow_pred[0].squeeze(0)
-                        flow_gt = sample["flow"].to(device).float()
-                        flow_gt[~is_ground] = flow_pred
-                        flow_pred = flow_gt
                         point_cloud_first = point_cloud_first.squeeze(0)
                         point_cloud_next = point_cloud_next.squeeze(0)
                     else:

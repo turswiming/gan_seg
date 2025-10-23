@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from Predictor import get_mask_predictor, get_scene_flow_predictor
-from alter_scheduler import AlterScheduler, SceneFlowSmoothnessScheduler
+from alter_scheduler import AlterScheduler, SceneFlowSmoothnessScheduler, MaskLRScheduler
 
 
 def setup_device_and_training():
@@ -45,7 +45,12 @@ def initialize_models_and_optimizers(config, N, device):
     alter_scheduler = AlterScheduler(config.alternate)
     scene_flow_smoothness_scheduler = SceneFlowSmoothnessScheduler(config.lr_multi.scene_flow_smoothness_scheduler)
     
-    return mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, alter_scheduler, scene_flow_smoothness_scheduler
+    # Initialize mask scheduler if configured
+    mask_scheduler = None
+    if hasattr(config.model.mask, 'scheduler') and config.model.mask.scheduler is not None:
+        mask_scheduler = MaskLRScheduler(optimizer_mask, config.model.mask.scheduler)
+    
+    return mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, alter_scheduler, scene_flow_smoothness_scheduler, mask_scheduler
 
 
 def initialize_loss_functions(config, device):
@@ -161,7 +166,7 @@ def setup_checkpointing(config, device):
 
 
 def load_checkpoint(config, flow_predictor, mask_predictor, 
-                   optimizer_flow, optimizer_mask, alter_scheduler):
+                   optimizer_flow, optimizer_mask, alter_scheduler, mask_scheduler=None):
     """Load checkpoint if resume is enabled.
     
     Args:
@@ -195,6 +200,11 @@ def load_checkpoint(config, flow_predictor, mask_predictor,
                     alter_scheduler.load_state_dict(ckpt["alter_scheduler"])
                 except Exception:
                     pass
+            if "mask_scheduler" in ckpt and mask_scheduler is not None:
+                try:
+                    mask_scheduler.load_state_dict(ckpt["mask_scheduler"])
+                except Exception:
+                    pass
             step = int(ckpt.get("step", 0))
             tqdm.write(f"Resumed from checkpoint: {candidate_path} (step={step})")
         else:
@@ -217,7 +227,7 @@ def load_flow_predictor_from_checkpoint(flow_predictor, ckpt_path, device):
         flow_predictor.load_state_dict(state_dict)
     return flow_predictor
 def create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor, 
-                          optimizer_flow, optimizer_mask, alter_scheduler, config):
+                          optimizer_flow, optimizer_mask, alter_scheduler, config, mask_scheduler=None):
     """Create checkpoint saving function.
     
     Returns:
@@ -231,6 +241,7 @@ def create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor,
             "optimizer_flow": optimizer_flow.state_dict(),
             "optimizer_mask": optimizer_mask.state_dict(),
             "alter_scheduler": getattr(alter_scheduler, 'state_dict', lambda: {})(),
+            "mask_scheduler": getattr(mask_scheduler, 'state_dict', lambda: {})() if mask_scheduler is not None else {},
             "config": OmegaConf.to_container(config, resolve=True),
         }
         torch.save(state, path_latest)

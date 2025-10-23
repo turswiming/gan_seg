@@ -85,7 +85,9 @@ def icp(A, B, init_pose=None, max_iterations=20, tolerance=0.001):
         i: number of iterations to converge
     '''
 
-    assert A.shape == B.shape
+    if A.shape != B.shape:
+        A = A[:min(A.shape[0], B.shape[0]), :]
+        B = B[:min(A.shape[0], B.shape[0]), :]
 
     # get number of dimensions
     m = A.shape[1]
