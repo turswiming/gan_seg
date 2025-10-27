@@ -105,6 +105,7 @@ def evaluate_predictions_general(
         writer=None, 
         step=0,
         min_points=100,
+        type="val"
         ):
     """
     Evaluate model predictions by computing EPE and mIoU metrics for general data structure.
@@ -132,7 +133,7 @@ def evaluate_predictions_general(
     epe_mean = calculate_epe(pred_flows, gt_flows)
     # tqdm.write(f"\rEPE: {epe_mean.item()}", end="")
     if writer is not None:
-        writer.add_scalar("epe", epe_mean.item(), step)
+        writer.add_scalar(f"{type}/epe", epe_mean.item(), step)
     
     # Compute mIoU
     miou_list = []
@@ -150,7 +151,7 @@ def evaluate_predictions_general(
     miou_mean = torch.mean(torch.stack(miou_list))
     # tqdm.write(f"miou {miou_mean.item()}")
     if writer is not None:
-        writer.add_scalar("miou", miou_mean.item(), step)
+        writer.add_scalar(f"{type}/miou", miou_mean.item(), step)
     
         return epe_mean, miou_mean, None, None, None, None
 
@@ -260,7 +261,7 @@ def eval_model(flow_predictor, mask_predictor, dataloader, config, device, write
 
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
 
-def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step):
+def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, config, device, writer, step,type="val"):
     """
     General evaluator aligned with new data structures (TimeSyncedSceneFlowFrame).
     Expects each batch to provide a list of frames or a dict with key 'frames'.
@@ -292,7 +293,7 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
     background_static_masks = []
     foreground_static_masks = []
     foreground_dynamic_masks = []
-    eval_size =config.eval.eval_size
+    eval_size =min(config.eval.eval_size ,len(val_flow_dataloader))
     with torch.no_grad():
         print("Evaluating flow model")
         #add a progress bar
@@ -304,18 +305,14 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                 for sample in batch:
                     point_cloud_first = sample["point_cloud_first"]
                     point_cloud_first = point_cloud_first.to(device).float()
-                    point_cloud_first_ones = torch.ones(point_cloud_first.shape[0],device=point_cloud_first.device).bool()
                     point_cloud_next = sample["point_cloud_next"].to(device).float()
-                    point_cloud_next_ones = torch.ones(point_cloud_next.shape[0],device=point_cloud_next.device).bool()
                     if getattr(config.model.flow, "name", "") == "FlowStep3D":
-                        point_cloud_first = point_cloud_first.unsqueeze(0).to(device).float()
-                        point_cloud_next = point_cloud_next.unsqueeze(0).to(device).float()
-                        flow_pred = flow_predictor(point_cloud_first, point_cloud_next,point_cloud_first, point_cloud_next, iters=5)
-                        
-                        flow_pred = flow_pred[0].squeeze(0)
-                        point_cloud_first = point_cloud_first.squeeze(0)
-                        point_cloud_next = point_cloud_next.squeeze(0)
+                        from main_general import forward_scene_flow_general
+                        flow_pred = forward_scene_flow_general([point_cloud_first], [point_cloud_next], flow_predictor,config.dataset.name)
+                        flow_pred = flow_pred[0]
                     else:
+                        point_cloud_first_ones = torch.ones(point_cloud_first.shape[0],device=point_cloud_first.device).bool()
+                        point_cloud_next_ones = torch.ones(point_cloud_next.shape[0],device=point_cloud_next.device).bool()
                         transform = torch.eye(4,device=point_cloud_first.device)
                         flow_pred = flow_predictor._model_forward(
                             [[point_cloud_first,point_cloud_first_ones]], 
@@ -366,6 +363,7 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
         writer=writer,
         step=step,
         min_points=config.eval.min_points,
+        type=type
     )
     output_path = Path(config.log.dir) / "bucketed_epe"/f"step_{step}"
     if config.dataset.name in ["AV2_SceneFlowZoo"]:

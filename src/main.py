@@ -63,7 +63,7 @@ def main(config, writer):
     
     # Initialize models, optimizers and schedulers
     (mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, 
-     alter_scheduler, scene_flow_smoothness_scheduler) = initialize_models_and_optimizers(config, N, device)
+     alter_scheduler, scene_flow_smoothness_scheduler, warmup_scheduler) = initialize_models_and_optimizers(config, N, device)
     
     # Initialize loss functions
     loss_functions = initialize_loss_functions(config, device)
@@ -143,7 +143,7 @@ def main(config, writer):
 
 
             alter_scheduler.step()
-            
+            warmup_scheduler.step()
             # Handle checkpoint saving
             handle_checkpoint_saving(save_every_iters, step, checkpoint_dir, save_checkpoint)
             

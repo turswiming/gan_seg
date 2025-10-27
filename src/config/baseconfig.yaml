@@ -139,9 +139,6 @@ training:
   begin_train_smooth: 0
   begin_train_mask: 0
   
-  # Gradient clipping (optional)
-  flow_model_grad_clip: 1.0
-  mask_model_grad_clip: 1.0
   
   # Training loop settings
   continue_on_optimization_error: true
@@ -200,7 +197,8 @@ loss:
   knn:
     k: 1
     reduction: "mean"
-    
+    distance_max_threshold: 2
+    distance_min_threshold: 0
   # L1 regularization configuration
   l1_regularization:
     threshold: 0.25

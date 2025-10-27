@@ -33,9 +33,9 @@ def determine_training_modes(step, config, alter_scheduler):
     train_mask = alter_scheduler.mask_train()
     
     # Override mask training if before begin_train_mask step
-    if step < config.training.begin_train_mask:
+    if step <= config.training.begin_train_mask:
         train_mask = False
-    if step < config.training.begin_train_flow:
+    if step <= config.training.begin_train_flow:
         train_flow = False
     
     return train_flow, train_mask
@@ -211,7 +211,7 @@ def handle_evaluation(config, step, flow_predictor, mask_predictor, dataloader, 
         if threeway_mean is not None:
             writer.add_scalar("val_threeway_mean", threeway_mean.mean().item(), step)
 
-def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, device, writer):
+def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_flow_dataloader, val_mask_dataloader, train_dataloader,device, writer):
     """
     Handle model evaluation and logging with general data structure.
     
@@ -235,7 +235,16 @@ def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_
             config, 
             device, 
             writer, 
-            step)
+            step,type="val")
+        eval_model_general(
+            flow_predictor, 
+            mask_predictor, 
+            train_dataloader, 
+            train_dataloader,
+            config, 
+            device, 
+            writer, 
+            step,type="train")
 
 def log_prediction_histograms(config, writer, pred_flow, pred_mask, step):
     """Log prediction histograms to TensorBoard."""

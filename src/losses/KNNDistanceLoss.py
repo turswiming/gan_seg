@@ -27,7 +27,7 @@ class KNNDistanceLoss(nn.Module):
         distance_threshold (float): Maximum distance threshold for valid matches
     """
 
-    def __init__(self, k=1, reduction='mean', distance_threshold=None):
+    def __init__(self, k=1, reduction='mean', distance_max_threshold=None, distance_min_threshold=None):
         """
         Initialize the KNN Distance Loss.
 
@@ -42,7 +42,8 @@ class KNNDistanceLoss(nn.Module):
         """
         self.k = k
         self.reduction = reduction
-        self.distance_threshold = distance_threshold
+        self.distance_max_threshold = distance_max_threshold
+        self.distance_min_threshold = distance_min_threshold
 
     def knn_distance_single_direction(self, x, y, lengths1=None, lengths2=None):
         """
@@ -73,15 +74,23 @@ class KNNDistanceLoss(nn.Module):
         knn_distances = knn_result.dists  # Shape: [batch_size, num_points_x, k]
         
         # Apply distance thresholding if specified
-        if self.distance_threshold is not None:
+        if self.distance_max_threshold is not None:
             # Set distances above threshold to 0
-            threshold_sq = self.distance_threshold ** 2
+            threshold_sq = self.distance_max_threshold ** 2
             knn_distances = torch.where(
                 knn_distances <= threshold_sq,
                 knn_distances,
                 torch.zeros_like(knn_distances)
             )
         
+        if self.distance_min_threshold is not None:
+            # Set distances below threshold to 0
+            threshold_sq = self.distance_min_threshold ** 2
+            knn_distances = torch.where(
+                knn_distances >= threshold_sq,
+                knn_distances,
+                torch.zeros_like(knn_distances)
+            )
         # Reduce distances within each neighborhood (across k neighbors)
         if self.k > 1:
             # Take mean of k nearest neighbor distances
@@ -195,7 +204,7 @@ class TruncatedKNNDistanceLoss(KNNDistanceLoss):
     thresholding, similar to the TruncatedChamferLoss concept.
     """
     
-    def __init__(self, k=1, distance_threshold=2.0, reduction='mean'):
+    def __init__(self, k=1, distance_max_threshold=2.0, distance_min_threshold=0.02, reduction='mean'):
         """
         Initialize the Truncated KNN Distance Loss.
         
@@ -204,7 +213,7 @@ class TruncatedKNNDistanceLoss(KNNDistanceLoss):
             distance_threshold (float): Distance threshold for truncation
             reduction (str): Reduction method ('mean', 'sum', or 'none')
         """
-        super().__init__(k=k, reduction=reduction, distance_threshold=distance_threshold)
+        super().__init__(k=k, reduction=reduction, distance_max_threshold=distance_max_threshold, distance_min_threshold=distance_min_threshold)
     
     def __call__(self, warped_pc, target_pc, forward_only=True):
         """

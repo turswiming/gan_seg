@@ -16,7 +16,8 @@ class KittisfSceneFlowDataset(Dataset):
                  data_root: str = "/workspace/kittisf_downwampled/kittisf_downsampled/data",
                  split: str = "train",  # "train" or "val"
                  num_points: int = 8192,
-                 seed: int = 42):
+                 seed: int = 42,
+                 augmentation: bool = False):
         """
         Args:
             data_root: kittisf 数据根目录
@@ -29,6 +30,7 @@ class KittisfSceneFlowDataset(Dataset):
         self.num_points = num_points
         self.seed = seed
         self.cache ={}
+        self.augmentation = augmentation
         
         
         # 获取所有可用的序列ID (000000 到 000199)
@@ -47,23 +49,36 @@ class KittisfSceneFlowDataset(Dataset):
     
     def __getitem__(self, idx):
         sequence_id = self.sequence_ids[idx]
-        if sequence_id in self.cache:
-            return self.cache[sequence_id]
+
         sequence_path = self.data_root / sequence_id
         
         # 检查数据是否存在
         pc1_path = sequence_path / "pc1.npy"
         pc2_path = sequence_path / "pc2.npy"
-        flow1_path = sequence_path / "flow1.npy"    
-        segm_path = sequence_path / "segm1.npy"
+        # flow1_path = sequence_path / "flow1.npy"    
+        segm_path = sequence_path / "segm.npy"
         
-        if not all([pc1_path.exists(), pc2_path.exists(), flow1_path.exists(), segm_path.exists()]):
-            raise FileNotFoundError(f"Missing data files for sequence {sequence_id}")
         
         # 加载数据
         pc1 = np.load(pc1_path)  # (N, 3)
         pc2 = np.load(pc2_path)  # (N, 3)
-        flow = np.load(flow1_path)  # (N, 3)
+        ground_mask_pc1 = pc1[:, 1] < -1.4
+        ground_mask_pc2 = pc2[:, 1] < -1.4
+
+        if self.augmentation:
+            #randomly rotate pc1 and pc2
+            angle = np.random.uniform(0, 2*np.pi) 
+            #scale around y axis
+            R_y = np.array([
+                    [np.cos(angle),  0, np.sin(angle)],
+                    [0,          1, 0        ],
+                    [-np.sin(angle), 0, np.cos(angle)]
+                ])
+            pc1 = np.dot(pc1, R_y)
+            pc2 = np.dot(pc2, R_y)
+
+
+        flow = pc2 - pc1 # (N, 3)
         #get flow transform matrix
         #assume nearly all flow woule be zero, to we try to optimiza a transform matrix that make flow be zero
         zero_flow = np.zeros((pc1.shape[0], 3))
@@ -72,8 +87,7 @@ class KittisfSceneFlowDataset(Dataset):
         result = np.linalg.lstsq(homogeneous_pc1, homogeneous_flowaddpc1, rcond=None)
         initial_transform_matrix = result[0]
         segm = np.load(segm_path)  # (N,)
-        ground_mask_pc1 = pc1[:, 1] < -1.4
-        ground_mask_pc2 = pc2[:, 1] < -1.4
+
 
 
         pc1_without_ground = pc1[~ground_mask_pc1]
@@ -100,9 +114,9 @@ class KittisfSceneFlowDataset(Dataset):
         #     T,distances,i = icp(icp_pc1, icp_pc2,max_iterations=50)
         rot, transl = T[:3, :3], T[:3, 3].transpose()
 
-        flow_without_ground = np.einsum('ij,nj->ni', rot.T, flow_without_ground+pc1_without_ground.copy()-transl) -pc1_without_ground.copy()
-        pc1_without_ground = np.einsum('ij,nj->ni', rot, pc1_without_ground) + transl
-        pc1_without_ground = pc1_without_ground.astype(np.float32)
+        flow = np.einsum('ij,nj->ni', rot.T, flow+pc1-transl) -pc1.copy()
+        pc1 = np.einsum('ij,nj->ni', rot, pc1) + transl
+        pc1 = pc1.astype(np.float32)
         # Regard fitted transformation as flows 
         # from OGC
         # T, _, _ = icp(pc1, pc2, max_iterations=50)
@@ -116,11 +130,12 @@ class KittisfSceneFlowDataset(Dataset):
         # pc1, pc2, flow, segm = self._downsample_points(pc1, pc2, flow, segm)
         
         # 转换为 torch tensor
-        flow = torch.from_numpy(flow_without_ground)
-        point_cloud_first = torch.from_numpy(pc1_without_ground).float()
-        point_cloud_next = torch.from_numpy(pc2_without_ground).float()
-        mask = torch.from_numpy(segm_without_ground).long()
-
+        flow = torch.from_numpy(flow)
+        point_cloud_first = torch.from_numpy(pc1).float()
+        point_cloud_next = torch.from_numpy(pc2).float()
+        mask = torch.from_numpy(segm).long()
+        #downsample to num_points
+        point_cloud_first, point_cloud_next, flow, mask = self._downsample_points(point_cloud_first, point_cloud_next, flow, mask, self.num_points)
         # 返回与 AV2SceneFlowZoo 相同的格式
         sample = {
             "point_cloud_first": point_cloud_first,
@@ -131,7 +146,6 @@ class KittisfSceneFlowDataset(Dataset):
             "sequence_id": sequence_id
         }
         
-        self.cache[sequence_id] = sample
         return sample
     
     def _downsample_points(self, pc1, pc2, flow, segm, num_points=1024):

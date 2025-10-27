@@ -13,6 +13,56 @@ from tqdm import tqdm
 from Predictor import get_mask_predictor, get_scene_flow_predictor
 from alter_scheduler import AlterScheduler, SceneFlowSmoothnessScheduler, MaskLRScheduler
 
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+import torch.nn as nn
+
+class WarmupCosineAnnealingWarmRestarts:
+    """带warmup的余弦退火重启调度器"""
+    
+    def __init__(self, optimizer, warmup_steps, warmup_lr, T_0, T_mult=1, eta_min=0, last_epoch=-1):
+        self.optimizer = optimizer
+        self.warmup_steps = warmup_steps
+        self.warmup_lr = warmup_lr
+        self.base_lr = optimizer.param_groups[0]['lr']
+        self.T_0 = T_0
+        self.T_mult = T_mult
+        self.eta_min = eta_min
+        self.last_epoch = last_epoch
+        self.step_count = 0
+        
+        # 创建基础余弦调度器
+        self.cosine_scheduler = CosineAnnealingWarmRestarts(
+            optimizer, T_0, T_mult, eta_min, last_epoch
+        )
+        
+    def step(self):
+        self.step_count += 1
+        
+        if self.step_count <= self.warmup_steps:
+            # Warmup阶段：从warmup_lr线性增长到base_lr
+            warmup_factor = self.step_count / self.warmup_steps
+            warmup_factor = min(warmup_factor, 1.0)
+            warmup_factor  =pow(warmup_factor, 4)
+            current_lr = self.warmup_lr + (self.base_lr - self.warmup_lr) * warmup_factor
+            
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = current_lr
+        else:
+            # 使用余弦退火重启调度器
+            self.cosine_scheduler.step()
+    
+    def get_last_lr(self):
+        return [group['lr'] for group in self.optimizer.param_groups]
+    
+    def state_dict(self):
+        return {
+            'step_count': self.step_count,
+            'cosine_scheduler': self.cosine_scheduler.state_dict()
+        }
+    
+    def load_state_dict(self, state_dict):
+        self.step_count = state_dict['step_count']
+        self.cosine_scheduler.load_state_dict(state_dict['cosine_scheduler'])
 
 def setup_device_and_training():
     """Setup device and training configurations."""
@@ -40,7 +90,15 @@ def initialize_models_and_optimizers(config, N, device):
     # Initialize optimizers
     optimizer_flow = torch.optim.AdamW(flow_predictor.parameters(), lr=config.model.flow.lr)
     optimizer_mask = torch.optim.AdamW(mask_predictor.parameters(), lr=config.model.mask.lr)
-    
+    if config.model.flow.warmup_iter > 0:
+        warmup_scheduler = WarmupCosineAnnealingWarmRestarts(
+            optimizer=optimizer_flow, 
+            warmup_steps=config.model.flow.warmup_iter, 
+            warmup_lr=config.model.flow.warmup_lr,
+            T_0=300, 
+            eta_min=0)
+    else:
+        warmup_scheduler = None
     # Initialize schedulers
     alter_scheduler = AlterScheduler(config.alternate)
     scene_flow_smoothness_scheduler = SceneFlowSmoothnessScheduler(config.lr_multi.scene_flow_smoothness_scheduler)
@@ -50,7 +108,7 @@ def initialize_models_and_optimizers(config, N, device):
     if hasattr(config.model.mask, 'scheduler') and config.model.mask.scheduler is not None:
         mask_scheduler = MaskLRScheduler(optimizer_mask, config.model.mask.scheduler)
     
-    return mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, alter_scheduler, scene_flow_smoothness_scheduler, mask_scheduler
+    return mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, alter_scheduler, scene_flow_smoothness_scheduler, mask_scheduler, warmup_scheduler
 
 
 def initialize_loss_functions(config, device):
@@ -116,6 +174,8 @@ def initialize_loss_functions(config, device):
         from losses.KNNDistanceLoss import TruncatedKNNDistanceLoss
         loss_functions['knn'] = TruncatedKNNDistanceLoss(
             k=config.loss.knn.k, 
+            distance_max_threshold=config.loss.knn.distance_max_threshold,
+            distance_min_threshold=config.loss.knn.distance_min_threshold,
             reduction=config.loss.knn.reduction)
     else:
         loss_functions['knn'] = None
@@ -166,7 +226,7 @@ def setup_checkpointing(config, device):
 
 
 def load_checkpoint(config, flow_predictor, mask_predictor, 
-                   optimizer_flow, optimizer_mask, alter_scheduler, mask_scheduler=None):
+                   optimizer_flow, optimizer_mask, alter_scheduler, mask_scheduler=None, warmup_scheduler=None):
     """Load checkpoint if resume is enabled.
     
     Args:
@@ -205,6 +265,11 @@ def load_checkpoint(config, flow_predictor, mask_predictor,
                     mask_scheduler.load_state_dict(ckpt["mask_scheduler"])
                 except Exception:
                     pass
+            if "warmup_scheduler" in ckpt and warmup_scheduler is not None:
+                try:
+                    warmup_scheduler.load_state_dict(ckpt["warmup_scheduler"])
+                except Exception:
+                    pass
             step = int(ckpt.get("step", 0))
             tqdm.write(f"Resumed from checkpoint: {candidate_path} (step={step})")
         else:
@@ -212,6 +277,10 @@ def load_checkpoint(config, flow_predictor, mask_predictor,
     if config.checkpoint.overwrite_flow_predictor:
         print("Overwriting flow predictor with checkpoint: ", config.checkpoint.overwrite_flow_path)
         flow_predictor = load_flow_predictor_from_checkpoint(flow_predictor, config.checkpoint.overwrite_flow_path, device)
+        optimizer_flow=torch.optim.AdamW(flow_predictor.parameters(), lr=config.model.flow.lr)#reload the optimizer to make it work
+    #set learning rate to the value in the config
+    optimizer_flow.param_groups[0]['lr'] = config.model.flow.lr
+    optimizer_mask.param_groups[0]['lr'] = config.model.mask.lr
     return step
 
 def load_flow_predictor_from_checkpoint(flow_predictor, ckpt_path, device):
@@ -227,7 +296,7 @@ def load_flow_predictor_from_checkpoint(flow_predictor, ckpt_path, device):
         flow_predictor.load_state_dict(state_dict)
     return flow_predictor
 def create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor, 
-                          optimizer_flow, optimizer_mask, alter_scheduler, config, mask_scheduler=None):
+                          optimizer_flow, optimizer_mask, alter_scheduler, config, mask_scheduler=None, warmup_scheduler=None):
     """Create checkpoint saving function.
     
     Returns:
@@ -242,6 +311,7 @@ def create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor,
             "optimizer_mask": optimizer_mask.state_dict(),
             "alter_scheduler": getattr(alter_scheduler, 'state_dict', lambda: {})(),
             "mask_scheduler": getattr(mask_scheduler, 'state_dict', lambda: {})() if mask_scheduler is not None else {},
+            "warmup_scheduler": getattr(warmup_scheduler, 'state_dict', lambda: {})() if warmup_scheduler is not None else {},
             "config": OmegaConf.to_container(config, resolve=True),
         }
         torch.save(state, path_latest)

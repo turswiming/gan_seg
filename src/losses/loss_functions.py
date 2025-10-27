@@ -168,19 +168,28 @@ def compute_kdtree_loss(config, loss_functions, point_cloud_firsts, point_cloud_
 
 
 def compute_knn_loss(config, loss_functions, point_cloud_firsts, point_cloud_nexts,
-                    pred_flow, longterm_pred_flow, sample, train_flow, device):
+                    pred_flow, longterm_pred_flow, sample, cascade_flow_outs, train_flow, device):
     """Compute KNN distance loss."""
     if config.lr_multi.KNN_loss > 0 and train_flow:
         knn_dist_loss = 0
         for i in range(len(point_cloud_firsts)):
+            if config.dataset.name == "KITTISF_new":
+                ground_mask = point_cloud_firsts[i][:, 1] < -1.4
+                point_cloud_firsts[i] = point_cloud_firsts[i][~ground_mask]
+                point_cloud_nexts[i] = point_cloud_nexts[i][~ground_mask]
+                pred_flow[i] = pred_flow[i][~ground_mask]
             pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
             knn_dist_loss += loss_functions['knn'](
-                point_cloud_nexts[i][:, :3].to(device), pred_second_point, forward_only=True)
+                point_cloud_nexts[i][:, :3].to(device), pred_second_point, forward_only=False)
         if longterm_pred_flow is not None and len(longterm_pred_flow) > 0:
             for idx in longterm_pred_flow:
                 pred_points = longterm_pred_flow[idx][:, :3]
                 real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
                 knn_dist_loss += loss_functions['knn'](real_points, pred_points, forward_only=True)
+        if cascade_flow_outs is not None:
+            for c_flow_out in cascade_flow_outs:
+                for flow in c_flow_out:
+                    knn_dist_loss += loss_functions['knn'](point_cloud_nexts[i][:, :3].to(device), flow, forward_only=False)
         knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
     else:
         knn_dist_loss = torch.tensor(0.0, device=device)
@@ -286,7 +295,7 @@ def compute_all_losses(config, loss_functions, flow_predictor, mask_predictor,
 
 def compute_all_losses_general(config, loss_functions, flow_predictor, mask_predictor,
                       point_cloud_firsts, point_cloud_nexts, pred_flow, pred_mask, step, scene_flow_smoothness_scheduler,
-                      train_flow, train_mask, device):
+                      train_flow, train_mask, device,cascade_flow_outs=None):
     """
     Compute all losses for general training with new data structure.
     
@@ -304,7 +313,7 @@ def compute_all_losses_general(config, loss_functions, flow_predictor, mask_pred
         train_flow: Whether to train flow model
         train_mask: Whether to train mask model
         device: Device to run computations on
-        
+        cascade_flow_outs: Cascade flow outputs from flow predictor
     Returns:
         tuple: (loss_dict, total_loss, reconstructed_points)
             - loss_dict: Dictionary of individual losses
@@ -329,8 +338,8 @@ def compute_all_losses_general(config, loss_functions, flow_predictor, mask_pred
 
     # KNN loss
     knn_dist_loss = compute_knn_loss(
-        config, loss_functions, point_cloud_firsts, point_cloud_nexts,
-        pred_flow, None, None, train_flow, device)
+        config=config, loss_functions=loss_functions, point_cloud_firsts=point_cloud_firsts, point_cloud_nexts=point_cloud_nexts,
+        pred_flow=pred_flow, longterm_pred_flow=None, sample=None, cascade_flow_outs=cascade_flow_outs,train_flow=train_flow, device=device)
     
     # Create loss dictionary
     loss_dict = {
