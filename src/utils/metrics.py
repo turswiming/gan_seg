@@ -41,8 +41,8 @@ def calculate_miou(pred_mask, gt_mask, min_points=100):
         max_iou = 0
         if gt_mask_size[j] <= min_points:
             continue  # Skip small masks to avoid noise in IoU calculation
-        if j==0:
-            continue
+        # if j==0:
+        #     continue
         for i in range(pred_mask.shape[0]):
         
             intersection = torch.sum(pred_mask[i] * gt_mask[j])

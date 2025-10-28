@@ -173,23 +173,24 @@ def compute_knn_loss(config, loss_functions, point_cloud_firsts, point_cloud_nex
     if config.lr_multi.KNN_loss > 0 and train_flow:
         knn_dist_loss = 0
         for i in range(len(point_cloud_firsts)):
-            if config.dataset.name == "KITTISF_new":
-                ground_mask = point_cloud_firsts[i][:, 1] < -1.4
-                point_cloud_firsts[i] = point_cloud_firsts[i][~ground_mask]
-                point_cloud_nexts[i] = point_cloud_nexts[i][~ground_mask]
-                pred_flow[i] = pred_flow[i][~ground_mask]
+            # if config.dataset.name == "KITTISF_new":
+            #     ground_mask = point_cloud_firsts[i][:, 1] < -1.4
+            #     point_cloud_firsts[i] = point_cloud_firsts[i][~ground_mask]
+            #     point_cloud_nexts[i] = point_cloud_nexts[i][~ground_mask]
+            #     pred_flow[i] = pred_flow[i][~ground_mask]
             pred_second_point = point_cloud_firsts[i][:, :3] + pred_flow[i]
             knn_dist_loss += loss_functions['knn'](
                 point_cloud_nexts[i][:, :3].to(device), pred_second_point, forward_only=False)
+            # if cascade_flow_outs is not None:
+            #     for cascade_flow in cascade_flow_outs:
+            #         pred_second_point_cascade = point_cloud_firsts[i][:, :3].to(device)+cascade_flow[i][~ground_mask]
+            #         knn_dist_loss += loss_functions['knn'](point_cloud_nexts[i][:, :3].to(device), pred_second_point_cascade, forward_only=False)
         if longterm_pred_flow is not None and len(longterm_pred_flow) > 0:
             for idx in longterm_pred_flow:
                 pred_points = longterm_pred_flow[idx][:, :3]
                 real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
                 knn_dist_loss += loss_functions['knn'](real_points, pred_points, forward_only=True)
-        if cascade_flow_outs is not None:
-            for c_flow_out in cascade_flow_outs:
-                for flow in c_flow_out:
-                    knn_dist_loss += loss_functions['knn'](point_cloud_nexts[i][:, :3].to(device), flow, forward_only=False)
+
         knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
     else:
         knn_dist_loss = torch.tensor(0.0, device=device)

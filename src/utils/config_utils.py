@@ -64,7 +64,7 @@ def save_config_and_code(config, log_dir):
     code_save_path = os.path.join(log_dir, "code")
     os.makedirs(code_save_path, exist_ok=True)
     current_folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Get src directory
-    code_extensions = (".py", ".cu", ".cpp", ".h")
+    code_extensions = (".py", ".cu", ".cpp", ".h", ".yaml")
     
     for root, dirs, files in os.walk(current_folder):
         for file_name in files:

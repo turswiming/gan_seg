@@ -31,6 +31,7 @@ class KittisfSceneFlowDataset(Dataset):
         self.seed = seed
         self.cache ={}
         self.augmentation = augmentation
+        self.fix_to_global_coord = True
         
         
         # 获取所有可用的序列ID (000000 到 000199)
@@ -38,66 +39,35 @@ class KittisfSceneFlowDataset(Dataset):
         
         # 固定分割：前160个为train，后40个为val
         if split == "train":
-            self.sequence_ids = all_sequence_ids[:100]  # 000000-000159
+            self.sequence_ids = all_sequence_ids[:100]  # 000000-000099
         else:  # val
-            self.sequence_ids = all_sequence_ids[100:]  # 000160-000199
+            self.sequence_ids = all_sequence_ids[100:]  # 000100-000199
         
         print(f"KittisfSceneFlowDataset - {split}: {len(self.sequence_ids)} sequences")
     
     def __len__(self):
-        return len(self.sequence_ids)
-    
-    def __getitem__(self, idx):
-        sequence_id = self.sequence_ids[idx]
-
-        sequence_path = self.data_root / sequence_id
-        
-        # 检查数据是否存在
-        pc1_path = sequence_path / "pc1.npy"
-        pc2_path = sequence_path / "pc2.npy"
-        # flow1_path = sequence_path / "flow1.npy"    
-        segm_path = sequence_path / "segm.npy"
-        
-        
-        # 加载数据
-        pc1 = np.load(pc1_path)  # (N, 3)
-        pc2 = np.load(pc2_path)  # (N, 3)
+        return len(self.sequence_ids)*2
+    def get_global_transform_matrix(self, pc1, pc2,flow):
         ground_mask_pc1 = pc1[:, 1] < -1.4
         ground_mask_pc2 = pc2[:, 1] < -1.4
 
-        if self.augmentation:
-            #randomly rotate pc1 and pc2
-            angle = np.random.uniform(0, 2*np.pi) 
-            #scale around y axis
-            R_y = np.array([
-                    [np.cos(angle),  0, np.sin(angle)],
-                    [0,          1, 0        ],
-                    [-np.sin(angle), 0, np.cos(angle)]
-                ])
-            pc1 = np.dot(pc1, R_y)
-            pc2 = np.dot(pc2, R_y)
 
 
-        flow = pc2 - pc1 # (N, 3)
         #get flow transform matrix
         #assume nearly all flow woule be zero, to we try to optimiza a transform matrix that make flow be zero
-        zero_flow = np.zeros((pc1.shape[0], 3))
         homogeneous_pc1 = np.hstack((pc1, np.ones((pc1.shape[0], 1))))
         homogeneous_flowaddpc1 = np.hstack((flow+pc1, np.ones((flow.shape[0], 1))))
         result = np.linalg.lstsq(homogeneous_pc1, homogeneous_flowaddpc1, rcond=None)
         initial_transform_matrix = result[0]
-        segm = np.load(segm_path)  # (N,)
 
 
 
         pc1_without_ground = pc1[~ground_mask_pc1]
         pc2_without_ground = pc2[~ground_mask_pc2]
         flow_without_ground = flow[~ground_mask_pc1]
-        segm_without_ground = segm[~ground_mask_pc1]
         if pc1_without_ground.shape[0] > pc2_without_ground.shape[0]:
             pc1_without_ground = pc1_without_ground[:pc2_without_ground.shape[0]]
             flow_without_ground = flow_without_ground[:pc2_without_ground.shape[0]]
-            segm_without_ground = segm_without_ground[:pc2_without_ground.shape[0]]
         elif pc1_without_ground.shape[0] < pc2_without_ground.shape[0]:
             pc2_without_ground = pc2_without_ground[:pc1_without_ground.shape[0]]
 
@@ -106,30 +76,68 @@ class KittisfSceneFlowDataset(Dataset):
         icp_pc1 = pc1_without_ground.copy()
         icp_pc2 = pc2_without_ground.copy()
         #temp downsample to 1024 points
-        icp_pc1, icp_pc2, _, _ = self._downsample_points(icp_pc1, icp_pc2, icp_pc1, icp_pc2,1024)
+        icp_pc1, _, _, _ = self._downsample_points(icp_pc1, icp_pc1, icp_pc1, icp_pc1,1024)
+        icp_pc2, _, _, _ = self._downsample_points(icp_pc2, icp_pc2, icp_pc2, icp_pc2,1024)
         
         T,distances,i = icp(icp_pc1, icp_pc2, initial_transform_matrix.T,max_iterations=50)
-        # print(f"ICP distances: {np.mean(distances)}")
-        # if np.mean(distances) > 0.3:
-        #     T,distances,i = icp(icp_pc1, icp_pc2,max_iterations=50)
-        rot, transl = T[:3, :3], T[:3, 3].transpose()
+        return T
 
-        flow = np.einsum('ij,nj->ni', rot.T, flow+pc1-transl) -pc1.copy()
-        pc1 = np.einsum('ij,nj->ni', rot, pc1) + transl
-        pc1 = pc1.astype(np.float32)
-        # Regard fitted transformation as flows 
-        # from OGC
-        # T, _, _ = icp(pc1, pc2, max_iterations=50)
-        # rot, transl = T[:3, :3], T[:3, 3].transpose()
-        # flow = np.einsum('ij,nj->ni', rot, pc1.copy()) + transl - pc1.copy()
-        # flow = flow.astype(np.float32)
+    def augment_transform(self, pc1, pc2, flow):
+        #random rotation along y axis
+        angle = np.random.uniform(-np.pi/4, np.pi/4)
+        rot = np.array([[np.cos(angle), 0, np.sin(angle)], [0, 1, 0], [-np.sin(angle), 0, np.cos(angle)]])
+        pc1 = np.einsum('ij,nj->ni', rot, pc1)
+        pc2 = np.einsum('ij,nj->ni', rot, pc2)
+        flow = np.einsum('ij,nj->ni', rot, flow)
+        #random translation
+        translation = np.random.uniform(-1, 1, 3)
+        translation[1] = 0
+        pc1 = pc1 + translation
+        pc2 = pc2 + translation
+        #random scaling
+        scale = np.random.uniform(0.9, 1.1)
+        pc1 = pc1 * scale
+        pc2 = pc2 * scale
+        flow = flow * scale
+        #random mirror in x, z axis
+        mirror_x = np.random.uniform(0, 1)
+        mirror_z = np.random.uniform(0, 1)
+        if mirror_x < 0.5:
+            pc1[:, 0] = -pc1[:, 0]
+            pc2[:, 0] = -pc2[:, 0]
+            flow[:, 0] = -flow[:, 0]
+        if mirror_z < 0.5:
+            pc1[:, 2] = -pc1[:, 2]
+            pc2[:, 2] = -pc2[:, 2]
+            flow[:, 2] = -flow[:, 2]
+        return pc1, pc2, flow
+    def __getitem__(self, idx):
+        sequence_id = self.sequence_ids[idx//2]
+        is_reverse = idx % 2 == 1
 
-        # pc1 = np.einsum('ij,nj->ni', rot, pc1) + transl
-        # pc1 = pc1.astype(np.float32)
-        # 下采样到固定点数
-        # pc1, pc2, flow, segm = self._downsample_points(pc1, pc2, flow, segm)
+        sequence_path = self.data_root / sequence_id
         
-        # 转换为 torch tensor
+        # 检查数据是否存在
+        pc1_path = sequence_path / f"pc{1 if is_reverse else 2}.npy"
+        pc2_path = sequence_path / f"pc{2 if is_reverse else 1}.npy"
+        flow1_path = sequence_path / f"flow{1 if is_reverse else 2}.npy"    
+        segm_path = sequence_path / f"segm{1 if is_reverse else 2}.npy"
+        flow = np.load(flow1_path) # (N, 3)
+        segm = np.load(segm_path)  # (N,)
+        # 加载数据
+        pc1 = np.load(pc1_path)  # (N, 3)
+        pc2 = np.load(pc2_path)  # (N, 3)
+        if self.augmentation:
+            pc1, pc2, flow = self.augment_transform(pc1, pc2, flow)
+
+        if self.fix_to_global_coord:
+            T = self.get_global_transform_matrix(pc1, pc2, flow)
+            rot, transl = T[:3, :3], T[:3, 3].transpose()
+
+            flow = np.einsum('ij,nj->ni', rot.T, flow+pc1-transl) -pc1.copy()
+            pc1 = np.einsum('ij,nj->ni', rot, pc1) + transl
+            pc1 = pc1.astype(np.float32)
+
         flow = torch.from_numpy(flow)
         point_cloud_first = torch.from_numpy(pc1).float()
         point_cloud_next = torch.from_numpy(pc2).float()
@@ -142,7 +150,7 @@ class KittisfSceneFlowDataset(Dataset):
             "point_cloud_next": point_cloud_next,
             "flow": flow,
             "mask": mask,
-            "icp_distances": np.mean(distances),
+            # "icp_distances": np.mean(distances),
             "sequence_id": sequence_id
         }
         

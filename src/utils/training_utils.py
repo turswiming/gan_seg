@@ -175,9 +175,10 @@ def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask
     # Optimizer steps
     if train_flow:
         optimizer_flow.step()
+        optimizer_flow.zero_grad()
     if train_mask:
         optimizer_mask.step()
-        
+        optimizer_mask.zero_grad()
     return True
 
 

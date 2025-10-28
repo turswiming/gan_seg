@@ -160,9 +160,9 @@ def get_mask_predictor(mask_model_config,N):
 
     elif mask_model_config.name == "MaskFormer3D":
         from OGCModel.segnet_av2 import MaskFormer3D
-        mask_former = MaskFormer3D(n_slot=8,
+        mask_former = MaskFormer3D(n_slot=mask_model_config.slot_num,
                           use_xyz=True,
-                          n_point=2048,
+                          n_point=8192,
                           n_transformer_layer=2,
                           transformer_embed_dim=128,
                           transformer_input_pos_enc=False).cuda()

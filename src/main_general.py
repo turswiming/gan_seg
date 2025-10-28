@@ -53,7 +53,9 @@ from SceneFlowZoo.dataloaders import (
     TorchFullFrameOutputSequence,
     TorchFullFrameOutputSequenceWithDistance,
 )
-
+from OGCModel.icp_util import icp
+#PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 def create_dataloaders_general(config):
     """
     Create dataloaders for general training with AV2 SceneFlowZoo dataset.
@@ -91,7 +93,7 @@ def create_dataloaders_general(config):
             split="train",
             num_points=config.dataset.KITTISF_new.num_points,
             seed=config.dataset.KITTISF_new.seed,
-            augmentation=False
+            augmentation=True
         )
 
     if config.dataset.val_name == "AV2_SceneFlowZoo_val":
@@ -152,15 +154,15 @@ def create_dataloaders_general(config):
     )
     val_flow_dataloader = torch.utils.data.DataLoader(
         val_flow_dataset, 
-        batch_size=1, 
-        shuffle=True, 
+        batch_size=10, 
+        shuffle=False, 
         num_workers=config.dataloader.num_workers,
         collate_fn=collect_fn
     )
     val_mask_dataloader = torch.utils.data.DataLoader(
         val_mask_dataset, 
-        batch_size=1, 
-        shuffle=True, 
+        batch_size=10, 
+        shuffle=False, 
         num_workers=config.dataloader.num_workers,
         collate_fn=collect_fn
     )
@@ -168,8 +170,15 @@ def create_dataloaders_general(config):
             val_flow_dataset, val_flow_dataloader, 
             val_mask_dataset, val_mask_dataloader)
     pass
-def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,dataset_name, train_flow = False):
+def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,dataset_name, train_flow=False):
     if isinstance(flow_predictor, FlowStep3D):
+
+        # if dataset_name == "KITTISF_new":
+        #     ground_masks = [pc[:,1] < -1.4 for pc in point_cloud_firsts]
+        #     original_point_cloud_firsts = point_cloud_firsts.copy()
+        #     original_point_cloud_nexts = point_cloud_nexts.copy()
+        #     point_cloud_firsts = [pc[~ground_mask] for pc,ground_mask in zip(point_cloud_firsts,ground_masks)]
+        #     point_cloud_nexts = [pc[~ground_mask] for pc,ground_mask in zip(point_cloud_nexts,ground_masks)]
         point_cloud_firsts = [pc.unsqueeze(0) for pc in point_cloud_firsts]
         point_cloud_nexts = [pc.unsqueeze(0) for pc in point_cloud_nexts]
         #if all point_cloud_firsts and point_cloud_nexts are the same, then only forward once
@@ -183,14 +192,30 @@ def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predi
         else:
             flow_outs = []
             for pc1,pc2 in zip(point_cloud_firsts, point_cloud_nexts):
-                casecde_flow_outs = flow_predictor(pc1, pc2,pc1, pc2, iters=5)
+                pc1_ground_mask = pc1[:,:,1] < -1.4
+                pc2_ground_mask = pc2[:,:,1] < -1.4
+                pc1_without_ground = pc1[~pc1_ground_mask]
+                pc2_without_ground = pc2[~pc2_ground_mask]
+                pc1_without_ground = pc1_without_ground.unsqueeze(0)
+                pc2_without_ground = pc2_without_ground.unsqueeze(0)
+                casecde_flow_outs = flow_predictor(pc1_without_ground, pc2_without_ground,pc1_without_ground, pc2_without_ground, iters=5)
+                #downsample to 1024 points
+                pc1_without_ground_downsampled, _, _, _ = downsample_point_clouds(pc1_without_ground, None, None, None, 1024)
+                pc2_without_ground_downsampled, _, _, _ = downsample_point_clouds(pc1_without_ground, None, None, None, 1024)
+                pc1_without_ground_downsampled = pc1_without_ground_downsampled[0].cpu().numpy()
+                pc2_without_ground_downsampled = pc2_without_ground_downsampled[0].cpu().numpy()
+                T,_,_ = icp(pc1_without_ground_downsampled, pc2_without_ground_downsampled,max_iterations=50)
+                T =torch.from_numpy(T).to(pc1.device).float()
+                rot, transl = T[:3, :3], T[:3, 3].unsqueeze(0)
+                flow = pc1@rot.T+transl -pc1
+                flow[~pc1_ground_mask] += casecde_flow_outs[-1].squeeze(0)
                 flow_outs.append(casecde_flow_outs[-1])
-            flow_outs = [flow.squeeze(0) for flow in flow_outs] 
+            flow_outs = [flow] 
         if train_flow:
             cascade_flow_outs_return = []
             for c_flow_out in casecde_flow_outs:
                 cascade_flow_outs_return.append([flow.squeeze(0) for flow in c_flow_out])
-            return flow_outs, cascade_flow_outs_return
+            return flow_outs, cascade_flow_outs_return[:-1]
         return flow_outs
     elif isinstance(flow_predictor, FastFlow3D):
         first_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_firsts]
@@ -227,7 +252,7 @@ def set_seed(seed):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-def inference_models(flow_predictor,mask_predictor, sample,dataset_name,train_flow = False):
+def inference_models(flow_predictor,mask_predictor, sample,dataset_name, train_flow=False,downsample=None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in sample]
     point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in sample]
@@ -237,6 +262,13 @@ def inference_models(flow_predictor,mask_predictor, sample,dataset_name,train_fl
     else:
         flow = return_value
         cascade_flow_outs = None
+    if downsample is not None:
+        point_cloud_firsts = [item[::downsample,:] for item in point_cloud_firsts]
+        point_cloud_nexts = [item[::downsample,:] for item in point_cloud_nexts]
+        flow = [item[::downsample,:] for item in flow]
+        if cascade_flow_outs is not None:
+            for c_flow_out in cascade_flow_outs:
+                c_flow_out = [item[::downsample,:] for item in c_flow_out]
     pred_masks = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)
     return flow,pred_masks,point_cloud_firsts,point_cloud_nexts,cascade_flow_outs
 
@@ -269,7 +301,7 @@ def main(config, writer):
 
     # # Initialize models, optimizers and schedulers
     (mask_predictor, flow_predictor, optimizer_flow, optimizer_mask, 
-     alter_scheduler, scene_flow_smoothness_scheduler, mask_scheduler, warmup_scheduler) = initialize_models_and_optimizers(config,None,device)
+     alter_scheduler, scene_flow_smoothness_scheduler, mask_scheduler) = initialize_models_and_optimizers(config,None,device)
     #infinite dataloader
     inf_dataloader = infinite_dataloader(dataloader)
     # # Initialize loss functions
@@ -283,18 +315,12 @@ def main(config, writer):
     checkpoint_dir, save_every_iters, step, resume, resume_path = setup_checkpointing(config, device)
     
     # # Load checkpoint if resuming
-    step = load_checkpoint(config=config, 
-                            flow_predictor=flow_predictor, 
-                            mask_predictor=mask_predictor, 
-                            optimizer_flow=optimizer_flow, 
-                            optimizer_mask=optimizer_mask, 
-                            alter_scheduler=alter_scheduler, 
-                            mask_scheduler=mask_scheduler, 
-                            warmup_scheduler=warmup_scheduler)
+    step = load_checkpoint(config, flow_predictor, 
+                          mask_predictor, optimizer_flow, optimizer_mask, alter_scheduler, mask_scheduler)
     
     # Create checkpoint saver
     save_checkpoint = create_checkpoint_saver(checkpoint_dir, flow_predictor, mask_predictor,
-                                            optimizer_flow, optimizer_mask, alter_scheduler, config, mask_scheduler, warmup_scheduler)
+                                            optimizer_flow, optimizer_mask, alter_scheduler, config, mask_scheduler)
     
     first_iteration = True
     loss_dict_move_average = []
@@ -325,7 +351,16 @@ def main(config, writer):
             mask_predictor.to(device)
             
             try:
-                pred_flow,pred_mask,point_cloud_firsts,point_cloud_nexts,cascade_flow_outs = inference_models(flow_predictor,mask_predictor,sample,config.dataset.name,train_flow=train_flow)
+                (pred_flow,
+                pred_mask,
+                point_cloud_firsts,
+                point_cloud_nexts,
+                cascade_flow_outs) = inference_models(
+                    flow_predictor,
+                    mask_predictor,
+                    sample,
+                    config.dataset.name, 
+                    train_flow=train_flow,downsample=config.training.mask_downsample_factor)
             except Exception as e:
                 print(e)
                 import traceback
@@ -348,8 +383,7 @@ def main(config, writer):
             
             # Log gradient debugging information
             log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_predictor, step)
-            warmup_scheduler.step()
-
+            
             # Perform optimization step
             optimization_success = perform_optimization_step(
                 config, total_loss, optimizer_flow, optimizer_mask,

@@ -11,6 +11,97 @@ from torch import nn
 from torch.nn import functional as F
 from losses.KNNDistanceLoss import KNNDistanceLoss
 
+
+def fit_motion_svd_batch(pc1, pc2, mask=None):
+    """
+    :param pc1: (B, N, 3) torch.Tensor.
+    :param pc2: (B, N, 3) torch.Tensor.
+    :param mask: (B, N) torch.Tensor.
+    :return:
+        R_base: (B, 3, 3) torch.Tensor.
+        t_base: (B, 3) torch.Tensor.
+    """
+    n_batch, n_point, _ = pc1.size()
+
+    if mask is None:
+        pc1_mean = torch.mean(pc1, dim=1, keepdim=True)   # (B, 1, 3)
+        pc2_mean = torch.mean(pc2, dim=1, keepdim=True)   # (B, 1, 3)
+    else:
+        pc1_mean = torch.einsum('bnd,bn->bd', pc1, mask) / torch.sum(mask, dim=1, keepdim=True)   # (B, 3)
+        pc1_mean.unsqueeze_(1)
+        pc2_mean = torch.einsum('bnd,bn->bd', pc2, mask) / torch.sum(mask, dim=1, keepdim=True)
+        pc2_mean.unsqueeze_(1)
+
+    pc1_centered = pc1 - pc1_mean
+    pc2_centered = pc2 - pc2_mean
+
+    if mask is None:
+        S = torch.bmm(pc1_centered.transpose(1, 2), pc2_centered)
+    else:
+        S = pc1_centered.transpose(1, 2).bmm(torch.diag_embed(mask).bmm(pc2_centered))
+
+    # If mask is not well-defined, S will be ill-posed.
+    # We just return an identity matrix.
+    valid_batches = ~torch.isnan(S).any(dim=1).any(dim=1)
+    R_base = torch.eye(3, device=pc1.device).unsqueeze(0).repeat(n_batch, 1, 1)
+    t_base = torch.zeros((n_batch, 3), device=pc1.device)
+
+    if valid_batches.any():
+        S = S[valid_batches, ...]
+        u, s, v = torch.svd(S, some=False, compute_uv=True)
+        R = torch.bmm(v, u.transpose(1, 2))
+        det = torch.det(R)
+
+        # Correct reflection matrix to rotation matrix
+        diag = torch.ones_like(S[..., 0], requires_grad=False)
+        diag[:, 2] = det
+        R = v.bmm(torch.diag_embed(diag).bmm(u.transpose(1, 2)))
+
+        pc1_mean, pc2_mean = pc1_mean[valid_batches], pc2_mean[valid_batches]
+        t = pc2_mean.squeeze(1) - torch.bmm(R, pc1_mean.transpose(1, 2)).squeeze(2)
+
+        R_base[valid_batches] = R
+        t_base[valid_batches] = t
+
+    return R_base, t_base
+
+
+class DynamicLoss(nn.Module):
+    """
+    Enforce the rigid transformation estimated from object masks to explain the per-point flow.
+    """
+    def __init__(self, loss_norm=2):
+        super().__init__()
+        self.loss_norm = loss_norm
+
+    def forward(self, pc, mask, flow):
+        """
+        :param pc: (B, N, 3) torch.Tensor.
+        :param mask: (B, N, K) torch.Tensor.
+        :param flow: (B, N, 3) torch.Tensor.
+        :return:
+            loss: () torch.Tensor.
+        """
+        n_batch, n_point, n_object = mask.size()
+        pc2 = pc + flow
+        mask = mask.transpose(1, 2).reshape(n_batch * n_object, n_point)
+        pc_rep = pc.unsqueeze(1).repeat(1, n_object, 1, 1).reshape(n_batch * n_object, n_point, 3)
+        pc2_rep = pc2.unsqueeze(1).repeat(1, n_object, 1, 1).reshape(n_batch * n_object, n_point, 3)
+
+        # Estimate the rigid transformation
+        object_R, object_t = fit_motion_svd_batch(pc_rep, pc2_rep, mask)
+
+        # Apply the estimated rigid transformation onto point cloud
+        pc_transformed = torch.einsum('bij,bnj->bni', object_R, pc_rep) + object_t.unsqueeze(1).repeat(1, n_point, 1)
+        pc_transformed = pc_transformed.reshape(n_batch, n_object, n_point, 3).detach()
+        mask = mask.reshape(n_batch, n_object, n_point)
+
+        # Measure the discrepancy of per-point flow
+        mask = mask.unsqueeze(-1)
+        pc_transformed = (mask * pc_transformed).sum(1)
+        loss = (pc_transformed - pc2).norm(p=self.loss_norm, dim=-1)
+        return loss.mean()
+
 class ReconstructionLoss():
     """
     Reconstruction Loss for point cloud and flow prediction.
@@ -33,6 +124,7 @@ class ReconstructionLoss():
         self.device = device
         # Use our project's bidirectional KNN distance implementation
         self.knn_distance = KNNDistanceLoss(k=1, reduction='mean')
+        self.dynamic_loss = DynamicLoss()
         pass
 
     def fit_motion_svd_batch(self, pc1, pc2, mask=None):
@@ -155,8 +247,15 @@ class ReconstructionLoss():
                 - loss (torch.Tensor): Computed reconstruction loss averaged across the batch
                 - rec_point_cloud (list[torch.Tensor]): List of reconstructed point clouds
         """
+        point_cloud_first = [item.to(self.device).unsqueeze(0) for item in point_cloud_first]
+        pred_mask = [item.to(self.device).unsqueeze(0) for item in pred_mask]
+        pred_flow = [item.to(self.device).unsqueeze(0) for item in pred_flow]
+        point_cloud_first = torch.cat(point_cloud_first, dim=0)
+        pred_mask = torch.cat(pred_mask, dim=0)
+        pred_flow = torch.cat(pred_flow, dim=0)
+        pred_mask = pred_mask.permute(0, 2, 1)
+        return self.dynamic_loss(point_cloud_first, pred_mask, pred_flow),None
         point_cloud_first = [item.to(self.device) for item in point_cloud_first]
-        point_cloud_second = [item.to(self.device) for item in point_cloud_second]
         pred_mask = [item.to(self.device) for item in pred_mask]
         pred_flow = [item.to(self.device) for item in pred_flow]
         
@@ -168,10 +267,9 @@ class ReconstructionLoss():
             # Get data for current batch
             current_point_cloud_first = point_cloud_first[batch_idx]  # Keep batch dimension
             current_point_cloud_first = current_point_cloud_first.unsqueeze(0)
-            current_point_cloud_second = point_cloud_second[batch_idx]
-            current_point_cloud_second = current_point_cloud_second.unsqueeze(0)
             current_pred_mask = pred_mask[batch_idx]  # Shape: [slot_num, N]
             current_pred_flow = pred_flow[batch_idx]  # Shape: [N, 3]
+            current_point_cloud_second = current_point_cloud_first + current_pred_flow
             scene_flow_rec = torch.zeros_like(current_point_cloud_first)
             # Apply softmax to mask
             current_pred_mask = F.softmax(current_pred_mask, dim=0)
@@ -194,7 +292,7 @@ class ReconstructionLoss():
         
             # Compute bidirectional KNN distance using project-local loss
             rec_pc = scene_flow_rec + current_point_cloud_first  # (1, N, 3)
-            loss = self.knn_distance(rec_pc, current_point_cloud_second, bidirectional=True)
+            loss = (current_point_cloud_second - rec_pc).norm(p=2, dim=-1).mean()
             loss_summ += loss
             rec_point_cloud.append(scene_flow_rec + current_point_cloud_first)
         return loss_summ, rec_point_cloud

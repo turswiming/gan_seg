@@ -134,7 +134,7 @@ def evaluate_predictions_general(
     # tqdm.write(f"\rEPE: {epe_mean.item()}", end="")
     if writer is not None:
         writer.add_scalar(f"{type}/epe", epe_mean.item(), step)
-    
+
     # Compute mIoU
     miou_list = []
     for i in range(len(pred_masks)):
@@ -302,22 +302,25 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                 pbar.update(1)
                 if i >= eval_size:
                     break
+                if getattr(config.model.flow, "name", "") == "FlowStep3D":
+                    from main_general import forward_scene_flow_general
+                    point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in batch]
+                    point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in batch]
+                    flow_pred = forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,config.dataset.name)
+                    pred_flows.extend(flow_pred)
+                    gt_flows.extend([s["flow"].to(device).float() for s in batch])
+                    continue
                 for sample in batch:
                     point_cloud_first = sample["point_cloud_first"]
                     point_cloud_first = point_cloud_first.to(device).float()
                     point_cloud_next = sample["point_cloud_next"].to(device).float()
-                    if getattr(config.model.flow, "name", "") == "FlowStep3D":
-                        from main_general import forward_scene_flow_general
-                        flow_pred = forward_scene_flow_general([point_cloud_first], [point_cloud_next], flow_predictor,config.dataset.name)
-                        flow_pred = flow_pred[0]
-                    else:
-                        point_cloud_first_ones = torch.ones(point_cloud_first.shape[0],device=point_cloud_first.device).bool()
-                        point_cloud_next_ones = torch.ones(point_cloud_next.shape[0],device=point_cloud_next.device).bool()
-                        transform = torch.eye(4,device=point_cloud_first.device)
-                        flow_pred = flow_predictor._model_forward(
-                            [[point_cloud_first,point_cloud_first_ones]], 
-                            [[point_cloud_next,point_cloud_next_ones]], 
-                            [[transform,transform]])[0].ego_flows.squeeze(0)
+                    point_cloud_first_ones = torch.ones(point_cloud_first.shape[0],device=point_cloud_first.device).bool()
+                    point_cloud_next_ones = torch.ones(point_cloud_next.shape[0],device=point_cloud_next.device).bool()
+                    transform = torch.eye(4,device=point_cloud_first.device)
+                    flow_pred = flow_predictor._model_forward(
+                        [[point_cloud_first,point_cloud_first_ones]], 
+                        [[point_cloud_next,point_cloud_next_ones]], 
+                        [[transform,transform]])[0].ego_flows.squeeze(0)
                             #because the transform is identity, here it is the global flow
                     
                     pred_flows.append(flow_pred)
@@ -333,24 +336,12 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                 pbar.update(1)
                 if i >= eval_size:
                     break
-                for sample in batch:
-                    point_cloud_first = sample["point_cloud_first"]
-                    point_cloud_first = point_cloud_first.to(device).float()
-                    point_cloud_first = point_cloud_first.unsqueeze(0).contiguous()
-                    masks_pred = mask_predictor.forward(point_cloud_first,point_cloud_first)
-                    pred_masks.append(masks_pred.squeeze(0).permute(1,0))
-                    gt_mask = sample["mask"]
-                    gt_mask = gt_mask.to(device).long()
-                    gt_masks.append(gt_mask)
-                    if pred_masks[-1].shape[1] != gt_masks[-1].shape[0]:
-                        #pop the last element
-                        pred_masks.pop()
-                        gt_masks.pop()
-
-    # Convert optionals
-    bg_masks = background_static_masks if len(background_static_masks) > 0 else None
-    fg_static_masks = foreground_static_masks if len(foreground_static_masks) > 0 else None
-    fg_dynamic_masks = foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
+                point_cloud_firsts = [s["point_cloud_first"][::config.training.mask_downsample_factor,:].to(device).float() for s in batch]
+                from main_general import forward_mask_prediction_general
+                masks_pred = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)
+                pred_masks.extend(masks_pred)
+                gt_masks.extend([s["mask"].to(device).long()[::config.training.mask_downsample_factor] for s in batch])
+                
     class_labels = None
     print("Evaluating predictions")
     evaluate_predictions_general(
