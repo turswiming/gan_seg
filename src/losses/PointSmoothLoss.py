@@ -29,6 +29,19 @@ definitions.
       radius: 0.2
       loss_norm: 1
 """
+""" for kittisf
+smooth_loss_params:
+    w_knn: 3.
+    w_ball_q: 1.
+    knn_loss_params:
+      k: 32
+      radius: 1.
+      loss_norm: 1
+    ball_q_loss_params:
+      k: 64
+      radius: 2.
+      loss_norm: 1
+"""
 class KnnLoss(nn.Module):
     """
     K-nearest neighbors based smoothness loss component.
@@ -182,7 +195,7 @@ class PointSmoothLoss(nn.Module):
         ball_q_loss (BallQLoss): Ball query based smoothness loss
     """
     
-    def __init__(self, w_knn=3, w_ball_q=1):
+    def __init__(self, w_knn=3, w_ball_q=1, knn_loss_params=None, ball_q_loss_params=None):
         """
         Initialize the combined Point Smoothness Loss.
         
@@ -191,8 +204,8 @@ class PointSmoothLoss(nn.Module):
             w_ball_q (float): Weight for ball query loss
         """
         super().__init__()
-        self.knn_loss = KnnLoss()
-        self.ball_q_loss = BallQLoss()
+        self.knn_loss = KnnLoss(**knn_loss_params)
+        self.ball_q_loss = BallQLoss(**ball_q_loss_params)
         self.w_knn = w_knn
         self.w_ball_q = w_ball_q
 

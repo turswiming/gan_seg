@@ -309,6 +309,7 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                     flow_pred = forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,config.dataset.name)
                     pred_flows.extend(flow_pred)
                     gt_flows.extend([s["flow"].to(device).float() for s in batch])
+                    point_clouds.extend([s["point_cloud_first"].to(device).float() for s in batch])
                     continue
                 for sample in batch:
                     point_cloud_first = sample["point_cloud_first"]
@@ -338,9 +339,14 @@ def eval_model_general(flow_predictor, mask_predictor, val_flow_dataloader, val_
                     break
                 point_cloud_firsts = [s["point_cloud_first"][::config.training.mask_downsample_factor,:].to(device).float() for s in batch]
                 from main_general import forward_mask_prediction_general
+                #decentralize point cloud
+                for i in range(len(point_cloud_firsts)):
+                    center_point = (point_cloud_firsts[i].mean(0)+point_cloud_firsts[i].mean(0))/2*torch.tensor([1,0,1]).to(point_cloud_firsts[i].device)
+                    point_cloud_firsts[i] = point_cloud_firsts[i] - center_point
+                gt_mask = [s["mask"].to(device).long()[::config.training.mask_downsample_factor] for s in batch]
                 masks_pred = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)
                 pred_masks.extend(masks_pred)
-                gt_masks.extend([s["mask"].to(device).long()[::config.training.mask_downsample_factor] for s in batch])
+                gt_masks.extend(gt_mask)
                 
     class_labels = None
     print("Evaluating predictions")

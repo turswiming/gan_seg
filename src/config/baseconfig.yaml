@@ -257,8 +257,8 @@ hardware:
   enable_anomaly_detection: true
   
   # Memory management
-  clear_cache_interval: 2  # Clear CUDA cache every N steps
-  garbage_collect_interval: 2  # Run garbage collection every N steps
+  clear_cache_interval: 1  # Clear CUDA cache every N steps
+  garbage_collect_interval: 1  # Run garbage collection every N steps
 
 # ==================== Debugging Configuration ====================
 debug:

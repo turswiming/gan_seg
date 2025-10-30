@@ -56,6 +56,51 @@ from SceneFlowZoo.dataloaders import (
 from OGCModel.icp_util import icp
 #PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+def augment_transform(pc1, pc2, flow):
+    #decentralize point cloud
+    center_point = (pc1.mean(0)+pc2.mean(0))/2*torch.tensor([1,0,1]).to(pc1.device)
+    pc1 = pc1 - center_point
+    pc2 = pc2 - center_point
+    #random rotation along y axis
+    angle = torch.rand(1).item() * (np.pi/2) - np.pi/4  # uniform(-π/4, π/4)
+    cos_a, sin_a = torch.cos(torch.tensor(angle)), torch.sin(torch.tensor(angle))
+    rot = torch.tensor([[cos_a.item(), 0, sin_a.item()], 
+                        [0, 1, 0], 
+                        [-sin_a.item(), 0, cos_a.item()]], dtype=torch.float32)
+    rot = rot.to(pc1.device)
+    pc1 = pc1 @ rot.T
+    pc2 = pc2 @ rot.T
+    flow = flow @ rot.T
+    
+    #random translation
+    translation = torch.rand(3).to(pc1.device) * 2 - 1  # uniform(-1, 1)
+    translation[1]*=0
+    translation = translation.to(pc1.device)
+    pc1 = pc1 + translation
+    pc2 = pc2 + translation
+    
+    #random scaling
+    scale = torch.rand(1).item() * 0.1 + 0.95  # uniform(0.95, 1.05)
+    pc1 = pc1 * scale
+    pc2 = pc2 * scale
+    flow = flow * scale
+    
+    #random mirror in x, z axis
+    mirror_x = torch.rand(1).item()
+    # mirror_z = torch.rand(1).item()
+    if mirror_x < 0.5:
+        pc1[:, 0] = -pc1[:, 0]
+        pc2[:, 0] = -pc2[:, 0]
+        flow[:, 0] = -flow[:, 0]
+    # if mirror_z < 0.5:
+    #     pc1[:, 2] = -pc1[:, 2]
+    #     pc2[:, 2] = -pc2[:, 2]
+    #     flow[:, 2] = -flow[:, 2]
+    
+    # Convert back to numpy for compatibility
+    return pc1, pc2, flow
+
 def create_dataloaders_general(config):
     """
     Create dataloaders for general training with AV2 SceneFlowZoo dataset.
@@ -93,7 +138,7 @@ def create_dataloaders_general(config):
             split="train",
             num_points=config.dataset.KITTISF_new.num_points,
             seed=config.dataset.KITTISF_new.seed,
-            augmentation=True
+            augmentation=False
         )
 
     if config.dataset.val_name == "AV2_SceneFlowZoo_val":
@@ -183,7 +228,7 @@ def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predi
         point_cloud_nexts = [pc.unsqueeze(0) for pc in point_cloud_nexts]
         #if all point_cloud_firsts and point_cloud_nexts are the same, then only forward once
         if all(pc1.shape == pc2.shape for pc1, pc2 in zip(point_cloud_firsts, point_cloud_nexts)) \
-            and len(set([pc.shape[1] for pc in point_cloud_firsts])) == 1:
+            and len(set([pc.shape[1] for pc in point_cloud_firsts])) == 1 and False:
             point_cloud_firsts = torch.cat(point_cloud_firsts, dim=0)
             point_cloud_nexts = torch.cat(point_cloud_nexts, dim=0)
             casecde_flow_outs = flow_predictor(point_cloud_firsts, point_cloud_nexts,point_cloud_firsts, point_cloud_nexts, iters=5)
@@ -191,31 +236,66 @@ def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predi
             flow_outs = [flow_outs[i].squeeze(0) for i in range(len(flow_outs))]
         else:
             flow_outs = []
+            cascade_flow_pred_res_batch = []
+            pc1_list = []
+            pc2_list = []
+            pc1_ground_mask_list = []
+            pc2_ground_mask_list = []
+            T_list = []
+            flow_pred_org_list = []
             for pc1,pc2 in zip(point_cloud_firsts, point_cloud_nexts):
-                pc1_ground_mask = pc1[:,:,1] < -1.4
-                pc2_ground_mask = pc2[:,:,1] < -1.4
-                pc1_without_ground = pc1[~pc1_ground_mask]
-                pc2_without_ground = pc2[~pc2_ground_mask]
-                pc1_without_ground = pc1_without_ground.unsqueeze(0)
-                pc2_without_ground = pc2_without_ground.unsqueeze(0)
-                casecde_flow_outs = flow_predictor(pc1_without_ground, pc2_without_ground,pc1_without_ground, pc2_without_ground, iters=5)
-                #downsample to 1024 points
-                pc1_without_ground_downsampled, _, _, _ = downsample_point_clouds(pc1_without_ground, None, None, None, 1024)
-                pc2_without_ground_downsampled, _, _, _ = downsample_point_clouds(pc1_without_ground, None, None, None, 1024)
-                pc1_without_ground_downsampled = pc1_without_ground_downsampled[0].cpu().numpy()
-                pc2_without_ground_downsampled = pc2_without_ground_downsampled[0].cpu().numpy()
-                T,_,_ = icp(pc1_without_ground_downsampled, pc2_without_ground_downsampled,max_iterations=50)
-                T =torch.from_numpy(T).to(pc1.device).float()
-                rot, transl = T[:3, :3], T[:3, 3].unsqueeze(0)
-                flow = pc1@rot.T+transl -pc1
-                flow[~pc1_ground_mask] += casecde_flow_outs[-1].squeeze(0)
-                flow_outs.append(casecde_flow_outs[-1])
-            flow_outs = [flow] 
+                from dataset.kittisf_sceneflow import get_global_transform_matrix
+                pc1 = pc1.squeeze(0)
+                pc2 = pc2.squeeze(0)
+                pc1_ground_mask = pc1[:,1] < -1.4
+                pc2_ground_mask = pc2[:,1] < -1.4
+                T = get_global_transform_matrix(pc1[~pc1_ground_mask], pc2[~pc2_ground_mask])
+                # ensure T is torch tensor on same device/dtype as pc1
+                T = torch.from_numpy(T)
+                T = T.to(device=pc1.device, dtype=pc1.dtype)
+
+                rot, transl = T[:3, :3], T[:3, 3]
+
+                # compute with torch: einsum('ij,nj->ni', rot, pc1) == pc1 @ rot.T
+                flow_pred_org = pc1 @ rot.T + transl - pc1
+                flow_pred_org = flow_pred_org.to(dtype=torch.float32)
+                pc1 = pc1 @ rot.T + transl
+                pc1 = pc1.to(dtype=torch.float32)
+                pc1_list.append(pc1)
+                pc2_list.append(pc2)
+                pc1_ground_mask_list.append(pc1_ground_mask)
+                pc2_ground_mask_list.append(pc2_ground_mask)
+                flow_pred_org_list.append(flow_pred_org)
+                T_list.append(T)
+            pc1_input = torch.cat([pc.unsqueeze(0) for pc in pc1_list], dim=0)
+            pc2_input = torch.cat([pc.unsqueeze(0) for pc in pc2_list], dim=0)
+            flow_preds = flow_predictor(
+                pc1_input, 
+                pc2_input,
+                pc1_input, 
+                pc2_input, iters=5)
+            flow_prd_lsq = flow_preds[-1]
+            flow_outs = []
+            for flow_pred_org, flow_prd_lsq_item, pc1_ground_mask in \
+             zip(flow_pred_org_list, flow_prd_lsq, pc1_ground_mask_list):
+
+                flow_pred_res = flow_pred_org.clone()
+                flow_pred_res[~pc1_ground_mask] += flow_prd_lsq_item[~pc1_ground_mask]
+                flow_outs.append(flow_pred_res)
+            casecde_flow_outs = []
+            for i, flow_pred_step in enumerate(flow_preds):
+                flow_pred_step_res = []
+                for flow_pred_org, flow_prd_lsq_item, pc1_ground_mask in \
+                 zip(flow_pred_org_list, flow_pred_step, pc1_ground_mask_list):
+
+                        flow_pred_res = flow_pred_org.clone()
+                        flow_pred_res[~pc1_ground_mask] += flow_prd_lsq_item[~pc1_ground_mask]
+                        flow_pred_step_res.append(flow_pred_res)
+                casecde_flow_outs.append(flow_pred_step_res)
+                pass
+
         if train_flow:
-            cascade_flow_outs_return = []
-            for c_flow_out in casecde_flow_outs:
-                cascade_flow_outs_return.append([flow.squeeze(0) for flow in c_flow_out])
-            return flow_outs, cascade_flow_outs_return[:-1]
+            return flow_outs, casecde_flow_outs[:-1]
         return flow_outs
     elif isinstance(flow_predictor, FastFlow3D):
         first_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_firsts]
@@ -267,8 +347,11 @@ def inference_models(flow_predictor,mask_predictor, sample,dataset_name, train_f
         point_cloud_nexts = [item[::downsample,:] for item in point_cloud_nexts]
         flow = [item[::downsample,:] for item in flow]
         if cascade_flow_outs is not None:
-            for c_flow_out in cascade_flow_outs:
-                c_flow_out = [item[::downsample,:] for item in c_flow_out]
+            for i in range(len(cascade_flow_outs)):
+                cascade_flow_outs[i] = [item[::downsample,:] for item in cascade_flow_outs[i]]
+    #augment transform
+    for i in range(len(point_cloud_firsts)):
+        point_cloud_firsts[i], point_cloud_nexts[i], flow[i] = augment_transform(point_cloud_firsts[i], point_cloud_nexts[i], flow[i])
     pred_masks = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)
     return flow,pred_masks,point_cloud_firsts,point_cloud_nexts,cascade_flow_outs
 

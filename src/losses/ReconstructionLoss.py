@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from losses.KNNDistanceLoss import KNNDistanceLoss
-
+from torch.utils.checkpoint import checkpoint
 
 def fit_motion_svd_batch(pc1, pc2, mask=None):
     """
@@ -65,6 +65,16 @@ def fit_motion_svd_batch(pc1, pc2, mask=None):
 
     return R_base, t_base
 
+def fit_motion_svd_batch_checkpoint(pc1, pc2, mask=None):
+    """
+    :param pc1: (B, N, 3) torch.Tensor.
+    :param pc2: (B, N, 3) torch.Tensor.
+    :param mask: (B, N) torch.Tensor.
+    :return:
+        R_base: (B, 3, 3) torch.Tensor.
+        t_base: (B, 3) torch.Tensor.
+    """
+    return checkpoint(fit_motion_svd_batch, pc1, pc2, mask,use_reentrant=False,preserve_rng_state=False)
 
 class DynamicLoss(nn.Module):
     """
@@ -89,7 +99,7 @@ class DynamicLoss(nn.Module):
         pc2_rep = pc2.unsqueeze(1).repeat(1, n_object, 1, 1).reshape(n_batch * n_object, n_point, 3)
 
         # Estimate the rigid transformation
-        object_R, object_t = fit_motion_svd_batch(pc_rep, pc2_rep, mask)
+        object_R, object_t = fit_motion_svd_batch_checkpoint(pc_rep, pc2_rep, mask)
 
         # Apply the estimated rigid transformation onto point cloud
         pc_transformed = torch.einsum('bij,bnj->bni', object_R, pc_rep) + object_t.unsqueeze(1).repeat(1, n_point, 1)

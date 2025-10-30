@@ -237,13 +237,19 @@ class FlowSmoothLoss():
                 #add a small noise to the Fk_batch
                 Fk_batch = Fk_batch + torch.randn_like(Fk_batch) * 1e-6
                 # 批量线性最小二乘求解
-                theta_batch = torch.linalg.lstsq(Ek_batch, Fk_batch, driver="gels").solution  # (current_batch_size, 4, 3)
+                with torch.no_grad():
+                    theta_batch = torch.linalg.lstsq(Ek_batch, Fk_batch, driver="gels").solution  # (current_batch_size, 4, 3)
                 
                 valid_mask = ~torch.isnan(theta_batch).any(dim=[1, 2])  # (current_batch_size,)
                 
                 if not valid_mask.any():
+                    print(f"all slots are invalid")
                     continue
                     # 批量重建flows
+                #print the invalid slots
+                invalid_slots = ~valid_mask
+                if invalid_slots.sum() > 0:
+                    print(f"invalid slots: {invalid_slots.sum()}, invalid slots indices: {invalid_slots.nonzero()}")
                 Fk_hat_batch = torch.bmm(Ek_batch, theta_batch)  # (current_batch_size, N, 3)
                 
                 # 只对有效的slots进行累加
@@ -254,14 +260,14 @@ class FlowSmoothLoss():
                 valid_Fk = Fk_batch[valid_mask]  # (valid_count, N, 3)
                 
                 # 向量化损失计算
-                # if self.each_mask_item_loss in ["L1", "l1"]:
-                #     batch_reconstruction_loss = torch.sum(torch.abs(valid_Fk_hat - valid_Fk))
-                # elif self.each_mask_item_loss in ["L2", "l2"]:
-                #     batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
+                if self.each_mask_item_loss in ["L1", "l1"]:
+                    batch_reconstruction_loss = torch.sum(torch.abs(valid_Fk_hat - valid_Fk))
+                elif self.each_mask_item_loss in ["L2", "l2"]:
+                    batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
                 
-                # one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
-            reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
-            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
+                one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
+            # reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
+            # one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
             total_loss += one_batch_loss
             # Compute reconstruction loss
             # with torch.no_grad():

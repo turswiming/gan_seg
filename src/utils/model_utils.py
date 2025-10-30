@@ -98,7 +98,9 @@ def initialize_loss_functions(config, device):
     # Point Smooth Loss
     if config.lr_multi.point_smooth_loss > 0:
         from losses.PointSmoothLoss import PointSmoothLoss
-        loss_functions['point_smooth'] = PointSmoothLoss()
+        loss_functions['point_smooth'] = PointSmoothLoss(
+            knn_loss_params=config.loss.point_smooth_loss.knn_loss_params, 
+            ball_q_loss_params=config.loss.point_smooth_loss.ball_q_loss_params)
     else:
         loss_functions['point_smooth'] = None
         

@@ -1,0 +1,85 @@
+__base__: "general.yaml"
+
+
+checkpoint:
+  resume: true          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20251030_003812slowincrease/checkpoints/step_5400.pt"
+  overwrite_flow_predictor: false
+  overwrite_flow_path: "/workspace/epoch=23.ckpt"
+  save_every_iters: 300
+model:
+  flow:
+    name: "FlowStep3D"
+    lr: 0.00002
+    FastFlow3D:
+      VOXEL_SIZE: [0.2, 0.2, 6]
+      PSEUDO_IMAGE_DIMS: [512, 512]
+      POINT_CLOUD_RANGE: [-51.2, -51.2, -3, 51.2, 51.2, 3]
+      FEATURE_CHANNELS: 32
+      SEQUENCE_LENGTH: 2
+  mask:
+    name: "MaskFormer3D"
+    lr: 0.0001
+    weight_decay: 0.0
+    slot_num: 10
+    scheduler:
+      type: "step"  # 可选: step, exponential, cosine, plateau
+      step_size: 10000  # 对于StepLR
+      gamma: 0.7  # 学习率衰减因子
+
+
+dataset:
+  name: "KITTISF_new"
+
+  KITTISF_new:
+    data_root: "/workspace/kittisf_downwampled/kittisf_downsampled/data"
+    num_points: 8192
+    seed: 42
+  val_name: "KITTISF_new"
+lr_multi:
+  rec_loss: 0.1
+  flow_loss: 0.0
+  scene_flow_smoothness: 1
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.01
+  eular_flow_loss: 0.0
+  KDTree_loss: 0
+  KNN_loss: 0.1
+  l1_regularization: 0.0
+  eular_mask_loss: 0
+
+# alternate:
+#   flow: [[50,false],[50,true]]
+#   mask: [[50,true],[50,false]]
+training:
+  max_iter: 300000
+  eval_loop: 100
+  begin_train_smooth: 0
+  begin_train_flow: 0
+  begin_train_mask: 0
+  mask_downsample_factor: 2
+dataloader:
+  batchsize: 4
+  num_workers: 0
+loss:
+  scene_flow_smoothness:
+    scale_flow_grad: 0.001
+    each_mask_item:
+      relative_gradient: 1
+      criterion: "L2"
+    sum_mask_item:
+      relative_gradient: 0
+      criterion: "L2"
+
+  knn:
+    k: 1
+    reduction: "mean"
+    distance_max_threshold: 2
+    distance_min_threshold: 0.0
+vis:
+  show_window: false
+  debug_grad: false
+
+eval:
+  eval_size: 100
+  min_points: 25

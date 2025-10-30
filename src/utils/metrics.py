@@ -7,6 +7,7 @@ This module provides metrics for evaluating model performance, including:
 """
 
 import torch
+import math
 import torch.nn.functional as F
 
 def calculate_miou(pred_mask, gt_mask, min_points=100):
@@ -37,21 +38,26 @@ def calculate_miou(pred_mask, gt_mask, min_points=100):
     #pre calculate the size of each mask
     gt_mask_size = torch.sum(gt_mask, dim=1)
     pred_mask_size = torch.sum(pred_mask, dim=1)
+    iou_recorder = torch.zeros(gt_mask.shape[0], pred_mask.shape[0])
     for j in range(gt_mask.shape[0]):
         max_iou = 0
         if gt_mask_size[j] <= min_points:
             continue  # Skip small masks to avoid noise in IoU calculation
-        # if j==0:
-        #     continue
+
         for i in range(pred_mask.shape[0]):
         
             intersection = torch.sum(pred_mask[i] * gt_mask[j])
             union = pred_mask_size[i] + gt_mask_size[j] - intersection
             iou = float(intersection) / float(union) if union != 0 else 0
+            
+            iou_recorder[j, i] = iou
+            if math.isnan(iou):
+                continue
             if iou > max_iou:
                 max_iou = iou
         max_iou_list.append(max_iou)
         # print(f"Instance {j}: Max IoU = {max_iou:.4f} Size = {gt_mask_size[j]}")
+    
     mean_iou = torch.mean(torch.tensor(max_iou_list).to(dtype=torch.float32))
     if torch.isnan(mean_iou):
         return None
