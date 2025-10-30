@@ -215,7 +215,7 @@ def create_dataloaders_general(config):
             val_flow_dataset, val_flow_dataloader, 
             val_mask_dataset, val_mask_dataloader)
     pass
-def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,dataset_name, train_flow=False):
+def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,dataset_name, train_flow=False,return_modified_point_cloud=False):
     if isinstance(flow_predictor, FlowStep3D):
 
         # if dataset_name == "KITTISF_new":
@@ -269,6 +269,8 @@ def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predi
                 T_list.append(T)
             pc1_input = torch.cat([pc.unsqueeze(0) for pc in pc1_list], dim=0)
             pc2_input = torch.cat([pc.unsqueeze(0) for pc in pc2_list], dim=0)
+            point_cloud_firsts = [pc.squeeze(0) for pc in pc1_input]
+            point_cloud_nexts = [pc.squeeze(0) for pc in pc2_input]
             flow_preds = flow_predictor(
                 pc1_input, 
                 pc2_input,
@@ -295,8 +297,14 @@ def forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predi
                 pass
 
         if train_flow:
-            return flow_outs, casecde_flow_outs[:-1]
-        return flow_outs
+            if return_modified_point_cloud:
+                return flow_outs, casecde_flow_outs[:-1],point_cloud_firsts
+            else:
+                return flow_outs, casecde_flow_outs[:-1]
+        if return_modified_point_cloud:
+            return flow_outs,point_cloud_firsts
+        else:
+            return flow_outs
     elif isinstance(flow_predictor, FastFlow3D):
         first_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_firsts]
         next_masks = [torch.ones(pc.shape[0],device=pc.device).bool() for pc in point_cloud_nexts]
@@ -336,11 +344,17 @@ def inference_models(flow_predictor,mask_predictor, sample,dataset_name, train_f
     device = "cuda" if torch.cuda.is_available() else "cpu"
     point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in sample]
     point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in sample]
-    return_value = forward_scene_flow_general(point_cloud_firsts, point_cloud_nexts, flow_predictor,dataset_name,train_flow=train_flow)
+    return_value = forward_scene_flow_general(
+        point_cloud_firsts, 
+        point_cloud_nexts, 
+        flow_predictor,
+        dataset_name,
+        train_flow=train_flow,
+        return_modified_point_cloud=True)
     if train_flow:
-        flow,cascade_flow_outs = return_value
+        flow,cascade_flow_outs,point_cloud_firsts = return_value
     else:
-        flow = return_value
+        flow,point_cloud_firsts = return_value
         cascade_flow_outs = None
     if downsample is not None:
         point_cloud_firsts = [item[::downsample,:] for item in point_cloud_firsts]
