@@ -7,7 +7,7 @@ log:
 
 checkpoint:
   resume: true          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251029_222226/checkpoints/step_3600.pt"
+  resume_path: "/workspace/gan_seg/outputs/exp/20251029_222226/checkpoints/step_2400.pt"
   overwrite_flow_predictor: false
   overwrite_flow_path: "/workspace/epoch=23.ckpt"
   save_every_iters: 300
@@ -26,18 +26,6 @@ model:
     lr: 1e-3
     weight_decay: 0.0
     slot_num: 10
-    scheduler:
-      type: "step"  # 可选: step, exponential, cosine, plateau
-      step_size: 10000  # 对于StepLR
-      gamma: 0.7  # 学习率衰减因子
-      # 对于CosineAnnealingLR
-      # T_max: 300000
-      # eta_min: 1e-6
-      # 对于ReduceLROnPlateau
-      # mode: "min"
-      # factor: 0.5
-      # patience: 1000
-      # threshold: 1e-4
 
 dataset:
   name: "KITTISF_new"
@@ -103,9 +91,16 @@ training:
   max_iter: 300000
   eval_loop: 100
   begin_train_smooth: 0
+  begin_train_point_smooth: 0
   begin_train_flow: 0
   begin_train_mask: 0
   mask_downsample_factor: 2
+  augment_params:
+    angle_range: [-0.7, 7]
+    translation_range: [1, 0,1]
+    scale_range: [0.95, 1.05]
+    mirror_x: true
+    mirror_z: false
 dataloader:
   batchsize: 4
   num_workers: 0

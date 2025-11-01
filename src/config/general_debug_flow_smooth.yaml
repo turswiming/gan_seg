@@ -1,0 +1,22 @@
+__base__: "general_tryfastincrease.yaml"
+seed: 42
+log:
+  name: "debug_flow_smooth_loss"
+  dir: "" # default save to /output/exp
+  tensorboard_log_interval: 1  # Log losses every N steps
+
+
+checkpoint:
+  resume: true          # 是否从断点恢复
+  resume_path: "/workspace/gan_seg/outputs/exp/20251030_224359bestfornow0.6/checkpoints/step_4500.pt"
+  overwrite_flow_predictor: false
+  overwrite_flow_path: "/workspace/epoch=23.ckpt"
+  save_every_iters: 100
+
+vis:
+  show_window: false
+  debug_grad: false
+
+eval:
+  eval_size: 100
+  min_points: 25

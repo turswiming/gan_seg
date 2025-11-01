@@ -234,7 +234,7 @@ def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_
             config, 
             device, 
             writer, 
-            step,type="val")
+            step,type="val",save_sample=True)
         eval_model_general(
             flow_predictor, 
             mask_predictor, 
@@ -243,7 +243,7 @@ def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_
             config, 
             device, 
             writer, 
-            step,type="train")
+            step,type="train",save_sample=True)
 
 def log_prediction_histograms(config, writer, pred_flow, pred_mask, step):
     """Log prediction histograms to TensorBoard."""
