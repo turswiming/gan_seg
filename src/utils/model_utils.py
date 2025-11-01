@@ -150,6 +150,14 @@ def initialize_loss_functions(config, device):
     else:
         loss_functions["knn"] = None
 
+    # Invariance Loss
+    if config.lr_multi.invariance_loss > 0:
+        from losses.InvarianceLoss import InvarianceLoss
+
+        loss_functions["invariance"] = InvarianceLoss()
+    else:
+        loss_functions["invariance"] = None
+
     return loss_functions
 
 

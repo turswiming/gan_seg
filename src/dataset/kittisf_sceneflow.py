@@ -57,9 +57,7 @@ def get_global_transform_matrix(pc1, pc2, flow=None):
     icp_pc1, _, _, _ = downsample_points(icp_pc1, icp_pc1, icp_pc1, icp_pc1, 1024)
     icp_pc2, _, _, _ = downsample_points(icp_pc2, icp_pc2, icp_pc2, icp_pc2, 1024)
 
-    T, distances, i = icp(
-        icp_pc1, icp_pc2, initial_transform_matrix.T, max_iterations=50
-    )
+    T, distances, i = icp(icp_pc1, icp_pc2, initial_transform_matrix.T, max_iterations=50)
     return T
 
 
@@ -91,7 +89,8 @@ class KittisfSceneFlowDataset(Dataset):
         self.cache = {}
         self.augmentation = augmentation
         self.fix_to_global_coord = False
-
+        self.random_fix_to_global_coord = True
+        self.bidirectional = True
         # 获取所有可用的序列ID (000000 到 000199)
         all_sequence_ids = [f"{i:06d}" for i in range(200)]
 
@@ -107,8 +106,12 @@ class KittisfSceneFlowDataset(Dataset):
         return len(self.sequence_ids)
 
     def __getitem__(self, idx):
+
         sequence_id = self.sequence_ids[idx]
-        is_reverse = False
+        if self.split == "train" and self.bidirectional and torch.rand(1) < 0.5:
+            is_reverse = True
+        else:
+            is_reverse = False
 
         sequence_path = self.data_root / sequence_id
 
@@ -126,8 +129,8 @@ class KittisfSceneFlowDataset(Dataset):
 
         # if self.augmentation:
         #     pc1, pc2, flow = self.augment_transform(pc1, pc2, flow)
-
-        if self.fix_to_global_coord:
+        do_transform = torch.rand(1) < 0.5
+        if self.fix_to_global_coord or (self.random_fix_to_global_coord and self.split == "train" and do_transform):
             T = get_global_transform_matrix(pc1, pc2, flow)
             rot, transl = T[:3, :3], T[:3, 3].transpose()
 

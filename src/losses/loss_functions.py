@@ -406,6 +406,30 @@ def compute_all_losses(
     return loss_dict, total_loss, reconstructed_points
 
 
+def compute_invariance_loss(config, loss_functions, point_cloud_firsts, pred_mask, mask_predictor, step, device):
+    """Compute invariance loss."""
+    if config.lr_multi.invariance_loss > 0 and step > config.training.begin_train_invariance:
+        from utils.forward_utils import augment_transform, forward_mask_prediction_general
+        pc_aug_list = []
+        for i in range(len(point_cloud_firsts)):
+            pc_aug, _, _, _ = augment_transform(
+                point_cloud_firsts[i],
+                point_cloud_firsts[i],#should be point_cloud_nexts, i just input some meaningless data
+                point_cloud_firsts[i],#should be flow, i just input some meaningless data, which will be ignored
+                None,
+                config.training.augment_params,
+            )
+            
+            pc_aug_list.append(pc_aug)
+        pred_mask_aug = forward_mask_prediction_general(pc_aug_list, mask_predictor)
+        pred_mask_aug = torch.stack([mask.permute(1, 0) for mask in pred_mask_aug])
+        pred_mask = torch.stack([mask.permute(1, 0) for mask in pred_mask])
+        invariance_loss = loss_functions["invariance"](pred_mask, pred_mask_aug)
+        invariance_loss = invariance_loss * config.lr_multi.invariance_loss
+    else:
+        invariance_loss = torch.tensor(0.0, device=device, requires_grad=True)
+
+
 def compute_all_losses_general(
     config,
     loss_functions,
@@ -474,7 +498,9 @@ def compute_all_losses_general(
         train_flow=train_flow,
         device=device,
     )
-
+    invariance_loss = compute_invariance_loss(
+        config, loss_functions, point_cloud_firsts, pred_mask, mask_predictor, step, device
+    )
     # Create loss dictionary
     loss_dict = {
         "rec_loss": rec_loss,
