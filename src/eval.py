@@ -367,16 +367,15 @@ def eval_model_general(
                     point_cloud_nexts = [
                         s["point_cloud_next"].to(device).float() for s in batch
                     ]
-                    flow_pred, modified_point_cloud = forward_scene_flow_general(
+                    flow_pred = forward_scene_flow_general(
                         point_cloud_firsts,
                         point_cloud_nexts,
                         flow_predictor,
                         config.dataset.name,
-                        return_modified_point_cloud=True,
                     )
                     pred_flows.extend(flow_pred)
                     gt_flows.extend([s["flow"].to(device).float() for s in batch])
-                    point_clouds.extend(modified_point_cloud)
+                    point_clouds.extend(point_cloud_firsts)
                     sequence_ids_flow.extend([s["sequence_id"] for s in batch])
                     continue
                 for sample in batch:

@@ -94,7 +94,7 @@ training:
   begin_train_point_smooth: 0
   begin_train_flow: 0
   begin_train_mask: 0
-  begin_train_invariance: 1500
+  begin_train_invariance: 2500
   mask_downsample_factor: 2
   augment_params:
     angle_range: [-0.7, 7]

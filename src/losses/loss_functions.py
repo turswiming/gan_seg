@@ -428,6 +428,7 @@ def compute_invariance_loss(config, loss_functions, point_cloud_firsts, pred_mas
         invariance_loss = invariance_loss * config.lr_multi.invariance_loss
     else:
         invariance_loss = torch.tensor(0.0, device=device, requires_grad=True)
+    return invariance_loss
 
 
 def compute_all_losses_general(
@@ -507,6 +508,7 @@ def compute_all_losses_general(
         "scene_flow_smooth_loss": scene_flow_smooth_loss,
         "point_smooth_loss": point_smooth_loss,
         "knn_dist_loss": knn_dist_loss,
+        "invariance_loss": invariance_loss,
     }
 
     # Total loss

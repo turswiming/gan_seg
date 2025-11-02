@@ -207,61 +207,20 @@ def forward_scene_flow_general(
 
                 pc1 = pc1.squeeze(0)
                 pc2 = pc2.squeeze(0)
-                pc1_ground_mask = pc1[:, 1] < -1.4
-                pc2_ground_mask = pc2[:, 1] < -1.4
-                T = get_global_transform_matrix(pc1[~pc1_ground_mask], pc2[~pc2_ground_mask])
-                # ensure T is torch tensor on same device/dtype as pc1
-                T = torch.from_numpy(T)
-                T = T.to(device=pc1.device, dtype=pc1.dtype)
-
-                rot, transl = T[:3, :3], T[:3, 3]
-
-                # compute with torch: einsum('ij,nj->ni', rot, pc1) == pc1 @ rot.T
-                flow_pred_org = pc1 @ rot.T + transl - pc1
-                flow_pred_org = flow_pred_org.to(dtype=torch.float32)
-                pc1 = pc1 @ rot.T + transl
-                pc1 = pc1.to(dtype=torch.float32)
                 pc1_list.append(pc1)
                 pc2_list.append(pc2)
-                pc1_ground_mask_list.append(pc1_ground_mask)
-                pc2_ground_mask_list.append(pc2_ground_mask)
-                flow_pred_org_list.append(flow_pred_org)
-                T_list.append(T)
             pc1_input = torch.cat([pc.unsqueeze(0) for pc in pc1_list], dim=0)
             pc2_input = torch.cat([pc.unsqueeze(0) for pc in pc2_list], dim=0)
-            point_cloud_firsts = [pc.squeeze(0) for pc in pc1_input]
-            point_cloud_nexts = [pc.squeeze(0) for pc in pc2_input]
-            flow_preds = flow_predictor(pc1_input, pc2_input, pc1_input, pc2_input, iters=4)
-            flow_prd_lsq = flow_preds[-1]
-            flow_outs = []
-            for flow_pred_org, flow_prd_lsq_item, pc1_ground_mask in zip(
-                flow_pred_org_list, flow_prd_lsq, pc1_ground_mask_list
-            ):
-
-                flow_pred_res = flow_pred_org.clone()
-                flow_pred_res[~pc1_ground_mask] += flow_prd_lsq_item[~pc1_ground_mask]
-                flow_outs.append(flow_pred_res)
-            casecde_flow_outs = []
-            for flow_pred_step in flow_preds:
-                flow_pred_step_res = []
-                # 拆成列表
-                flow_pred_step_list = [flow_pred_step[i] for i in range(flow_pred_step.shape[0])]
-                for flow_pred_org, flow_prd_lsq_item, pc1_ground_mask in zip(
-                    flow_pred_org_list, flow_pred_step_list, pc1_ground_mask_list
-                ):
-
-                    flow_pred_res = flow_pred_org.clone()
-                    flow_pred_res[~pc1_ground_mask] += flow_prd_lsq_item[~pc1_ground_mask]
-                    flow_pred_step_res.append(flow_pred_res)
-                casecde_flow_outs.append(flow_pred_step_res)
-                pass
+            casecde_flow_outs = flow_predictor(pc1_input, pc2_input, pc1_input, pc2_input, iters=4)
+            flow_outs = casecde_flow_outs[-1]
+            
         if train_flow:
             if return_modified_point_cloud:
                 return flow_outs, casecde_flow_outs[:, -1], point_cloud_firsts
             else:
                 return flow_outs, casecde_flow_outs[:-1]
         if return_modified_point_cloud:
-            return flow_outs, point_cloud_firsts
+            return flow_outs, point_cloud_nexts
         else:
             return flow_outs
     elif isinstance(flow_predictor, FastFlow3D):

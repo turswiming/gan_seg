@@ -132,11 +132,13 @@ class KittisfSceneFlowDataset(Dataset):
         do_transform = torch.rand(1) < 0.5
         if self.fix_to_global_coord or (self.random_fix_to_global_coord and self.split == "train" and do_transform):
             T = get_global_transform_matrix(pc1, pc2, flow)
+            T = T.astype(np.float32)
             rot, transl = T[:3, :3], T[:3, 3].transpose()
 
             flow = np.einsum("ij,nj->ni", rot.T, flow + pc1 - transl) - pc1.copy()
             pc1 = np.einsum("ij,nj->ni", rot, pc1) + transl
-            pc1 = pc1.astype(np.float32)
+            # pc2 = np.einsum("ij,nj->ni", rot.T, pc2-transl)
+            # pc2 = pc2.astype(np.float32)
 
         flow = torch.from_numpy(flow)
         point_cloud_first = torch.from_numpy(pc1).float()

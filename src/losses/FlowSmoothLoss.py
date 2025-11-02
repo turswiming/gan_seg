@@ -271,14 +271,14 @@ class FlowSmoothLoss:
                 valid_Fk = Fk_batch[valid_mask]  # (valid_count, N, 3)
 
                 # 向量化损失计算
-                # if self.each_mask_item_loss in ["L1", "l1"]:
-                #     batch_reconstruction_loss = torch.sum(torch.abs(valid_Fk_hat - valid_Fk))
-                # elif self.each_mask_item_loss in ["L2", "l2"]:
-                #     batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
+                if self.each_mask_item_loss in ["L1", "l1"]:
+                    batch_reconstruction_loss = torch.sum(torch.abs(valid_Fk_hat - valid_Fk))
+                elif self.each_mask_item_loss in ["L2", "l2"]:
+                    batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
 
-                # one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
-            reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
-            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
+                one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
+            # reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
+            # one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
             total_loss += one_batch_loss
             # Compute reconstruction loss
             # with torch.no_grad():
