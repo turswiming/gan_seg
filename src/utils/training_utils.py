@@ -126,7 +126,7 @@ def log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_pred
 
 
 def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask, 
-                             flow_predictor, mask_predictor, train_flow, train_mask):
+                             flow_predictor, mask_predictor, train_flow, train_mask,step):
     """Perform optimization step with gradient clipping and error handling.
     
     Args:
@@ -138,17 +138,13 @@ def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask
         mask_predictor: Mask model
         train_flow: Whether to train flow model
         train_mask: Whether to train mask model
-        
+        step: Current training step
     Returns:
         bool: True if optimization succeeded, False otherwise
     """
-    # Zero gradients
-    optimizer_flow.zero_grad()
-    optimizer_mask.zero_grad()
-    
     # Backward pass
     try:
-        total_loss.backward()
+        total_loss.div(config.training.grad_accumulation_steps).backward()
     except KeyboardInterrupt:
         raise KeyboardInterrupt
     except Exception as e:
@@ -159,6 +155,7 @@ def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask
         return False
     
     # Clear gradients for models not being trained
+    
     if not train_flow:
         optimizer_flow.zero_grad()
     if not train_mask:
@@ -173,10 +170,14 @@ def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask
                                      config.training.mask_model_grad_clip)
     
     # Optimizer steps
+    if step % config.training.grad_accumulation_steps != 0:
+        return True
     if train_flow:
         optimizer_flow.step()
+        optimizer_flow.zero_grad()
     if train_mask:
         optimizer_mask.step()
+        optimizer_mask.zero_grad()
     return True
 
 

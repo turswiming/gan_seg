@@ -210,9 +210,11 @@ def main(config, writer):
                 mask_predictor,
                 train_flow,
                 train_mask,
+                step,
             )
 
             if not optimization_success:
+                cleanup_memory()
                 continue
 
             alter_scheduler.step()

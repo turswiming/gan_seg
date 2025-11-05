@@ -38,7 +38,7 @@ dataset:
 lr_multi:
   rec_loss: 10
   flow_loss: 0.0
-  scene_flow_smoothness: 30
+  scene_flow_smoothness: 10
   rec_flow_loss: 0.0
   point_smooth_loss: 1
   eular_flow_loss: 0.0

@@ -116,7 +116,9 @@ def main(config, writer):
         tqdm.write("Starting training...")
         for sample in infinite_loader:
             step += 1
-
+                        # Clear memory cache
+            if step % config.hardware.clear_cache_interval == 0:
+                cleanup_memory()
             if len(sample["idx"]) == 0:
                 continue
 
@@ -181,6 +183,7 @@ def main(config, writer):
                 mask_predictor,
                 train_flow,
                 train_mask,
+                step,
             )
 
             if not optimization_success:
@@ -194,9 +197,7 @@ def main(config, writer):
             # Handle evaluation
             handle_evaluation(config, step, flow_predictor, mask_predictor, dataloader, device, writer)
 
-            # Clear memory cache
-            if step % config.hardware.clear_cache_interval == 0:
-                cleanup_memory()
+
 
             # Log prediction histograms
             log_prediction_histograms(config, writer, pred_flow, pred_mask, step)

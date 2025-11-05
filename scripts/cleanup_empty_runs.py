@@ -18,7 +18,7 @@ def count_files_in_directory(path: str) -> int:
             count += 1
     return count
 
-
+min_checkpoints = 6
 def main():
     # Base directory to scan; default to outputs/exp relative to repo root
     base_dir = "/workspace/gan_seg/outputs/exp"
@@ -36,7 +36,7 @@ def main():
             continue
         checkpoints_dir = os.path.join(run_dir, "checkpoints")
         num_files = count_files_in_directory(checkpoints_dir)
-        if num_files < 3:
+        if num_files < min_checkpoints:
             print(f"Removing: {run_dir} (checkpoints files: {num_files})")
             
             try:

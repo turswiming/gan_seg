@@ -141,8 +141,8 @@ training:
   begin_train_point_smooth: 0
   begin_train_flow: 0
   mask_downsample_factor: 2
-  flow_model_grad_clip: 1.0
-  mask_model_grad_clip: 1.0
+  # flow_model_grad_clip: 1.0
+  # mask_model_grad_clip: 1.0
   # Training loop settings
   continue_on_optimization_error: true
   max_optimization_retries: 3

@@ -473,17 +473,17 @@ def compute_all_losses_general(
     """
     # Reconstruction losses
     rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
-        config, loss_functions, point_cloud_firsts, point_cloud_nexts, pred_mask, pred_flow, train_mask, device
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts, pred_mask.copy(), pred_flow, train_mask, device
     )
 
     # Scene flow smoothness loss
     scene_flow_smooth_loss = compute_scene_flow_smoothness_loss(
-        config, loss_functions, point_cloud_firsts, pred_mask, pred_flow, step, scene_flow_smoothness_scheduler, device
+        config, loss_functions, point_cloud_firsts, pred_mask.copy(), pred_flow, step, scene_flow_smoothness_scheduler, device
     )
 
     # Point smoothness loss
     point_smooth_loss = compute_point_smoothness_loss(
-        config, loss_functions, point_cloud_firsts, pred_mask, step, device
+        config, loss_functions, point_cloud_firsts, pred_mask.copy(), step, device
     )
 
     # KNN loss
@@ -500,7 +500,7 @@ def compute_all_losses_general(
         device=device,
     )
     invariance_loss = compute_invariance_loss(
-        config, loss_functions, point_cloud_firsts, pred_mask, mask_predictor, step, device
+        config, loss_functions, point_cloud_firsts, pred_mask.copy(), mask_predictor, step, device
     )
     # Create loss dictionary
     loss_dict = {
