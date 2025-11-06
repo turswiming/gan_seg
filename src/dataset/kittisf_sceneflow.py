@@ -57,10 +57,12 @@ def get_global_transform_matrix(pc1, pc2, flow=None):
     icp_pc1, _, _, _ = downsample_points(icp_pc1, icp_pc1, icp_pc1, icp_pc1, 1024)
     icp_pc2, _, _, _ = downsample_points(icp_pc2, icp_pc2, icp_pc2, icp_pc2, 1024)
 
-    T, distances, i = icp(icp_pc1, icp_pc2, initial_transform_matrix.T, max_iterations=50)
+    T, distances, i = icp(
+        icp_pc1, icp_pc2, initial_transform_matrix.T, max_iterations=50
+    )
     return T
 
-cache_dict = {}
+
 class KittisfSceneFlowDataset(Dataset):
     """
     Kittisf Scene Flow Dataset
@@ -89,7 +91,7 @@ class KittisfSceneFlowDataset(Dataset):
         self.cache = {}
         self.augmentation = augmentation
         self.fix_to_global_coord = True
-        self.bidirectional = True
+
         # 获取所有可用的序列ID (000000 到 000199)
         all_sequence_ids = [f"{i:06d}" for i in range(200)]
 
@@ -102,19 +104,15 @@ class KittisfSceneFlowDataset(Dataset):
         print(f"KittisfSceneFlowDataset - {split}: {len(self.sequence_ids)} sequences")
 
     def __len__(self):
+
         return len(self.sequence_ids)
 
     def __getitem__(self, idx):
-
         sequence_id = self.sequence_ids[idx]
-        if self.split == "train" and self.bidirectional and torch.rand(1) < 0.5:
-            is_reverse = True
-        else:
-            is_reverse = False
+        is_reverse = False
 
         sequence_path = self.data_root / sequence_id
-        if (sequence_id,is_reverse) in cache_dict:
-            return cache_dict[(sequence_id,is_reverse)]
+
         # 检查数据是否存在
         pc1_path = sequence_path / f"pc{1 if is_reverse else 2}.npy"
         pc2_path = sequence_path / f"pc{2 if is_reverse else 1}.npy"
@@ -129,15 +127,14 @@ class KittisfSceneFlowDataset(Dataset):
 
         # if self.augmentation:
         #     pc1, pc2, flow = self.augment_transform(pc1, pc2, flow)
-        if self.fix_to_global_coord:
+
+        if self.fix_to_global_coord and self.split == "train" and idx % 2 == 0:
             T = get_global_transform_matrix(pc1, pc2, flow)
-            T = T.astype(np.float32)
             rot, transl = T[:3, :3], T[:3, 3].transpose()
 
             flow = np.einsum("ij,nj->ni", rot.T, flow + pc1 - transl) - pc1.copy()
             pc1 = np.einsum("ij,nj->ni", rot, pc1) + transl
-            # pc2 = np.einsum("ij,nj->ni", rot.T, pc2-transl)
-            # pc2 = pc2.astype(np.float32)
+            pc1 = pc1.astype(np.float32)
 
         flow = torch.from_numpy(flow)
         point_cloud_first = torch.from_numpy(pc1).float()
@@ -159,5 +156,5 @@ class KittisfSceneFlowDataset(Dataset):
             # "icp_distances": np.mean(distances),
             "sequence_id": sequence_id,
         }
-        cache_dict[(sequence_id,is_reverse)] = sample
+
         return sample

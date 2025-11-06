@@ -62,12 +62,14 @@ for val_sample in dataset:
     
     one_hot_mask = F.one_hot(mask).permute(1, 0)
     one_hot_mask = one_hot_mask.float()
+    #filter mask less than 50 points
+    one_hot_mask = one_hot_mask[one_hot_mask.sum(dim=1) > 50]
     mask_noise = mask_model(
         val_sample["point_cloud_first"].to(device).unsqueeze(0),val_sample["point_cloud_first"].to(device).unsqueeze(0)
     )
     mask_noise = torch.cat([mask_noise.squeeze(0), mask_noise.squeeze(0), mask_noise.squeeze(0)], dim=1)
     mask_noise = mask_noise.permute(1, 0)[: one_hot_mask.shape[0], :].to(device)
-
+    mask_noise = torch.randn_like(mask_noise)
     N = val_sample["point_cloud_first"].shape[0]
     flow_noise = flow_model(
         val_sample["point_cloud_first"].to(device).unsqueeze(0),
@@ -84,12 +86,13 @@ for val_sample in dataset:
         loss_same_flow_noise = []
         for j in range(bucket_size):
             flow_Scaled = flow_noise * i / bucket_size
-            mask_noise_scaled = mask_noise * (j / bucket_size + 1e-4)
-            mask_current = mask_noise_scaled + one_hot_mask * (1 - j / bucket_size)
+            mask_noise_scaled = mask_noise * (j / bucket_size + 1e-1)
+            mask_current = mask_noise_scaled + one_hot_mask * (1 - j / bucket_size-1e-1)
             mask_current = torch.softmax(mask_current, dim=0)
+            # print(f"mask_current mean {mask_current.mean()}, std {mask_current.std()}")
             # mask = mask/pow(mask.std(),0.5)
-            print(f"flow noise mean {(flow_noise.abs()).mean()}, std {abs(flow_noise).std()}")
-            print(f"flow target mean {(val_sample["flow"].to(device).squeeze(0).abs()).mean()}, std {(val_sample["flow"].to(device).squeeze(0).abs()).std()}")
+            # print(f"flow noise mean {(flow_noise.abs()).mean()}, std {abs(flow_noise).std()}")
+            # print(f"flow target mean {(val_sample["flow"].to(device).squeeze(0).abs()).mean()}, std {(val_sample["flow"].to(device).squeeze(0).abs()).std()}")
             flow = flow_Scaled + val_sample["flow"].to(device).squeeze(0) * (1 - i / bucket_size)
             # flow = flow/pow(flow.std(),0.5)
             # flow = flow/pow(flow.std(),1.5)

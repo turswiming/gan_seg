@@ -141,8 +141,8 @@ training:
   begin_train_point_smooth: 0
   begin_train_flow: 0
   mask_downsample_factor: 2
-  # flow_model_grad_clip: 1.0
-  # mask_model_grad_clip: 1.0
+  flow_model_grad_clip: 1
+  mask_model_grad_clip: 1
   # Training loop settings
   continue_on_optimization_error: true
   max_optimization_retries: 3
@@ -185,10 +185,10 @@ loss:
   scene_flow_smoothness:
     scale_flow_grad: 0.001
     each_mask_item:
-      relative_gradient: 1
+      relative_gradient: 0
       criterion: "L1"
     sum_mask_item:
-      relative_gradient: 0
+      relative_gradient: 1
       criterion: "L2"
   
   # KDTree loss configuration

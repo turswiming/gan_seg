@@ -73,7 +73,7 @@ def compute_individual_gradients(loss_dict, model, retain_graph=False):
         dict: Gradient contributions by loss name
     """
     grad_contributions = {}
-    
+    grad_ori = {}
     for name, loss in loss_dict.items():
         # Ensure loss is part of computation graph
         if not loss.requires_grad:
@@ -90,14 +90,16 @@ def compute_individual_gradients(loss_dict, model, retain_graph=False):
             continue
             
         grad_norms = {}
+        grad = {}
         for param_name, param in model.named_parameters():
             if param.grad is not None:
                 grad_norms[param_name] = torch.norm(param.grad).item()
+                grad[param_name] = param.grad
                 param.grad = None  # Clear gradients immediately
         
         grad_contributions[name] = grad_norms
-    
-    return grad_contributions
+        grad_ori[name] = grad
+    return grad_contributions, grad_ori
 
 
 def log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_predictor, step):
@@ -106,24 +108,87 @@ def log_gradient_debug_info(config, writer, loss_dict, flow_predictor, mask_pred
         return
         
     with torch.no_grad():  # Avoid affecting actual gradient computation
-        flow_grads = compute_individual_gradients(
+        flow_grads, flow_grads_ori = compute_individual_gradients(
             loss_dict, flow_predictor, retain_graph=True)
-        mask_grads = compute_individual_gradients(
+        mask_grads, mask_grads_ori = compute_individual_gradients(
             loss_dict, mask_predictor, retain_graph=True)
 
     # Log to TensorBoard
+    flow_grad_mean_dict = {}
+    mask_grad_mean_dict = {}
     for loss_name in loss_dict:
         if loss_dict[loss_name].item() == 0:
             continue
-        writer.add_scalar(
-            f"grad_norm/flow_{loss_name}", 
-            sum(flow_grads[loss_name].values()),  # Sum of all layer gradient norms
-            step)
-        writer.add_scalar(
-            f"grad_norm/mask_{loss_name}", 
-            sum(mask_grads[loss_name].values()), 
-            step)
+        if len(flow_grads[loss_name].values()) != 0:
+            
+            flow_grad_mean_dict[loss_name] = sum(flow_grads[loss_name].values())/len(flow_grads[loss_name].values())
+            writer.add_scalar(
+                f"grad_norm/flow_{loss_name}", 
+                flow_grad_mean_dict[loss_name],  # mean of all layer gradient norms
+                step)
 
+        if len(mask_grads[loss_name].values()) != 0:
+            mask_grad_mean_dict[loss_name] = sum(mask_grads[loss_name].values())/len(mask_grads[loss_name].values())
+    
+            writer.add_scalar(
+                f"grad_norm/mask_{loss_name}", 
+                mask_grad_mean_dict[loss_name], 
+                step)
+    #print mask sum 
+    writer.add_scalar(
+        f"grad_norm/flow_sum", 
+        sum(flow_grad_mean_dict.values()), 
+        step)
+    writer.add_scalar(
+        f"grad_norm/mask_sum", 
+        sum(mask_grad_mean_dict.values()), 
+        step)
+
+    #print the cosine similarity between different grad
+    print("keys of flow_grads_ori: ", flow_grads_ori.keys())
+    print("keys of mask_grads_ori: ", mask_grads_ori.keys())
+    
+    # Calculate flow gradient cosine similarities (only upper triangle to avoid duplicates)
+    flow_grad_names = list(flow_grads_ori.keys())
+    for i, flow_grad_name1 in enumerate(flow_grad_names):
+        for j in range(i, len(flow_grad_names)):  # Start from i to include diagonal
+            flow_grad_name2 = flow_grad_names[j]
+            cosine_similarity_list = []
+            for key in flow_grads_ori[flow_grad_name1]:
+                if key not in flow_grads_ori[flow_grad_name2]:
+                    continue
+                cosine_similarity = torch.cosine_similarity(
+                    flow_grads_ori[flow_grad_name1][key].flatten(), 
+                    flow_grads_ori[flow_grad_name2][key].flatten(), 
+                    dim=0
+                )
+                cosine_similarity_list.append(cosine_similarity)
+            if len(cosine_similarity_list) == 0:
+                continue
+            cosine_similarity_list = torch.stack(cosine_similarity_list)
+            mean_cosine_similarity = cosine_similarity_list.mean()
+            writer.add_scalar(f"cosine_similarity/flow_{flow_grad_name1}_and_flow_{flow_grad_name2}", mean_cosine_similarity, step)
+    
+    # Calculate mask gradient cosine similarities (only upper triangle to avoid duplicates)
+    mask_grad_names = list(mask_grads_ori.keys())
+    for i, mask_grad_name1 in enumerate(mask_grad_names):
+        for j in range(i, len(mask_grad_names)):  # Start from i to include diagonal
+            mask_grad_name2 = mask_grad_names[j]
+            cosine_similarity_list = []
+            for key in mask_grads_ori[mask_grad_name1]:
+                if key not in mask_grads_ori[mask_grad_name2]:
+                    continue
+                cosine_similarity = torch.cosine_similarity(
+                    mask_grads_ori[mask_grad_name1][key].flatten(), 
+                    mask_grads_ori[mask_grad_name2][key].flatten(), 
+                    dim=0
+                )
+                cosine_similarity_list.append(cosine_similarity)
+            if len(cosine_similarity_list) == 0:
+                continue
+            cosine_similarity_list = torch.stack(cosine_similarity_list)
+            mean_cosine_similarity = cosine_similarity_list.mean()
+            writer.add_scalar(f"cosine_similarity/mask_{mask_grad_name1}_and_mask_{mask_grad_name2}", mean_cosine_similarity, step)
 
 def perform_optimization_step(config, total_loss, optimizer_flow, optimizer_mask, 
                              flow_predictor, mask_predictor, train_flow, train_mask,step):
