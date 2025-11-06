@@ -3,9 +3,9 @@ __base__: "general.yaml"
 
 checkpoint:
   resume: false          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251105_184517/checkpoints/step_1200.pt"
+  resume_path: "/workspace/gan_seg/outputs/exp/20251105_033902/checkpoints/step_500.pt"
   overwrite_flow_predictor: true
-  overwrite_flow_path: "/workspace/epoch=23.ckpt"
+  overwrite_flow_path: "/workspace/ckpt/flow/kittisf/kittisf_unsup/epoch=23.ckpt"
   save_every_iters: 100
 model:
   flow:
@@ -31,7 +31,7 @@ dataset:
   name: "KITTISF_new"
 
   KITTISF_new:
-    data_root: "/workspace/kittisf_downwampled/kittisf_downsampled/data"
+    data_root: "/workspace/kittisf_downsampled/data"
     num_points: 8192
     seed: 42
   val_name: "KITTISF_new"
@@ -67,7 +67,7 @@ training:
     mirror_x: true
     mirror_z: true
 dataloader:
-  batchsize: 4
+  batchsize: 2
   num_workers: 0
 loss:
   scene_flow_smoothness:

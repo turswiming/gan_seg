@@ -13,6 +13,8 @@ import datetime
 import argparse
 import os
 
+import sys
+# sys.path.append("./SceneFlowZoo")
 
 # Third party imports
 import numpy as np

@@ -1,8 +1,9 @@
+git submodule update --init --recursive
 ```bash
 pip install torch
 ```
 ```bash
-pip install tensorboard omegaconf h5py
+pip install tensorboard omegaconf h5py pyquaternion open3d FastGeodis
 ```
 
 install pytorch3d (from source is recommand)
