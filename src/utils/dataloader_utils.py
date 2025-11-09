@@ -320,10 +320,10 @@ def create_dataloaders_general(config):
     sampler_val_flow = SubsetRandomSampler(val_flow_indices)
     sampler_val_mask = SubsetRandomSampler(val_mask_indices)
     val_flow_dataloader = torch.utils.data.DataLoader(
-        val_flow_dataset, batch_size=10, sampler=sampler_val_flow, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
+        val_flow_dataset, batch_size=config.dataloader.val_batchsize, sampler=sampler_val_flow, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
     )
     val_mask_dataloader = torch.utils.data.DataLoader(
-        val_mask_dataset, batch_size=10, sampler=sampler_val_mask, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
+        val_mask_dataset, batch_size=config.dataloader.val_batchsize, sampler=sampler_val_mask, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
     )
     return (dataset, dataloader, val_flow_dataset, val_flow_dataloader, val_mask_dataset, val_mask_dataloader)
     pass

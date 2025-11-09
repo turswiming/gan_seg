@@ -23,12 +23,12 @@ model:
       SEQUENCE_LENGTH: 2
   mask:
     name: "MaskFormer3D"
-    lr: 1e-3
+    lr: 1e-4
     weight_decay: 0.0
     slot_num: 16
     lr_decay: 0.7
     lr_decay_step: 8000
-    lr_clip: 1e-5
+    lr_clip: 1e-6
     MaskFormer3D:
       n_point: 8192
       n_transformer_layer: 4
@@ -99,11 +99,11 @@ training:
   eval_loop: 100
   begin_train_smooth: 0
   begin_train_point_smooth: 0
-  begin_train_flow: 1000
+  begin_train_flow: 10000
   begin_train_mask: 0
   begin_train_invariance: 2500
   mask_downsample_factor: 1
-  grad_accumulation_steps: 1
+  grad_accumulation_steps: 2
   augment_params:
     angle_range: [-0.7, 0.7]
     translation_range: [1, 0,1]
@@ -112,12 +112,13 @@ training:
     mirror_z: false
 dataloader:
   batchsize: 4
+  val_batchsize: 64
   num_workers: 4
 loss:
   scale_flow_magnitude: 1
   scene_flow_smoothness:
     square_mask: false
-    scale_flow_grad: 0.1
+    scale_flow_grad: 0.0001
     each_mask_item:
       relative_gradient: 1
       criterion: "L2"
