@@ -96,7 +96,7 @@ training:
   begin_train_mask: 0
   begin_train_invariance: 2500
   mask_downsample_factor: 2
-  grad_accumulation_steps: 1
+  grad_accumulation_steps: 4
   augment_params:
     angle_range: [-0.7, 7]
     translation_range: [1, 0,1]

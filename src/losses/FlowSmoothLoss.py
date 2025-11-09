@@ -197,19 +197,15 @@ class FlowSmoothLoss:
             mask_b = mask[b]  # (K, N)
             K = mask_b.shape[0]
 
-            mask_b_logits = torch.log(mask_b + 1e-4)
-            mask_b = mask_b_logits * (K / math.exp(1))
-            mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
+            # mask_b_logits = torch.log(mask_b + 1e-4)
+            # mask_b = mask_b_logits * (K / math.exp(1))
+            # mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
             # I already know that this loss works well when the number of slots is 2~4
             # to follow the original paper, we need to normalize the original logits, that make the softmaxed value to "looks like" origin paper
             # We need to select a number between 2 and 4, I don't know how to select it, so I use the math.exp(1)
             # We find it works well,We hope we can explain it in the future
-
+            mask_binary_b = mask_b
             scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(), self.scale_flow_grad)
-            scene_flow_b = (
-                scene_flow_b
-                + torch.ones_like(scene_flow_b.clone().detach()) * torch.tensor([1, 0.5, 0.1]).to(self.device) * 0.01
-            )
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 4)
 
