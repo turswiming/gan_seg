@@ -438,6 +438,8 @@ class ArgoverseRawSequence(AbstractSequence):
             ground_removed_point_cloud: Numpy array of shape (k,3) in global coordinates.
         """
         ground_height_values = self.get_ground_heights(global_point_cloud)
+        #check if ground_height_values is nan, set to large value if nan
+        ground_height_values[np.isnan(ground_height_values)] = 100
         is_ground_boolean_arr = (
             np.absolute(global_point_cloud[:, 2] - ground_height_values) <= GROUND_HEIGHT_THRESHOLD
         ) | (np.array(global_point_cloud[:, 2] - ground_height_values) < 0)

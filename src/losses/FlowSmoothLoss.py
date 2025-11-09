@@ -196,10 +196,10 @@ class FlowSmoothLoss:
             scene_flow_b = scene_flows[b]  # (N, 3)
             mask_b = mask[b]  # (K, N)
             K = mask_b.shape[0]
-
+            # scene_flow_b = normalize_useing_other(scene_flow_b, point_position_b)
             # mask_b_logits = torch.log(mask_b + 1e-4)
-            # mask_b = mask_b_logits * (K / math.exp(1))
-            # mask_binary_b = F.softmax(mask_b, dim=0)  # (K, N)
+            # mask_b_logits = mask_b_logits * (10 / math.exp(1))
+            # mask_binary_b = F.softmax(mask_b_logits, dim=0)  # (K, N)
             # I already know that this loss works well when the number of slots is 2~4
             # to follow the original paper, we need to normalize the original logits, that make the softmaxed value to "looks like" origin paper
             # We need to select a number between 2 and 4, I don't know how to select it, so I use the math.exp(1)
@@ -275,8 +275,8 @@ class FlowSmoothLoss:
                     batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
 
                 one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
-            # reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
-            # one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
+            reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
+            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
             total_loss += one_batch_loss
             # Compute reconstruction loss
             # with torch.no_grad():

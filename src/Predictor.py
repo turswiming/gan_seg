@@ -187,10 +187,10 @@ def get_mask_predictor(mask_model_config, N):
         mask_former = MaskFormer3D(
             n_slot=mask_model_config.slot_num,
             use_xyz=True,
-            n_point=8192,
-            n_transformer_layer=2,
-            transformer_embed_dim=128,
-            transformer_input_pos_enc=False,
+            n_point=mask_model_config.MaskFormer3D.n_point,
+            n_transformer_layer=mask_model_config.MaskFormer3D.n_transformer_layer,
+            transformer_embed_dim=mask_model_config.MaskFormer3D.transformer_embed_dim,
+            transformer_input_pos_enc=mask_model_config.MaskFormer3D.transformer_input_pos_enc,
         ).cuda()
         return mask_former
     else:

@@ -88,7 +88,7 @@ def initialize_loss_functions(config, device):
     if config.lr_multi.rec_loss > 0:
         from losses.ReconstructionLoss import ReconstructionLoss
 
-        loss_functions["reconstruction"] = ReconstructionLoss(device)
+        loss_functions["reconstruction"] = ReconstructionLoss(config,device)
     else:
         loss_functions["reconstruction"] = None
 

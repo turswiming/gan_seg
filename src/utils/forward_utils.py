@@ -123,20 +123,32 @@ def forward_mask_prediction(point_cloud_firsts, sample, mask_predictor, config, 
 
 
 def inference_models_general(
-    flow_predictor, mask_predictor, sample, dataset_name, train_flow=False, downsample=None, augment_params=None
+    flow_predictor, mask_predictor, sample, config, train_flow=False, downsample=None, augment_params=None
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in sample]
     point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in sample]
-    return_value = forward_scene_flow_general(
-        point_cloud_firsts.copy(),
-        point_cloud_nexts.copy(),
-        flow_predictor,
-        dataset_name,
-        train_flow=train_flow,
-        return_modified_point_cloud=False,
-    )
-    if train_flow:
+    gt_flows = [s["flow"].to(device).float() for s in sample]
+    if hasattr(config.training, "use_icp_inference_flow") and not config.training.use_icp_inference_flow:
+        return_value = forward_scene_flow_general_old(
+            point_cloud_firsts,
+            point_cloud_nexts,
+            flow_predictor,
+            config.dataset.name,
+            train_flow=train_flow,
+            return_modified_point_cloud=False,
+        )
+    else:
+        return_value = forward_scene_flow_general(
+            point_cloud_firsts,
+            point_cloud_nexts,
+            flow_predictor,
+            config.dataset.name,
+            train_flow=train_flow,
+            return_modified_point_cloud=False,
+        )
+
+    if train_flow and config.model.flow.name == "FlowStep3D":
         flow, cascade_flow_outs = return_value
     else:
         flow = return_value
@@ -173,52 +185,33 @@ def forward_scene_flow_general_old(
     return_modified_point_cloud=False,
 ):
     if isinstance(flow_predictor, FlowStep3D):
-
-        # if dataset_name == "KITTISF_new":
-        #     ground_masks = [pc[:,1] < -1.4 for pc in point_cloud_firsts]
-        #     original_point_cloud_firsts = point_cloud_firsts.copy()
-        #     original_point_cloud_nexts = point_cloud_nexts.copy()
-        #     point_cloud_firsts = [pc[~ground_mask] for pc,ground_mask in zip(point_cloud_firsts,ground_masks)]
-        #     point_cloud_nexts = [pc[~ground_mask] for pc,ground_mask in zip(point_cloud_nexts,ground_masks)]
+        if dataset_name != "KITTISF_new":
+            point_cloud_firsts = [pc[:, [0, 2, 1]] for pc in point_cloud_firsts]
+            point_cloud_nexts = [pc[:, [0, 2, 1]] for pc in point_cloud_nexts]
         point_cloud_firsts = [pc.unsqueeze(0) for pc in point_cloud_firsts]
         point_cloud_nexts = [pc.unsqueeze(0) for pc in point_cloud_nexts]
-        # if all point_cloud_firsts and point_cloud_nexts are the same, then only forward once
-        if (
-            all(pc1.shape == pc2.shape for pc1, pc2 in zip(point_cloud_firsts, point_cloud_nexts))
-            and len(set([pc.shape[1] for pc in point_cloud_firsts])) == 1
-            and False
-        ):
-            point_cloud_firsts = torch.cat(point_cloud_firsts, dim=0)
-            point_cloud_nexts = torch.cat(point_cloud_nexts, dim=0)
-            casecde_flow_outs = flow_predictor(
-                point_cloud_firsts, point_cloud_nexts, point_cloud_firsts, point_cloud_nexts, iters=5
-            )
-            flow_outs = casecde_flow_outs[-1]
-            flow_outs = [flow_outs[i].squeeze(0) for i in range(len(flow_outs))]
-        else:
-            flow_outs = []
-            cascade_flow_pred_res_batch = []
-            pc1_list = []
-            pc2_list = []
-            pc1_ground_mask_list = []
-            pc2_ground_mask_list = []
-            T_list = []
-            flow_pred_org_list = []
-            for pc1, pc2 in zip(point_cloud_firsts, point_cloud_nexts):
-                from dataset.kittisf_sceneflow import get_global_transform_matrix
+        flow_outs = []
+        pc1_list = []
+        pc2_list = []
+        for pc1, pc2 in zip(point_cloud_firsts, point_cloud_nexts):
 
-                pc1 = pc1.squeeze(0)
-                pc2 = pc2.squeeze(0)
-                pc1_list.append(pc1)
-                pc2_list.append(pc2)
-            pc1_input = torch.cat([pc.unsqueeze(0) for pc in pc1_list], dim=0)
-            pc2_input = torch.cat([pc.unsqueeze(0) for pc in pc2_list], dim=0)
-            casecde_flow_outs = flow_predictor(pc1_input, pc2_input, pc1_input, pc2_input, iters=4)
-            flow_outs = casecde_flow_outs[-1]
-            
+            pc1 = pc1.squeeze(0)
+            pc2 = pc2.squeeze(0)
+            pc1_list.append(pc1)
+            pc2_list.append(pc2)
+        pc1_input = torch.cat([pc.unsqueeze(0) for pc in pc1_list], dim=0)
+        pc2_input = torch.cat([pc.unsqueeze(0) for pc in pc2_list], dim=0)
+        casecde_flow_outs = flow_predictor(pc1_input, pc2_input, pc1_input, pc2_input, iters=5)
+        flow_outs = casecde_flow_outs[-1]
+        if dataset_name != "KITTISF_new":
+            flow_outs = [pc[:, [0, 2, 1]] for pc in flow_outs]
+            point_cloud_firsts = [pc[:, [0, 2, 1]] for pc in point_cloud_firsts]
+            point_cloud_nexts = [pc[:, [0, 2, 1]] for pc in point_cloud_nexts]
+            for flow_step in casecde_flow_outs:
+                flow_step = [pc[:, [0, 2, 1]] for pc in flow_step]
         if train_flow:
             if return_modified_point_cloud:
-                return flow_outs, casecde_flow_outs[:, -1], point_cloud_firsts
+                return flow_outs, casecde_flow_outs[:-1], point_cloud_firsts
             else:
                 return flow_outs, casecde_flow_outs[:-1]
         if return_modified_point_cloud:
@@ -238,6 +231,7 @@ def forward_scene_flow_general_old(
         return flow
     else:
         raise ValueError(f"Flow predictor {flow_predictor.name} not supported")
+
 
 def forward_scene_flow_general(
     point_cloud_firsts,
@@ -354,6 +348,7 @@ def forward_scene_flow_general(
         return flow
     else:
         raise ValueError(f"Flow predictor {flow_predictor.name} not supported")
+
 
 def forward_mask_prediction_general(pc_tensors, mask_predictor):
     pred_masks = []

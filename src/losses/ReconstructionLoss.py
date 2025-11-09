@@ -11,7 +11,7 @@ from torch import nn
 from torch.nn import functional as F
 from losses.KNNDistanceLoss import KNNDistanceLoss
 from torch.utils.checkpoint import checkpoint
-
+from losses.KNNDistanceLoss import KNNDistanceLoss
 def fit_motion_svd_batch(pc1, pc2, mask=None):
     """
     :param pc1: (B, N, 3) torch.Tensor.
@@ -124,7 +124,7 @@ class ReconstructionLoss():
         device (torch.device): Device to perform computations on
     """
     
-    def __init__(self, device):
+    def __init__(self, config,device):
         """
         Initialize the Reconstruction Loss module.
         
@@ -132,9 +132,10 @@ class ReconstructionLoss():
             device (torch.device): Device to perform computations on
         """
         self.device = device
+        self.config = config
         # Use our project's bidirectional KNN distance implementation
-        self.knn_distance = KNNDistanceLoss(k=1, reduction='mean')
         self.dynamic_loss = DynamicLoss()
+        self.knn_loss = KNNDistanceLoss()
         pass
 
     def fit_motion_svd_batch(self, pc1, pc2, mask=None):
@@ -257,14 +258,17 @@ class ReconstructionLoss():
                 - loss (torch.Tensor): Computed reconstruction loss averaged across the batch
                 - rec_point_cloud (list[torch.Tensor]): List of reconstructed point clouds
         """
-        point_cloud_first = [item.to(self.device).unsqueeze(0) for item in point_cloud_first]
-        pred_mask = [item.to(self.device).unsqueeze(0) for item in pred_mask]
-        pred_flow = [item.to(self.device).unsqueeze(0) for item in pred_flow]
-        point_cloud_first = torch.cat(point_cloud_first, dim=0)
-        pred_mask = torch.cat(pred_mask, dim=0)
-        pred_flow = torch.cat(pred_flow, dim=0)
-        pred_mask = pred_mask.permute(0, 2, 1)
-        return self.dynamic_loss(point_cloud_first, pred_mask, pred_flow),None
+        if not hasattr(self.config.loss.reconstruction_loss, 'using_legend_loss') \
+                or self.config.loss.reconstruction_loss.using_legend_loss == False:
+            point_cloud_first = [item.to(self.device).unsqueeze(0) for item in point_cloud_first]
+            pred_mask = [item.to(self.device).unsqueeze(0) for item in pred_mask]
+            pred_flow = [item.to(self.device).unsqueeze(0) for item in pred_flow]
+            point_cloud_first = torch.cat(point_cloud_first, dim=0)
+            pred_mask = torch.cat(pred_mask, dim=0)
+            pred_flow = torch.cat(pred_flow, dim=0)
+            pred_mask = pred_mask.permute(0, 2, 1)
+            return self.dynamic_loss(point_cloud_first, pred_mask, pred_flow),None
+        assert abs(self.config.loss.scale_flow_magnitude -1) < 1e-6, "scale_flow_magnitude must be 1"
         point_cloud_first = [item.to(self.device) for item in point_cloud_first]
         pred_mask = [item.to(self.device) for item in pred_mask]
         pred_flow = [item.to(self.device) for item in pred_flow]
@@ -302,7 +306,8 @@ class ReconstructionLoss():
         
             # Compute bidirectional KNN distance using project-local loss
             rec_pc = scene_flow_rec + current_point_cloud_first  # (1, N, 3)
-            loss = (current_point_cloud_second - rec_pc).norm(p=2, dim=-1).mean()
+            loss = self.knn_loss(rec_pc, current_point_cloud_second,bidirectional=False)
+            # loss = (current_point_cloud_second - rec_pc).norm(p=2, dim=-1).mean()
             loss_summ += loss
             rec_point_cloud.append(scene_flow_rec + current_point_cloud_first)
         return loss_summ, rec_point_cloud

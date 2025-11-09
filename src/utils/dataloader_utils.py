@@ -1,10 +1,12 @@
+import numpy as np
 import torch
 from dataset.av2_dataset import AV2PerSceneDataset, AV2SequenceDataset
 
 # from dataset.movi_per_scene_dataset import MOVIPerSceneDataset
 from dataset.kitti_dataset import KITTIPerSceneDataset
 from dataset.movi_f_sequence_dataset import MOVIFPerSceneDataset, MOVIFSequenceDataset
-
+from pathlib import Path
+from torch.utils.data import DataLoader, RandomSampler,SubsetRandomSampler
 
 def infinite_dataloader(dataloader):
     """
@@ -232,7 +234,8 @@ def create_dataloaders_general(config):
             with_rgb=config.dataset.AV2_SceneFlowZoo.with_rgb,
             flow_data_path=Path(config.dataset.AV2_SceneFlowZoo.flow_data_path),
             range_crop_type="ego",
-            downsample_factor=config.dataset.AV2_SceneFlowZoo.downsample_factor,
+            min_instance_size=config.dataset.AV2_SceneFlowZoo.min_instance_size,
+            cache_root=Path("/tmp/train_cache/"),
         )
     elif config.dataset.name == "KITTISF_new":
         from dataset.kittisf_sceneflow import KittisfSceneFlowDataset
@@ -260,8 +263,9 @@ def create_dataloaders_general(config):
             flow_data_path=Path(val_flow_config.flow_data_path),
             range_crop_type="ego",
             load_flow=True,
+            cache_root=Path("/tmp/val_flow_cache/"),
             load_boxes=False,
-            downsample_factor=config.dataset.AV2_SceneFlowZoo.downsample_factor,
+            min_instance_size=config.dataset.AV2_SceneFlowZoo.min_instance_size,
         )
         val_mask_config = config.dataset.AV2_SceneFlowZoo_val_mask
         val_mask_dataset = AV2SceneFlowZoo(
@@ -276,7 +280,8 @@ def create_dataloaders_general(config):
             range_crop_type="ego",
             load_flow=False,
             load_boxes=True,
-            downsample_factor=config.dataset.AV2_SceneFlowZoo.downsample_factor,
+            cache_root=Path("/tmp/val_mask_cache/"),
+            min_instance_size=config.dataset.AV2_SceneFlowZoo.min_instance_size,
         )
     elif config.dataset.val_name == "KITTISF_new":
         from dataset.kittisf_sceneflow import KittisfSceneFlowDataset
@@ -296,18 +301,29 @@ def create_dataloaders_general(config):
             augmentation=False,
         )
     collect_fn = lambda x: x
+    sampler_train = RandomSampler(dataset,generator=torch.Generator().manual_seed(config.seed))
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=config.dataloader.batchsize,
-        shuffle=True,
+        sampler=sampler_train,
         num_workers=config.dataloader.num_workers,
         collate_fn=collect_fn,
     )
+
+    torch.manual_seed(config.seed)
+    val_flow_indices = np.random.permutation(len(val_flow_dataset)).tolist()
+    if len(val_flow_dataset) == len(val_mask_dataset):
+        val_mask_indices = val_flow_indices
+    else:
+        val_mask_indices = np.random.permutation(len(val_mask_dataset)).tolist()
+    print(f"val_flow_dataset indices: {val_flow_indices[:5]}..., val_mask_dataset indices: {val_mask_indices[:5]}...")
+    sampler_val_flow = SubsetRandomSampler(val_flow_indices)
+    sampler_val_mask = SubsetRandomSampler(val_mask_indices)
     val_flow_dataloader = torch.utils.data.DataLoader(
-        val_flow_dataset, batch_size=10, shuffle=False, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
+        val_flow_dataset, batch_size=10, sampler=sampler_val_flow, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
     )
     val_mask_dataloader = torch.utils.data.DataLoader(
-        val_mask_dataset, batch_size=10, shuffle=False, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
+        val_mask_dataset, batch_size=10, sampler=sampler_val_mask, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
     )
     return (dataset, dataloader, val_flow_dataset, val_flow_dataloader, val_mask_dataset, val_mask_dataloader)
     pass

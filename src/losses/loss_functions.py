@@ -233,7 +233,7 @@ def compute_knn_loss(
                 pred_flow_filtered = pred_flow[i]
             pred_second_point_filtered = point_cloud_firsts_filtered[:, :3] + pred_flow_filtered
             l = loss_functions["knn"](
-                point_cloud_nexts_filtered[:, :3].to(device), pred_second_point_filtered, forward_only=False
+                pred_second_point_filtered, point_cloud_nexts_filtered[:, :3].to(device), forward_only=True
             )
             knn_dist_loss += l
             if cascade_flow_outs is not None:
@@ -247,7 +247,7 @@ def compute_knn_loss(
                     else:
                         pred_second_point_cascade = point_cloud_firsts[i][:, :3].to(device) + cascade_flow[i]
                         target_points = point_cloud_nexts[i][:, :3].to(device)
-                    l = loss_functions["knn"](target_points, pred_second_point_cascade, forward_only=False)
+                    l = loss_functions["knn"](pred_second_point_cascade, target_points , forward_only=True)
                     knn_dist_loss += l
         if longterm_pred_flow is not None and len(longterm_pred_flow) > 0:
             for idx in longterm_pred_flow:
@@ -471,14 +471,15 @@ def compute_all_losses_general(
             - total_loss: Total combined loss
             - reconstructed_points: Reconstructed point clouds (if available)
     """
+    scaled_pred_flow = [flow * config.loss.scale_flow_magnitude for flow in pred_flow]
     # Reconstruction losses
     rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
-        config, loss_functions, point_cloud_firsts, point_cloud_nexts, pred_mask.copy(), pred_flow, train_mask, device
+        config, loss_functions, point_cloud_firsts, point_cloud_nexts, pred_mask.copy(), scaled_pred_flow, train_mask, device
     )
 
     # Scene flow smoothness loss
     scene_flow_smooth_loss = compute_scene_flow_smoothness_loss(
-        config, loss_functions, point_cloud_firsts, pred_mask.copy(), pred_flow, step, scene_flow_smoothness_scheduler, device
+        config, loss_functions, point_cloud_firsts, pred_mask.copy(), scaled_pred_flow, step, scene_flow_smoothness_scheduler, device
     )
 
     # Point smoothness loss

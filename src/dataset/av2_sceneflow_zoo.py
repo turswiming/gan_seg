@@ -3,7 +3,8 @@ from pathlib import Path
 import torch
 from utils.bucketed_epe_utils import extract_classid_from_argoverse2_data
 from bucketed_scene_flow_eval.datasets.argoverse2.argoverse_raw_data import ArgoverseRawSequence
-
+import numpy as np
+from typing import Optional
 
 class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
     def __init__(
@@ -22,6 +23,9 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         eval_type: str = "bucketed_epe",
         load_flow: bool = True,
         load_boxes: bool = False,
+        min_instance_size: int = 50,
+        cache_root: Path = Path("/tmp/"),
+        log_subset: Optional[list[str]] = None,
     ):
         super().__init__(
             root_dir=root_dir,
@@ -37,10 +41,12 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
             range_crop_type=range_crop_type,
             load_flow=load_flow,
             load_boxes=load_boxes,
+            log_subset=log_subset,
+            cache_root=cache_root,
         )
         self.root_dir = root_dir
         self.point_size = point_size
-
+        self.min_instance_size = min_instance_size
     def transform_pc(self, pc: "torch.Tensor", transform: "torch.Tensor") -> "torch.Tensor":
         """
         Transform an Nx3 point cloud by a 4x4 transformation matrix.
@@ -75,23 +81,42 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
 
     def __getitem__(self, index):
         sample = super().__getitem__(index)
-        print("type of point_cloud_first", type(sample[0].pc))
-        print("type of point_cloud_next", type(sample[1].pc))
-        print("type of flow", type(sample[0].flow))
-        print("type of transform", type(sample[0].pc.pose.ego_to_global.to_array()))
-        print("sample[0].log_id", sample[0].log_id)
+
         point_cloud_first = sample[0].pc.full_global_pc.points
-        valid_mask_first = sample[0].pc.mask
-        point_cloud_first = point_cloud_first[valid_mask_first, :]
         point_cloud_next = sample[1].pc.full_global_pc.points
+
+        valid_mask_first = sample[0].pc.mask
         valid_mask_next = sample[1].pc.mask
+
+        centroid_first = np.mean(point_cloud_first, axis=0)
+        centroid_next = np.mean(point_cloud_next, axis=0)
+
+        if index // 2 == 0:
+            half_mask_first_1 = point_cloud_first[:, 0] - centroid_first[0] < 0
+            half_mask_next_1 = point_cloud_next[:, 0] - centroid_next[0] < 0.5
+        else:
+            half_mask_first_1 = centroid_first[0] - point_cloud_first[:, 0] < 0
+            half_mask_next_1 = centroid_next[0] - point_cloud_next[:, 0] < 0.5
+
+        if index/2 //2 == 0:
+            half_mask_first_2 = centroid_first[1] - point_cloud_first[:, 1] < 0
+            half_mask_next_2 = centroid_next[1] - point_cloud_next[:, 1] < 0.5
+        else:
+            half_mask_first_2 = point_cloud_first[:, 1] - centroid_first[1] < 0
+            half_mask_next_2 = point_cloud_next[:, 1] - centroid_next[1] < 0.5
+
+        valid_mask_first = valid_mask_first & half_mask_first_1 & half_mask_first_2
+        valid_mask_next = valid_mask_next & half_mask_next_1 & half_mask_next_2
+        point_cloud_first = point_cloud_first[valid_mask_first, :]
         point_cloud_next = point_cloud_next[valid_mask_next, :]
-        flow = sample[0].flow.full_flow[valid_mask_first, :]
-        # convert flow to global frame
-        transform = sample[0].pc.pose.ego_to_global.to_array()
-        transform = torch.from_numpy(transform).float()
+
         point_cloud_first = torch.from_numpy(point_cloud_first).float()
         point_cloud_next = torch.from_numpy(point_cloud_next).float()
+
+        # process flow
+        flow = sample[0].flow.full_flow[valid_mask_first, :]
+        transform = sample[0].pc.pose.ego_to_global.to_array()
+        transform = torch.from_numpy(transform).float()
         flow = torch.from_numpy(flow).float()
         flow = self.ego_to_global_flow(point_cloud_first, flow, transform)
 
@@ -102,16 +127,23 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
             mask = torch.from_numpy(mask)
         else:
             mask = None
-
-        point_cloud_first, point_cloud_next, mask, flow, class_ids = self.downsample_point_cloud(
-            point_cloud_first, point_cloud_next, mask, flow, class_ids, self.point_size
-        )
-
+        try:
+            point_cloud_first, point_cloud_next, mask, flow, class_ids = self.downsample_point_cloud(
+                point_cloud_first, point_cloud_next, mask, flow, class_ids, self.point_size
+            )
+        except Exception as e:
+            return self.__getitem__(index+1)
+        if mask is not None:
+            mask = mask+1 # add 1 to the mask to avoid the background class
+            mask_onehot = torch.nn.functional.one_hot(mask.long())
+            mask_onehot = mask_onehot[:, mask_onehot.sum(dim=0) > self.min_instance_size]
+            mask = torch.argmax(mask_onehot, dim=1)
         new_sample = {
             "point_cloud_first": point_cloud_first,
             "point_cloud_next": point_cloud_next,
             "flow": flow,
             "class_ids": class_ids,
+            "sequence_id": sample[0].log_id,
         }
         if mask is not None:
             new_sample["mask"] = mask
@@ -122,11 +154,12 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         self,
         point_cloud_first: torch.Tensor,
         point_cloud_next: torch.Tensor,
-        mask: torch.Tensor|None,
+        mask: torch.Tensor | None,
         flow: torch.Tensor,
         class_ids: torch.Tensor,
         size: int,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # using farthest point sampling to downsample the point cloud
         random_indices_first = torch.randint(0, point_cloud_first.shape[0], (size,))
         point_cloud_first = point_cloud_first[random_indices_first, :]
         if mask is not None:

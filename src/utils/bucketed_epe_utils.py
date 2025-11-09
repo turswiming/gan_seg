@@ -126,7 +126,10 @@ def compute_bucketed_epe_metrics(
             pred_flow = pred_flow.detach().cpu().numpy()
         if isinstance(gt_flow, torch.Tensor):
             gt_flow = gt_flow.detach().cpu().numpy()
-        
+        if isinstance(class_id, torch.Tensor):
+            class_id = class_id.detach().cpu().numpy()
+        if isinstance(point_cloud, torch.Tensor):
+            point_cloud = point_cloud.detach().cpu().numpy()
         # 确保形状一致
         min_len = min(len(pred_flow), len(gt_flow), len(class_id))
         pred_flow = pred_flow[:min_len]
@@ -173,55 +176,55 @@ def compute_bucketed_epe_metrics(
     return results
 
 
-def compute_volume_based_bucketed_epe(
-    point_clouds: List[torch.Tensor],
-    pred_flows: List[torch.Tensor],
-    gt_flows: List[torch.Tensor],
-    class_ids: List[np.ndarray],
-    volume_thresholds: Tuple[float, float] = (9.5, 40.0),
-    output_path: Path = Path("/tmp/volume_bucketed_epe_results")
-) -> Dict[str, Tuple[float, float]]:
-    """
-    基于体积的Bucketed EPE计算（参考论文附录C）
+# def compute_volume_based_bucketed_epe(
+#     point_clouds: List[torch.Tensor],
+#     pred_flows: List[torch.Tensor],
+#     gt_flows: List[torch.Tensor],
+#     class_ids: List[np.ndarray],
+#     volume_thresholds: Tuple[float, float] = (9.5, 40.0),
+#     output_path: Path = Path("/tmp/volume_bucketed_epe_results")
+# ) -> Dict[str, Tuple[float, float]]:
+#     """
+#     基于体积的Bucketed EPE计算（参考论文附录C）
     
-    Args:
-        pred_flows: 预测的场景流列表
-        gt_flows: 真实场景流列表  
-        class_ids: 类别ID列表
-        volume_thresholds: 体积阈值 (small, medium, large)
-        output_path: 输出路径
+#     Args:
+#         pred_flows: 预测的场景流列表
+#         gt_flows: 真实场景流列表  
+#         class_ids: 类别ID列表
+#         volume_thresholds: 体积阈值 (small, medium, large)
+#         output_path: 输出路径
         
-    Returns:
-        每个体积类别的(静态EPE, 动态误差)字典
-    """
-    # 创建基于体积的元类别映射
-    volume_meta_lookup = BUCKETED_VOLUME_METACATAGORIES
+#     Returns:
+#         每个体积类别的(静态EPE, 动态误差)字典
+#     """
+#     # 创建基于体积的元类别映射
+#     volume_meta_lookup = BUCKETED_VOLUME_METACATAGORIES
     
-    # 创建体积类别映射
-    volume_class_id_to_name = {
-        -1: "BACKGROUND",
-        0: "SMALL", 
-        1: "MEDIUM",
-        2: "LARGE"
-    }
+#     # 创建体积类别映射
+#     volume_class_id_to_name = {
+#         -1: "BACKGROUND",
+#         0: "SMALL", 
+#         1: "MEDIUM",
+#         2: "LARGE"
+#     }
     
-    # 将原始类别ID映射到体积类别
-    volume_class_ids = []
-    for class_id in class_ids:
-        # 这里需要根据实际的边界框信息来计算体积
-        # 由于我们没有边界框信息，这里使用简化的映射
-        volume_class_id = np.where(class_id == -1, -1, 1)  # 默认中等大小
-        volume_class_ids.append(volume_class_id)
+#     # 将原始类别ID映射到体积类别
+#     volume_class_ids = []
+#     for class_id in class_ids:
+#         # 这里需要根据实际的边界框信息来计算体积
+#         # 由于我们没有边界框信息，这里使用简化的映射
+#         volume_class_id = np.where(class_id == -1, -1, 1)  # 默认中等大小
+#         volume_class_ids.append(volume_class_id)
     
-    return compute_bucketed_epe_metrics(
-        point_clouds=point_clouds,
-        pred_flows=pred_flows,
-        gt_flows=gt_flows,
-        class_ids=volume_class_ids,
-        class_id_to_name=volume_class_id_to_name,
-        meta_class_lookup=volume_meta_lookup,
-        output_path=output_path
-    )
+#     return compute_bucketed_epe_metrics(
+#         point_clouds=point_clouds,
+#         pred_flows=pred_flows,
+#         gt_flows=gt_flows,
+#         class_ids=volume_class_ids,
+#         class_id_to_name=volume_class_id_to_name,
+#         meta_class_lookup=volume_meta_lookup,
+#         output_path=output_path
+#     )
 
 """
 这段ai写的代码完全没用，特意注释掉以防止以后被运行

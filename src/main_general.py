@@ -157,7 +157,7 @@ def main(config, writer):
                         flow_predictor,
                         mask_predictor,
                         sample,
-                        config.dataset.name,
+                        config=config,
                         train_flow=train_flow,
                         downsample=config.training.mask_downsample_factor,
                         augment_params=config.training.augment_params,

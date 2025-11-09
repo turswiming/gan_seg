@@ -70,30 +70,21 @@ def evaluate_predictions(
         # calculate epe in three different masks
         if background_static_mask is not None:
             bg_epe = calculate_epe(
-                [
-                    pred_flows[i][background_static_mask[i]]
-                    for i in range(len(pred_flows))
-                ],
+                [pred_flows[i][background_static_mask[i]] for i in range(len(pred_flows))],
                 [gt_flows[i][background_static_mask[i]] for i in range(len(gt_flows))],
             )
             if writer is not None:
                 writer.add_scalar("epe_bg", bg_epe.item(), step)
         if foreground_static_mask is not None:
             fg_static_epe = calculate_epe(
-                [
-                    pred_flows[i][foreground_static_mask[i]]
-                    for i in range(len(pred_flows))
-                ],
+                [pred_flows[i][foreground_static_mask[i]] for i in range(len(pred_flows))],
                 [gt_flows[i][foreground_static_mask[i]] for i in range(len(gt_flows))],
             )
             if writer is not None:
                 writer.add_scalar("epe_fg_static", fg_static_epe.item(), step)
         if foreground_dynamic_mask is not None:
             fg_dynamic_epe = calculate_epe(
-                [
-                    pred_flows[i][foreground_dynamic_mask[i]]
-                    for i in range(len(pred_flows))
-                ],
+                [pred_flows[i][foreground_dynamic_mask[i]] for i in range(len(pred_flows))],
                 [gt_flows[i][foreground_dynamic_mask[i]] for i in range(len(gt_flows))],
             )
             if writer is not None:
@@ -125,6 +116,7 @@ def evaluate_predictions_general(
     step=0,
     min_points=100,
     type="val",
+    config=None,
 ):
     """
     Evaluate model predictions by computing EPE and mIoU metrics for general data structure.
@@ -157,7 +149,7 @@ def evaluate_predictions_general(
     # Compute mIoU
     miou_list = []
     for i in range(len(pred_masks)):
-        gt_mask = remap_instance_labels(gt_masks[i], ignore_label=[-1])
+        gt_mask = remap_instance_labels(gt_masks[i], ignore_label=config.eval.ignore_class_ids)
         # tqdm.write(f"gt_mask size {max(gt_mask)}")
         miou = calculate_miou(
             pred_masks[i],
@@ -175,9 +167,7 @@ def evaluate_predictions_general(
         return epe_mean, miou_mean, None, None, None, None
 
 
-def eval_model(
-    flow_predictor, mask_predictor, dataloader, config, device, writer, step
-):
+def eval_model(flow_predictor, mask_predictor, dataloader, config, device, writer, step):
     """
     Evaluate the model on the validation dataset.
 
@@ -209,9 +199,7 @@ def eval_model(
 
     with torch.no_grad():
         for batch in iterator:
-            point_cloud_firsts = [
-                item.to(device) for item in batch["point_cloud_first"]
-            ]
+            point_cloud_firsts = [item.to(device) for item in batch["point_cloud_first"]]
             flow_gt = batch.get("flow")
             if flow_gt is not None:
                 flow_gt = [item.to(device) for item in flow_gt]
@@ -256,9 +244,7 @@ def eval_model(
                     "EulerMaskMLPResidual",
                     "EulerMaskMLPRoutine",
                 ]:
-                    masks_pred = mask_predictor(
-                        point_cloud_first, batch["idx"][i], batch["total_frames"][i]
-                    )
+                    masks_pred = mask_predictor(point_cloud_first, batch["idx"][i], batch["total_frames"][i])
                     masks_pred = masks_pred.permute(1, 0)
                 else:
                     masks_pred = mask_predictor(point_cloud_first)
@@ -278,28 +264,22 @@ def eval_model(
 
     # Convert mask lists to None if empty
     bg_masks = background_static_masks if len(background_static_masks) > 0 else None
-    fg_static_masks = (
-        foreground_static_masks if len(foreground_static_masks) > 0 else None
-    )
-    fg_dynamic_masks = (
-        foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
-    )
+    fg_static_masks = foreground_static_masks if len(foreground_static_masks) > 0 else None
+    fg_dynamic_masks = foreground_dynamic_masks if len(foreground_dynamic_masks) > 0 else None
 
     # Evaluate predictions and log metrics
-    epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = (
-        evaluate_predictions(
-            pred_flows,
-            gt_flows,
-            pred_masks,
-            gt_masks,
-            device,
-            writer=writer,
-            step=step,
-            argoverse2=config.dataset.name in ["AV2", "AV2Sequence"],
-            background_static_mask=bg_masks,
-            foreground_static_mask=fg_static_masks,
-            foreground_dynamic_mask=fg_dynamic_masks,
-        )
+    epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean = evaluate_predictions(
+        pred_flows,
+        gt_flows,
+        pred_masks,
+        gt_masks,
+        device,
+        writer=writer,
+        step=step,
+        argoverse2=config.dataset.name in ["AV2", "AV2Sequence"],
+        background_static_mask=bg_masks,
+        foreground_static_mask=fg_static_masks,
+        foreground_dynamic_mask=fg_dynamic_masks,
     )
 
     return epe_mean, miou_mean, bg_epe, fg_static_epe, fg_dynamic_epe, threeway_mean
@@ -337,7 +317,8 @@ def eval_model_general(
     """
     flow_predictor.eval()
     mask_predictor.eval()
-
+    skip_val_mask = getattr(config.eval, "skip_val_mask", False)
+    skip_val_flow = getattr(config.eval, "skip_val_flow", False)
     pred_flows = []
     gt_flows = []
     pred_masks = []
@@ -350,32 +331,44 @@ def eval_model_general(
     foreground_static_masks = []
     foreground_dynamic_masks = []
     eval_size = min(config.eval.eval_size, len(val_flow_dataloader))
+    flow_eval_size = eval_size
+    mask_eval_size = eval_size
+    if hasattr(config.eval, "eval_flow_size"):
+        flow_eval_size = config.eval.eval_flow_size
+    if hasattr(config.eval, "eval_mask_size"):
+        mask_eval_size = config.eval.eval_mask_size
     with torch.no_grad():
         print("Evaluating flow model")
         # add a progress bar
-        with tqdm(total=eval_size, desc="Evaluating flow model") as pbar:
+        with tqdm(total=flow_eval_size, desc="Evaluating flow model") as pbar:
             for i, batch in enumerate(val_flow_dataloader):
                 pbar.update(1)
-                if i >= eval_size:
+                if i >= flow_eval_size:
                     break
                 if getattr(config.model.flow, "name", "") == "FlowStep3D":
-                    from utils.forward_utils import forward_scene_flow_general
+                    from utils.forward_utils import forward_scene_flow_general,forward_scene_flow_general_old
 
-                    point_cloud_firsts = [
-                        s["point_cloud_first"].to(device).float() for s in batch
-                    ]
-                    point_cloud_nexts = [
-                        s["point_cloud_next"].to(device).float() for s in batch
-                    ]
-                    flow_pred = forward_scene_flow_general(
-                        point_cloud_firsts,
-                        point_cloud_nexts,
-                        flow_predictor,
-                        config.dataset.name,
-                    )
+                    point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in batch]
+                    point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in batch]
+                    if hasattr(config.training, "use_icp_inference_flow") and not config.training.use_icp_inference_flow:
+                        flow_pred = forward_scene_flow_general_old(
+                            point_cloud_firsts,
+                            point_cloud_nexts,
+                            flow_predictor,
+                            config.dataset.name,
+                        )
+                    else:
+                        flow_pred = forward_scene_flow_general(
+                            point_cloud_firsts,
+                            point_cloud_nexts,
+                            flow_predictor,
+                            config.dataset.name,
+                        )
                     pred_flows.extend(flow_pred)
                     gt_flows.extend([s["flow"].to(device).float() for s in batch])
                     point_clouds.extend(point_cloud_firsts)
+                    if "class_ids" in batch[0].keys():
+                        class_ids.extend([s["class_ids"] for s in batch])
                     sequence_ids_flow.extend([s["sequence_id"] for s in batch])
                     continue
                 for sample in batch:
@@ -385,9 +378,7 @@ def eval_model_general(
                     point_cloud_first_ones = torch.ones(
                         point_cloud_first.shape[0], device=point_cloud_first.device
                     ).bool()
-                    point_cloud_next_ones = torch.ones(
-                        point_cloud_next.shape[0], device=point_cloud_next.device
-                    ).bool()
+                    point_cloud_next_ones = torch.ones(point_cloud_next.shape[0], device=point_cloud_next.device).bool()
                     transform = torch.eye(4, device=point_cloud_first.device)
                     flow_pred = flow_predictor._model_forward(
                         [[point_cloud_first, point_cloud_first_ones]],
@@ -399,22 +390,21 @@ def eval_model_general(
                     pred_flows.append(flow_pred)
 
                     gt_flows.append(sample["flow"].to(device).float())
-                    if config.dataset.name in ["AV2_SceneFlowZoo"]:
+                    #print the magnitude of the flow
+                    if "class_ids" in sample.keys():
                         class_ids.append(sample["class_ids"])
                     point_clouds.append(point_cloud_first)
                     sequence_ids_flow.append(sample["sequence_id"])
         # exit(0)
         print("Evaluating mask model")
         point_clouds_mask = []
-        with tqdm(total=eval_size, desc="Evaluating mask model") as pbar:
+        with tqdm(total=mask_eval_size, desc="Evaluating mask model") as pbar:
             for i, batch in enumerate(val_mask_dataloader):
                 pbar.update(1)
-                if i >= eval_size:
+                if i >= mask_eval_size:
                     break
                 point_cloud_firsts = [
-                    s["point_cloud_first"][:: config.training.mask_downsample_factor, :]
-                    .to(device)
-                    .float()
+                    s["point_cloud_first"][:: config.training.mask_downsample_factor, :].to(device).float()
                     for s in batch
                 ]
                 from utils.forward_utils import forward_mask_prediction_general
@@ -427,15 +417,9 @@ def eval_model_general(
                         * torch.tensor([1, 0, 1]).to(point_cloud_firsts[i].device)
                     )
                     point_cloud_firsts[i] = point_cloud_firsts[i] - center_point
-                gt_mask = [
-                    s["mask"]
-                    .to(device)
-                    .long()[:: config.training.mask_downsample_factor]
-                    for s in batch
-                ]
-                masks_pred = forward_mask_prediction_general(
-                    point_cloud_firsts, mask_predictor
-                )
+                gt_mask = [s["mask"].to(device).long()[:: config.training.mask_downsample_factor] for s in batch]
+
+                masks_pred = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)
                 point_clouds_mask.extend(point_cloud_firsts)
                 pred_masks.extend(masks_pred)
                 gt_masks.extend(gt_mask)
@@ -468,6 +452,7 @@ def eval_model_general(
         step=step,
         min_points=config.eval.min_points,
         type=type,
+        config=config,
     )
     output_path = Path(config.log.dir) / "bucketed_epe" / f"step_{step}"
     if config.dataset.name in ["AV2_SceneFlowZoo"]:
@@ -479,9 +464,5 @@ def eval_model_general(
             output_path=output_path,
         )
         for class_name, (static_epe, dynamic_error) in standard_results.items():
-            writer.add_scalar(
-                f"bucketed_epe/standard/{class_name}_static", static_epe, step
-            )
-            writer.add_scalar(
-                f"bucketed_epe/standard/{class_name}_dynamic", dynamic_error, step
-            )
+            writer.add_scalar(f"bucketed_epe/standard/{class_name}_static", static_epe, step)
+            writer.add_scalar(f"bucketed_epe/standard/{class_name}_dynamic", dynamic_error, step)
