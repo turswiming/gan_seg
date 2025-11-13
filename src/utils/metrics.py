@@ -56,6 +56,7 @@ def calculate_miou(pred_mask, gt_mask, min_points=100):
                 continue
             if iou > max_iou:
                 max_iou = iou
+        # print(f"Instance {j}: Max IoU = {max_iou:.4f} Size = {gt_mask_size[j]}")
         max_iou_list.append(max_iou)
         # print(f"Instance {j}: Max IoU = {max_iou:.4f} Size = {gt_mask_size[j]}")
 

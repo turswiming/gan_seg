@@ -3,7 +3,9 @@
 
 #include <cmath>
 
-#define TOTAL_THREADS 1024
+// Reduced from 8192 to 4096 to avoid shared memory limit on RTX 5090 (compute capability 12.0)
+// RTX 5090 has 48KB shared memory limit, and 8192 threads would require 64KB
+#define TOTAL_THREADS 4096
 #define THREADS_PER_BLOCK 256
 #define DIVUP(m,n) ((m) / (n) + ((m) % (n) > 0))
 

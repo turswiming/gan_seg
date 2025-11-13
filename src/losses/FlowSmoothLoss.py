@@ -244,10 +244,10 @@ class FlowSmoothLoss:
                 # add a small noise to the Fk_batch
                 Fk_batch = Fk_batch + torch.randn_like(Fk_batch) * 1e-6
                 # 批量线性最小二乘求解
-                with torch.no_grad():
-                    theta_batch = torch.linalg.lstsq(
-                        Ek_batch, Fk_batch, driver="gels"
-                    ).solution  # (current_batch_size, 4, 3)
+                # with torch.no_grad():
+                theta_batch = torch.linalg.lstsq(
+                    Ek_batch, Fk_batch, driver="gels"
+                ).solution  # (current_batch_size, 4, 3)
 
                 valid_mask = ~torch.isnan(theta_batch).any(dim=[1, 2])  # (current_batch_size,)
 

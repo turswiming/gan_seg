@@ -35,10 +35,18 @@ def fit_motion_svd_batch(pc1, pc2, mask=None):
     pc1_centered = pc1 - pc1_mean
     pc2_centered = pc2 - pc2_mean
 
-    if mask is None:
-        S = torch.bmm(pc1_centered.transpose(1, 2), pc2_centered)
-    else:
-        S = pc1_centered.transpose(1, 2).bmm(torch.diag_embed(mask).bmm(pc2_centered))
+    # 使用循环代替bmm以减少瞬间显存占用
+    S_list = []
+    for b in range(n_batch):
+        if mask is None:
+            # S_b = pc1_centered[b].T @ pc2_centered[b]  # (3, N) @ (N, 3) -> (3, 3)
+            S_b = torch.mm(pc1_centered[b].transpose(0, 1), pc2_centered[b])  # (3, 3)
+        else:
+            # S_b = pc1_centered[b].T @ diag(mask[b]) @ pc2_centered[b]  # (3, N) @ (N, N) @ (N, 3) -> (3, 3)
+            masked_pc2 = torch.mm(torch.diag(mask[b]), pc2_centered[b])  # (N, 3)
+            S_b = torch.mm(pc1_centered[b].transpose(0, 1), masked_pc2)  # (3, 3)
+        S_list.append(S_b)
+    S = torch.stack(S_list, dim=0)  # (B, 3, 3)
 
     # If mask is not well-defined, S will be ill-posed.
     # We just return an identity matrix.

@@ -377,7 +377,7 @@ def main():
                         help='Root directory of AV2 dataset')
     parser.add_argument('--flow_data_path', type=str, default='/workspace/av2flow/train',
                         help='Path to flow data')
-    parser.add_argument('--index', type=int, default=0,
+    parser.add_argument('--index', type=int, default=1200,
                         help='Index of sample to visualize')
     parser.add_argument('--point_size', type=int, default=8192,
                         help='Number of points to sample')
@@ -402,13 +402,13 @@ def main():
     import torch
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    
+    args.visualize_all = True
     # Load models if prediction is requested
     flow_predictor = None
     mask_predictor = None
     from OGCModel.segnet_av2 import MaskFormer3D
     mask_predictor = MaskFormer3D(n_slot=16, n_point=8192, n_transformer_layer=2, transformer_embed_dim=128)
-    args.predict = True
+    args.predict = False
     if args.predict:
         print(f"Loading checkpoint from {args.checkpoint_path}...")
         ckpt = torch.load(args.checkpoint_path, map_location=device)
@@ -428,8 +428,8 @@ def main():
         flow_data_path=Path(args.flow_data_path),
         range_crop_type="ego",
         point_size=args.point_size,
-        load_flow=args.load_flow,
-        load_boxes=args.load_boxes,
+        load_flow=False,
+        load_boxes=True,
     )
     
     # Load sample

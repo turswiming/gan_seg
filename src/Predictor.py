@@ -193,5 +193,60 @@ def get_mask_predictor(mask_model_config, N):
             transformer_input_pos_enc=mask_model_config.MaskFormer3D.transformer_input_pos_enc,
         ).cuda()
         return mask_former
+    elif mask_model_config.name == "PTV3":
+        from model.ptv3_mask_predictor import PTV3MaskPredictor
+        
+        ptv3_config = mask_model_config.get('PTV3', {})
+        model = PTV3MaskPredictor(
+            slot_num=mask_model_config.slot_num,
+            in_channels=ptv3_config.get('in_channels', 3),
+            feat_dim=ptv3_config.get('feat_dim', 256),
+            grid_size=ptv3_config.get('grid_size', 0.01),
+            enable_flash=ptv3_config.get('enable_flash', True),
+            enable_rpe=ptv3_config.get('enable_rpe', False),
+            enc_depths=tuple(ptv3_config.get('enc_depths', [2, 2, 2, 6, 2])),
+            enc_channels=tuple(ptv3_config.get('enc_channels', [32, 64, 128, 256, 512])),
+            dec_depths=tuple(ptv3_config.get('dec_depths', [2, 2, 2, 2])),
+            dec_channels=tuple(ptv3_config.get('dec_channels', [64, 64, 128, 256])),
+        ).to(device)
+        
+        # Load pretrained weights if specified
+        pretrained_path = ptv3_config.get('pretrained_path', None)
+        pretrained_name = ptv3_config.get('pretrained_name', None)
+        if pretrained_path or pretrained_name:
+            try:
+                from utils.ptv3_utils import load_ptv3_pretrained
+                model = load_ptv3_pretrained(model, pretrained_path, pretrained_name)
+                model = model.to(device)
+            except Exception as e:
+                print(f"Warning: Could not load pretrained weights: {e}")
+        
+        return model
+    elif mask_model_config.name == "PTV3Panoptic":
+        from model.ptv3_mask_predictor import PTV3PanopticPredictor
+        
+        ptv3_config = mask_model_config.get('PTV3', {})
+        model = PTV3PanopticPredictor(
+            slot_num=mask_model_config.slot_num,
+            num_classes=ptv3_config.get('num_classes', 20),
+            in_channels=ptv3_config.get('in_channels', 3),
+            feat_dim=ptv3_config.get('feat_dim', 256),
+            grid_size=ptv3_config.get('grid_size', 0.01),
+            enable_flash=ptv3_config.get('enable_flash', True),
+            enable_rpe=ptv3_config.get('enable_rpe', False),
+        ).to(device)
+        
+        # Load pretrained weights if specified
+        pretrained_path = ptv3_config.get('pretrained_path', None)
+        pretrained_name = ptv3_config.get('pretrained_name', None)
+        if pretrained_path or pretrained_name:
+            try:
+                from utils.ptv3_utils import load_ptv3_pretrained
+                model = load_ptv3_pretrained(model, pretrained_path, pretrained_name)
+                model = model.to(device)
+            except Exception as e:
+                print(f"Warning: Could not load pretrained weights: {e}")
+        
+        return model
     else:
         raise NotImplementedError("Mask predictor type not implemented")

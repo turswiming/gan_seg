@@ -472,6 +472,8 @@ def compute_all_losses_general(
             - reconstructed_points: Reconstructed point clouds (if available)
     """
     scaled_pred_flow = [flow * config.loss.scale_flow_magnitude for flow in pred_flow]
+    if getattr(config.loss, "clamp_flow_magnitude", None) is not None:
+        scaled_pred_flow = [torch.clamp(flow, -config.loss.clamp_flow_magnitude, config.loss.clamp_flow_magnitude) for flow in scaled_pred_flow]
     # Reconstruction losses
     rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
         config, loss_functions, point_cloud_firsts, point_cloud_nexts, pred_mask.copy(), scaled_pred_flow, train_mask, device

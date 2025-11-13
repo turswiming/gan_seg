@@ -149,7 +149,7 @@ def evaluate_predictions_general(
     # Compute mIoU
     miou_list = []
     for i in range(len(pred_masks)):
-        gt_mask = remap_instance_labels(gt_masks[i], ignore_label=config.eval.ignore_class_ids)
+        gt_mask = remap_instance_labels(gt_masks[i])
         # tqdm.write(f"gt_mask size {max(gt_mask)}")
         miou = calculate_miou(
             pred_masks[i],
@@ -346,11 +346,14 @@ def eval_model_general(
                 if i >= flow_eval_size:
                     break
                 if getattr(config.model.flow, "name", "") == "FlowStep3D":
-                    from utils.forward_utils import forward_scene_flow_general,forward_scene_flow_general_old
+                    from utils.forward_utils import forward_scene_flow_general, forward_scene_flow_general_old
 
                     point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in batch]
                     point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in batch]
-                    if hasattr(config.training, "use_icp_inference_flow") and not config.training.use_icp_inference_flow:
+                    if (
+                        hasattr(config.training, "use_icp_inference_flow")
+                        and not config.training.use_icp_inference_flow
+                    ):
                         flow_pred = forward_scene_flow_general_old(
                             point_cloud_firsts,
                             point_cloud_nexts,
@@ -390,7 +393,7 @@ def eval_model_general(
                     pred_flows.append(flow_pred)
 
                     gt_flows.append(sample["flow"].to(device).float())
-                    #print the magnitude of the flow
+                    # print the magnitude of the flow
                     if "class_ids" in sample.keys():
                         class_ids.append(sample["class_ids"])
                     point_clouds.append(point_cloud_first)
@@ -411,12 +414,15 @@ def eval_model_general(
 
                 # decentralize point cloud
                 for i in range(len(point_cloud_firsts)):
-                    center_point = (
-                        (point_cloud_firsts[i].mean(0) + point_cloud_firsts[i].mean(0))
-                        / 2
-                        * torch.tensor([1, 0, 1]).to(point_cloud_firsts[i].device)
+                    from utils.forward_utils import augment_transform
+
+                    point_cloud_firsts[i], _, _, _ = augment_transform(
+                        point_cloud_firsts[i],
+                        point_cloud_firsts[i],
+                        torch.zeros(point_cloud_firsts[i].shape[0], 3).to(point_cloud_firsts[i].device),
+                        None,
+                        config.training.augment_params,
                     )
-                    point_cloud_firsts[i] = point_cloud_firsts[i] - center_point
                 gt_mask = [s["mask"].to(device).long()[:: config.training.mask_downsample_factor] for s in batch]
 
                 masks_pred = forward_mask_prediction_general(point_cloud_firsts, mask_predictor)

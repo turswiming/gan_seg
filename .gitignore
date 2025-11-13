@@ -7,3 +7,4 @@ kittisf/*
 .github
 .venv
 data/*
+src/pointnet2/build/*

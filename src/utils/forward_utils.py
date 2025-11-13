@@ -354,7 +354,12 @@ def forward_mask_prediction_general(pc_tensors, mask_predictor):
     pred_masks = []
     if len(set([pc.shape[1] for pc in pc_tensors])) == 1:
         pc_tensors = torch.cat([pc.unsqueeze(0) for pc in pc_tensors], dim=0)
-        pred_mask = mask_predictor.forward(pc_tensors, pc_tensors)
+        from model.ptv3_mask_predictor import PTV3MaskPredictor
+        if isinstance(mask_predictor, PTV3MaskPredictor):
+            pred_mask = mask_predictor.forward(pc_tensors)
+            pred_mask = pred_mask.permute(0, 2, 1)
+        else:
+            pred_mask = mask_predictor.forward(pc_tensors, pc_tensors)
         for i in range(pred_mask.shape[0]):
             pred_masks.append(pred_mask[i].permute(1, 0))
         return pred_masks
@@ -374,15 +379,30 @@ def augment_transform(pc1, pc2, flow, cascade_flow_outs, aug_params):
     mirror_x = aug_params.mirror_x
     mirror_z = aug_params.mirror_z
     # decentralize point cloud
-    center_point = (pc1.mean(0) + pc2.mean(0)) / 2 * torch.tensor([1, 0, 1]).to(pc1.device)
+    regression_center_point = getattr(aug_params, "regression_center_point", [True, False, True])
+    center_point = (pc1.mean(0) + pc2.mean(0)) / 2 * torch.tensor(regression_center_point).to(pc1.device)
     pc1 = pc1 - center_point
     pc2 = pc2 - center_point
     # random rotation along y axis
     angle = torch.rand(1).item() * (angle_range[1] - angle_range[0]) + angle_range[0]  # uniform(-π/4, π/4)
-    cos_a, sin_a = torch.cos(torch.tensor(angle)), torch.sin(torch.tensor(angle))
-    rot = torch.tensor(
-        [[cos_a.item(), 0, sin_a.item()], [0, 1, 0], [-sin_a.item(), 0, cos_a.item()]], dtype=torch.float32
-    )
+    rotate_axis = getattr(aug_params, "rotate_axis", "y")
+    if rotate_axis == "y":
+        cos_a, sin_a = torch.cos(torch.tensor(angle)), torch.sin(torch.tensor(angle))
+        rot = torch.tensor(
+            [[cos_a.item(), 0, sin_a.item()], [0, 1, 0], [-sin_a.item(), 0, cos_a.item()]], dtype=torch.float32
+        )
+    elif rotate_axis == "z":
+        cos_a, sin_a = torch.cos(torch.tensor(angle)), torch.sin(torch.tensor(angle))
+        rot = torch.tensor(
+            [[cos_a.item(), -sin_a.item(), 0], [sin_a.item(), cos_a.item(), 0], [0, 0, 1]], dtype=torch.float32
+        )
+    elif rotate_axis == "x":
+        cos_a, sin_a = torch.cos(torch.tensor(angle)), torch.sin(torch.tensor(angle))
+        rot = torch.tensor(
+            [[1, 0, 0], [0, cos_a.item(), -sin_a.item()], [0, sin_a.item(), cos_a.item()]], dtype=torch.float32
+        )
+    else:
+        raise ValueError(f"Invalid rotate axis: {rotate_axis}, please choose from y, z, x")
     rot = rot.to(pc1.device)
     pc1 = pc1 @ rot.T
     pc2 = pc2 @ rot.T

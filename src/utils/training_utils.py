@@ -310,6 +310,9 @@ def handle_evaluation_general(config, step, flow_predictor, mask_predictor, val_
         #     device, 
         #     writer, 
         #     step,type="train",save_sample=True)
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
 
 def log_prediction_histograms(config, writer, pred_flow, pred_mask, step):
     """Log prediction histograms to TensorBoard."""

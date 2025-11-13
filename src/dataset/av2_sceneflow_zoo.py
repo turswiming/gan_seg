@@ -5,6 +5,8 @@ from utils.bucketed_epe_utils import extract_classid_from_argoverse2_data
 from bucketed_scene_flow_eval.datasets.argoverse2.argoverse_raw_data import ArgoverseRawSequence
 import numpy as np
 from typing import Optional
+from utils.fps_utils import fps_downsample_with_attributes
+
 
 class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
     def __init__(
@@ -47,6 +49,8 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         self.root_dir = root_dir
         self.point_size = point_size
         self.min_instance_size = min_instance_size
+        self.downsample_generator = torch.Generator().manual_seed(0)
+
     def transform_pc(self, pc: "torch.Tensor", transform: "torch.Tensor") -> "torch.Tensor":
         """
         Transform an Nx3 point cloud by a 4x4 transformation matrix.
@@ -80,7 +84,7 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         return global_flow
 
     def __getitem__(self, index):
-        sample = super().__getitem__(index)
+        sample = super().__getitem__(index // 4)
 
         point_cloud_first = sample[0].pc.full_global_pc.points
         point_cloud_next = sample[1].pc.full_global_pc.points
@@ -88,25 +92,27 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         valid_mask_first = sample[0].pc.mask
         valid_mask_next = sample[1].pc.mask
 
-        centroid_first = np.mean(point_cloud_first, axis=0)
-        centroid_next = np.mean(point_cloud_next, axis=0)
+        # centroid_first = np.mean(sample[0].pc.global_pc.points, axis=0)
+        # centroid_next = np.mean(sample[1].pc.global_pc.points, axis=0)
+        # centroid = (centroid_first + centroid_next) / 2
+        # if index // 2 == 0:
+        #     half_mask_first_1 = point_cloud_first[:, 0] - centroid[0] < 0
+        #     half_mask_next_1 = point_cloud_next[:, 0] - centroid[0] < 0.5
+        # else:
+        #     half_mask_first_1 = centroid[0] - point_cloud_first[:, 0] < 0
+        #     half_mask_next_1 = centroid[0] - point_cloud_next[:, 0] < 0.5
 
-        if index // 2 == 0:
-            half_mask_first_1 = point_cloud_first[:, 0] - centroid_first[0] < 0
-            half_mask_next_1 = point_cloud_next[:, 0] - centroid_next[0] < 0.5
-        else:
-            half_mask_first_1 = centroid_first[0] - point_cloud_first[:, 0] < 0
-            half_mask_next_1 = centroid_next[0] - point_cloud_next[:, 0] < 0.5
+        # if index / 2 // 2 == 0:
+        #     half_mask_first_2 = centroid[1] - point_cloud_first[:, 1] < 0
+        #     half_mask_next_2 = centroid[1] - point_cloud_next[:, 1] < 0.5
+        # else:
+        #     half_mask_first_2 = point_cloud_first[:, 1] - centroid[1] < 0
+        #     half_mask_next_2 = point_cloud_next[:, 1] - centroid[1] < 0.5
 
-        if index/2 //2 == 0:
-            half_mask_first_2 = centroid_first[1] - point_cloud_first[:, 1] < 0
-            half_mask_next_2 = centroid_next[1] - point_cloud_next[:, 1] < 0.5
-        else:
-            half_mask_first_2 = point_cloud_first[:, 1] - centroid_first[1] < 0
-            half_mask_next_2 = point_cloud_next[:, 1] - centroid_next[1] < 0.5
-
-        valid_mask_first = valid_mask_first & half_mask_first_1 & half_mask_first_2
-        valid_mask_next = valid_mask_next & half_mask_next_1 & half_mask_next_2
+        # valid_mask_first = valid_mask_first & half_mask_first_1 & half_mask_first_2
+        # valid_mask_next = valid_mask_next & half_mask_next_1 & half_mask_next_2
+        # valid_mask_first = np.ones_like(valid_mask_first)
+        # valid_mask_next = np.ones_like(valid_mask_next)
         point_cloud_first = point_cloud_first[valid_mask_first, :]
         point_cloud_next = point_cloud_next[valid_mask_next, :]
 
@@ -127,16 +133,17 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
             mask = torch.from_numpy(mask)
         else:
             mask = None
-        try:
-            point_cloud_first, point_cloud_next, mask, flow, class_ids = self.downsample_point_cloud(
-                point_cloud_first, point_cloud_next, mask, flow, class_ids, self.point_size
-            )
-        except Exception as e:
-            return self.__getitem__(index+1)
+        (point_cloud_first, point_cloud_next, mask, flow, class_ids) = self.downsample_point_cloud(
+            point_cloud_first, point_cloud_next, mask, flow, class_ids, self.point_size
+        )
         if mask is not None:
-            mask = mask+1 # add 1 to the mask to avoid the background class
+            mask = mask + 1  # add 1 to the mask to avoid the background class
+            # print mask larger than 10
             mask_onehot = torch.nn.functional.one_hot(mask.long())
             mask_onehot = mask_onehot[:, mask_onehot.sum(dim=0) > self.min_instance_size]
+            mask_onehot = mask_onehot.float()
+            mask_onehot[:, 0] += 0.01
+            # add a small value to the background class to avoid the background class is not used
             mask = torch.argmax(mask_onehot, dim=1)
         new_sample = {
             "point_cloud_first": point_cloud_first,
@@ -160,14 +167,90 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         size: int,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # using farthest point sampling to downsample the point cloud
-        random_indices_first = torch.randint(0, point_cloud_first.shape[0], (size,))
+        self.downsample_generator.manual_seed(point_cloud_first.shape[0])
+        random_indices_first = torch.randint(
+            0, point_cloud_first.shape[0], (size,), generator=self.downsample_generator
+        )
         point_cloud_first = point_cloud_first[random_indices_first, :]
         if mask is not None:
             mask = mask[random_indices_first,]
         flow = flow[random_indices_first, :]
         class_ids = class_ids[random_indices_first,]
-        random_indices_next = torch.randint(0, point_cloud_next.shape[0], (size,))
+        self.downsample_generator.manual_seed(point_cloud_next.shape[0])
+        random_indices_next = torch.randint(0, point_cloud_next.shape[0], (size,), generator=self.downsample_generator)
         point_cloud_next = point_cloud_next[random_indices_next, :]
+        return point_cloud_first, point_cloud_next, mask, flow, class_ids
+
+    def downsample_point_cloud_with_fps(
+        self,
+        point_cloud_first: torch.Tensor,
+        point_cloud_next: torch.Tensor,
+        mask: torch.Tensor | None,
+        flow: torch.Tensor,
+        class_ids: torch.Tensor,
+        size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Downsample point clouds using GPU-based Farthest Point Sampling (FPS).
+        Uses parallel processing for first and next point clouds when GPU is available.
+
+        Args:
+            point_cloud_first: First point cloud [N, 3]
+            point_cloud_next: Next point cloud [M, 3]
+            mask: Instance mask [N] or None
+            flow: Scene flow [N, 3]
+            class_ids: Class IDs [N]
+            size: Target number of points
+
+        Returns:
+            Downsampled point clouds and corresponding attributes
+        """
+        use_gpu = torch.cuda.is_available()
+        original_device = point_cloud_first.device
+
+        # Prepare data for GPU if available
+        if use_gpu:
+            point_cloud_first_gpu = point_cloud_first.to("cuda")
+            point_cloud_next_gpu = point_cloud_next.to("cuda")
+            mask_gpu = mask.to("cuda") if mask is not None else None
+            flow_gpu = flow.to("cuda") if flow is not None else None
+            if isinstance(class_ids, np.ndarray):
+                class_ids_gpu = torch.from_numpy(class_ids).to("cuda")
+            else:
+                class_ids_gpu = class_ids.to("cuda") if class_ids is not None else None
+        else:
+            point_cloud_first_gpu = point_cloud_first
+            point_cloud_next_gpu = point_cloud_next
+            mask_gpu = mask
+            flow_gpu = flow
+            if isinstance(class_ids, np.ndarray):
+                class_ids_gpu = torch.from_numpy(class_ids)
+            else:
+                class_ids_gpu = class_ids
+
+        # Sequential processing (parallel streams disabled due to CUDA kernel thread-safety issues)
+        # The furthest_point_sample CUDA kernel may not be thread-safe for concurrent execution
+        need_downsample_first = point_cloud_first.shape[0] > size
+        need_downsample_next = point_cloud_next.shape[0] > size
+
+        # Process sequentially to avoid CUDA kernel conflicts
+        if need_downsample_first:
+            # Sequential processing (fallback for CPU or when only one needs downsampling)
+            if need_downsample_first:
+                point_cloud_first, mask, flow, class_ids = fps_downsample_with_attributes(
+                    point_cloud_first_gpu, size, mask_gpu, flow_gpu, class_ids_gpu
+                )
+            else:
+                point_cloud_first = point_cloud_first_gpu
+                mask = mask_gpu
+                flow = flow_gpu
+                class_ids = class_ids_gpu
+
+            if need_downsample_next:
+                point_cloud_next = fps_downsample_with_attributes(point_cloud_next_gpu, size)[0]
+            else:
+                point_cloud_next = point_cloud_next_gpu
+
         return point_cloud_first, point_cloud_next, mask, flow, class_ids
 
     def __len__(self):

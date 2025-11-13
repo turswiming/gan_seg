@@ -29,7 +29,7 @@ class LazyAnnotationDict:
     @cached_property
     def _annotation_df(self) -> pd.DataFrame:
         """Lazy load the dataframe once."""
-        return load_feather(self.annotations_file)
+        return load_feather(self.annotations_file, verbose=False)
     
     def get(self, timestamp: int, default=None):
         """Get boxes for a specific timestamp, loading only when needed."""

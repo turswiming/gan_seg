@@ -322,6 +322,15 @@ def main():
         point_size=8192,
         load_flow=False,
         load_boxes=True,
+        min_instance_size=50,
+    )
+    from dataset.kittisf_sceneflow import KittisfSceneFlowDataset
+    kittisf_sceneflow_dataset = KittisfSceneFlowDataset(
+        data_root=Path("/workspace/kittisf_downwampled/kittisf_downsampled/data"),
+        split="train",
+        num_points=8192,
+        seed=42,
+        augmentation=False,
     )
     from torch.utils.data import DataLoader
     dataloader = DataLoader(av2_sceneflow_zoo, batch_size=10, shuffle=False, num_workers=0)
@@ -332,9 +341,36 @@ def main():
     time_last_update = time.time()
     time_seq = []
     all_iter = len(dataloader)
+    mask_size = []
+    count = 0
     for item in tqdm.tqdm(dataloader, total=all_iter, desc="Processing dataset", unit="samples"):
-        pass
-
+        #print mask shape
+        mask = item["mask"]
+        print(f"mask shape: {mask.shape}")
+        for i in range(mask.shape[0]):
+            print(f"mask[i] shape: {mask[i].shape}")
+            if mask[i].shape[0] < 8192:
+                continue
+            mask_onehot = torch.nn.functional.one_hot(mask[i].long())
+            print(f"mask_onehot shape: {mask_onehot.shape}")
+            mask_onehot = mask_onehot[:, mask_onehot.sum(dim=0) > 50]
+            mask_onehot = mask_onehot.float()
+            print(f"mask_onehot shape: {mask_onehot.shape}")
+            mask_onehot[:,0] += 0.01 # add a small value to the background class to avoid the background class is not used
+            mask_res = torch.argmax(mask_onehot, dim=1)
+            mask_size.append(max(mask_res))
+            count += 1
+        print(f"mask shape: {mask_size[-1]}")
+        if count > 500:
+            break
+    print(f'mean of mask size: {np.mean(mask_size)}')
+    print(f'max of mask size: {np.max(mask_size)}')
+    print(f'min of mask size: {np.min(mask_size)}')
+    print(f'std of mask size: {np.std(mask_size)}')
+    print(f'median of mask size: {np.median(mask_size)}')
+    print(f"95% of mask size: {np.percentile(mask_size, 95)}")
+    print(f"99% of mask size: {np.percentile(mask_size, 99)}")
+    exit()
     print(type[str, Tensor](item))
     point_cloud_first = item["point_cloud_first"]
     point_cloud_next = item["point_cloud_next"]

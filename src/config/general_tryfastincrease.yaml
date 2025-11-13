@@ -62,7 +62,9 @@ training:
   mask_downsample_factor: 1
   grad_accumulation_steps: 4
   augment_params:
+    regression_center_point: [true, false, true]
     angle_range: [-1.57, 1.57]
+    rotate_axis: "y"
     translation_range: [2, 0.2,2]
     scale_range: [0.95, 1.05]
     mirror_x: true

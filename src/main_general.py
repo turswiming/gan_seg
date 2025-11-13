@@ -187,7 +187,7 @@ def main(config, writer):
                 device=device,
                 cascade_flow_outs=cascade_flow_outs,
             )
-
+            cleanup_memory()
             # Log to tensorboard
             loss_dict_move_average.append(loss_dict)
             if step % config.log.tensorboard_log_interval == 0:

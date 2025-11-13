@@ -1,16 +1,17 @@
 __base__: "general.yaml"
 seed: 42
 log:
-  name: "defaultname"
+  name: "ptv3_panoptic_seg"
   dir: "" # default save to /output/exp
   tensorboard_log_interval: 7  # Log losses every N steps
 
 checkpoint:
-  resume: true          # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251111_132106/checkpoints/step_39000.pt"
+  resume: false
+  resume_path: ""
   overwrite_flow_predictor: false
-  overwrite_flow_path: "/workspace/zeroflow_weights/argo/chamfer/checkpoint_epoch=049_step=0000078750_epoch_end.ckpt"
+  overwrite_flow_path: ""
   save_every_iters: 300
+
 model:
   flow:
     name: "FastFlow3D"
@@ -22,18 +23,24 @@ model:
       FEATURE_CHANNELS: 32
       SEQUENCE_LENGTH: 2
   mask:
-    name: "MaskFormer3D"
+    name: "PTV3Panoptic"
     lr: 1e-3
     weight_decay: 0.0
-    slot_num: 40
+    slot_num: 20
     lr_decay: 0.7
     lr_decay_step: 80000
     lr_clip: 1e-5
-    MaskFormer3D:
-      n_point: 8192
-      n_transformer_layer: 2
-      transformer_embed_dim: 256
-      transformer_input_pos_enc: False
+    PTV3:
+      in_channels: 3  # xyz coordinates
+      feat_dim: 256
+      grid_size: 0.01  # Grid size for voxelization (10cm)
+      enable_flash: true  # Enable flash attention (requires CUDA >= 11.6)
+      enable_rpe: false  # Relative position encoding (disabled when flash attention is enabled)
+      num_classes: 20  # Number of semantic classes for panoptic segmentation
+      enc_depths: [2, 2, 2, 6, 2]  # Encoder depths for each stage
+      enc_channels: [32, 64, 128, 256, 512]  # Encoder channels for each stage
+      dec_depths: [2, 2, 2, 2]  # Decoder depths
+      dec_channels: [64, 64, 128, 256]  # Decoder channels
 
 dataset:
   name: "AV2_SceneFlowZoo"
@@ -48,7 +55,7 @@ dataset:
     cache_root: "/workspace/av2data/cache"
     use_gt_flow: false
     flow_data_path: "/workspace/av2flow/train/"
-    min_instance_size: 25
+    min_instance_size: 50
 
   val_name: "AV2_SceneFlowZoo_val"
   AV2_SceneFlowZoo_val_flow:
@@ -71,7 +78,8 @@ dataset:
     cache_root: "/workspace/av2data/cache"
     flow_data_path: "/workspace/av2flow/val/"
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
-    min_instance_size: 25
+    min_instance_size: 50
+
 lr_multi:
   rec_loss: 10
   flow_loss: 0.0
@@ -90,9 +98,6 @@ lr_multi:
     begin_value: 1.0
     end_value: 1.0
 
-# alternate:
-#   flow: [[50,false],[50,true]]
-#   mask: [[50,true],[50,false]]
 training:
   use_icp_inference_flow: false
   max_iter: 300000
@@ -108,14 +113,16 @@ training:
     regression_center_point: [true, true, true]
     angle_range: [-1.4, 1.4]
     rotate_axis: "z"
-    translation_range: [1, 1,0.2]
+    translation_range: [1, 1, 0.2]
     scale_range: [0.95, 1.05]
     mirror_x: true
     mirror_z: false
+
 dataloader:
-  batchsize: 8
-  val_batchsize: 64
+  batchsize: 4  # Reduce batch size for PTv3 (memory intensive)
+  val_batchsize: 32
   num_workers: 4
+
 loss:
   scale_flow_magnitude: 1
   clamp_flow_magnitude: 0.1
@@ -145,6 +152,7 @@ loss:
     distance_min_threshold: 0.0
   reconstruction_loss:
     using_legend_loss: false
+
 vis:
   show_window: false
   debug_grad: false
@@ -153,5 +161,7 @@ eval:
   eval_size: 50
   eval_flow_size: 50
   eval_mask_size: 50
-  min_points: 25
-  ignore_class_ids: [-1,0]
+  min_points: 50
+  ignore_class_ids: [-1, 0]
+
+

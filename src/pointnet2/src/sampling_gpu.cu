@@ -139,7 +139,24 @@ __global__ void furthest_point_sampling_kernel(int b, int n, int m,
     dists[tid] = best;
     dists_i[tid] = besti;
     __syncthreads();
-
+    if (block_size >= 8192) {
+        if (tid < 4096) {
+            __update(dists, dists_i, tid, tid + 4096);
+        }
+        __syncthreads();
+    }
+    if (block_size >= 4096) {
+        if (tid < 2048) {
+            __update(dists, dists_i, tid, tid + 2048);
+        }
+        __syncthreads();
+    }
+    if (block_size >= 2048) {
+        if (tid < 1024) {
+            __update(dists, dists_i, tid, tid + 1024);
+        }
+        __syncthreads();
+    }
     if (block_size >= 1024) {
         if (tid < 512) {
             __update(dists, dists_i, tid, tid + 512);
@@ -217,8 +234,15 @@ void furthest_point_sampling_kernel_launcher(int b, int n, int m,
 
     cudaError_t err;
     unsigned int n_threads = opt_n_threads(n);
+    // Cap at 4096 to avoid shared memory limit on RTX 5090 (48KB limit)
+    // 8192 threads would require 64KB shared memory (exceeds limit)
+    n_threads = min(n_threads, 4096u);
 
     switch (n_threads) {
+        case 4096:
+        furthest_point_sampling_kernel<4096><<<b, n_threads, 0, stream>>>(b, n, m, dataset, temp, idxs); break;
+        case 2048:
+        furthest_point_sampling_kernel<2048><<<b, n_threads, 0, stream>>>(b, n, m, dataset, temp, idxs); break;
         case 1024:
         furthest_point_sampling_kernel<1024><<<b, n_threads, 0, stream>>>(b, n, m, dataset, temp, idxs); break;
         case 512:

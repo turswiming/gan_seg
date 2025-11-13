@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-def remap_instance_labels(labels,ignore_label=None):
+def remap_instance_labels(labels):
     """
     Remap arbitrary integer instance labels to consecutive numbers starting from 0.
     
