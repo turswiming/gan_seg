@@ -12,12 +12,13 @@ import argparse
 import matplotlib.pyplot as plt
 from dataset.av2_sceneflow_zoo import AV2SceneFlowZoo
 import numpy as np
+import torch
 
 
 def visualize_mask_3d(points, mask, save_path="mask_visualization_3d.png", title="Mask Visualization"):
     """
     Visualize mask on 3D point cloud.
-    
+
     Args:
         points: (N, 3) numpy array or torch tensor
         mask: (N,) numpy array or torch tensor - can be binary, class labels, or probabilities
@@ -25,23 +26,23 @@ def visualize_mask_3d(points, mask, save_path="mask_visualization_3d.png", title
         title: plot title
     """
     # Convert to numpy if needed
-    if hasattr(points, 'numpy'):
+    if hasattr(points, "numpy"):
         points = points.numpy()
-    if hasattr(mask, 'numpy'):
+    if hasattr(mask, "numpy"):
         mask = mask.numpy()
-    
+
     fig = plt.figure(figsize=(20, 20))
-    ax = fig.add_subplot(111, projection='3d')
-    
+    ax = fig.add_subplot(111, projection="3d")
+
     # Set axis limits
     ax.set_xlim(-48, 48)
     ax.set_ylim(-48, 48)
     ax.set_zlim(-48, 48)
-    ax.set_xlabel('X (m)')
-    ax.set_ylabel('Y (m)')
-    ax.set_zlabel('Z (m)')
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
     ax.set_title(title)
-    
+
     # Handle different mask types
     if mask.dtype == bool:
         # Binary mask
@@ -55,19 +56,11 @@ def visualize_mask_3d(points, mask, save_path="mask_visualization_3d.png", title
         # Class labels
         colors = mask
         cmap = plt.cm.tab20
-    
-    scatter = ax.scatter(
-        points[:, 0], 
-        points[:, 1], 
-        points[:, 2],
-        c=colors,
-        cmap=cmap,
-        s=1,
-        alpha=0.8
-    )
-    
-    plt.colorbar(scatter, ax=ax, label='Mask Value')
-    plt.savefig(save_path, dpi=100, bbox_inches='tight')
+
+    scatter = ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=colors, cmap=cmap, s=1, alpha=0.8)
+
+    plt.colorbar(scatter, ax=ax, label="Mask Value")
+    plt.savefig(save_path, dpi=100, bbox_inches="tight")
     plt.close()
     print(f"Saved 3D visualization to {save_path}")
 
@@ -75,7 +68,7 @@ def visualize_mask_3d(points, mask, save_path="mask_visualization_3d.png", title
 def visualize_mask_bev(points, mask, save_path="mask_visualization_bev.png", title="Bird's Eye View"):
     """
     Visualize mask in Bird's Eye View (top-down).
-    
+
     Args:
         points: (N, 3) numpy array or torch tensor
         mask: (N,) numpy array or torch tensor
@@ -83,13 +76,13 @@ def visualize_mask_bev(points, mask, save_path="mask_visualization_bev.png", tit
         title: plot title
     """
     # Convert to numpy if needed
-    if hasattr(points, 'numpy'):
+    if hasattr(points, "numpy"):
         points = points.numpy()
-    if hasattr(mask, 'numpy'):
+    if hasattr(mask, "numpy"):
         mask = mask.numpy()
-    
+
     fig, ax = plt.subplots(figsize=(12, 12))
-    
+
     # Handle different mask types
     if mask.dtype == bool:
         colors = mask.astype(int)
@@ -100,26 +93,19 @@ def visualize_mask_bev(points, mask, save_path="mask_visualization_bev.png", tit
     else:
         colors = mask
         cmap = plt.cm.tab20
-    
-    scatter = ax.scatter(
-        points[:, 0],  # X
-        points[:, 1],  # Y
-        c=colors,
-        cmap=cmap,
-        s=1,
-        alpha=0.8
-    )
-    
+
+    scatter = ax.scatter(points[:, 0], points[:, 1], c=colors, cmap=cmap, s=1, alpha=0.8)  # X  # Y
+
     ax.set_xlim(-48, 48)
     ax.set_ylim(-48, 48)
-    ax.set_xlabel('X (m)')
-    ax.set_ylabel('Y (m)')
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
     ax.set_title(title)
-    ax.set_aspect('equal')
+    ax.set_aspect("equal")
     ax.grid(True, alpha=0.3)
-    
-    plt.colorbar(scatter, ax=ax, label='Mask Value')
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+
+    plt.colorbar(scatter, ax=ax, label="Mask Value")
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved BEV visualization to {save_path}")
 
@@ -127,20 +113,20 @@ def visualize_mask_bev(points, mask, save_path="mask_visualization_bev.png", tit
 def visualize_mask_multi_view(points, mask, save_path="mask_visualization_multi.png"):
     """
     Visualize mask from multiple viewpoints.
-    
+
     Args:
         points: (N, 3) numpy array or torch tensor
         mask: (N,) numpy array or torch tensor
         save_path: output file path
     """
     # Convert to numpy if needed
-    if hasattr(points, 'numpy'):
+    if hasattr(points, "numpy"):
         points = points.numpy()
-    if hasattr(mask, 'numpy'):
+    if hasattr(mask, "numpy"):
         mask = mask.numpy()
-    
+
     fig = plt.figure(figsize=(20, 15))
-    
+
     # Handle different mask types
     if mask.dtype == bool:
         colors = mask.astype(int)
@@ -154,45 +140,45 @@ def visualize_mask_multi_view(points, mask, save_path="mask_visualization_multi.
         colors = mask
         cmap = plt.cm.tab20
         vmin, vmax = mask.min(), mask.max()
-    
+
     # 3D view
-    ax1 = fig.add_subplot(2, 2, 1, projection='3d')
+    ax1 = fig.add_subplot(2, 2, 1, projection="3d")
     ax1.scatter(points[:, 0], points[:, 1], points[:, 2], c=colors, cmap=cmap, s=1, vmin=vmin, vmax=vmax)
-    ax1.set_title('3D View')
+    ax1.set_title("3D View")
     ax1.set_xlim(-48, 48)
     ax1.set_ylim(-48, 48)
     ax1.set_zlim(-48, 48)
-    
+
     # Bird's Eye View (XY)
     ax2 = fig.add_subplot(2, 2, 2)
     scatter2 = ax2.scatter(points[:, 0], points[:, 1], c=colors, cmap=cmap, s=1, vmin=vmin, vmax=vmax)
     ax2.set_title("Bird's Eye View (XY)")
-    ax2.set_xlabel('X (m)')
-    ax2.set_ylabel('Y (m)')
-    ax2.set_aspect('equal')
+    ax2.set_xlabel("X (m)")
+    ax2.set_ylabel("Y (m)")
+    ax2.set_aspect("equal")
     ax2.grid(True, alpha=0.3)
     plt.colorbar(scatter2, ax=ax2)
-    
+
     # Side View (XZ)
     ax3 = fig.add_subplot(2, 2, 3)
     ax3.scatter(points[:, 0], points[:, 2], c=colors, cmap=cmap, s=1, vmin=vmin, vmax=vmax)
-    ax3.set_title('Side View (XZ)')
-    ax3.set_xlabel('X (m)')
-    ax3.set_ylabel('Z (m)')
-    ax3.set_aspect('equal')
+    ax3.set_title("Side View (XZ)")
+    ax3.set_xlabel("X (m)")
+    ax3.set_ylabel("Z (m)")
+    ax3.set_aspect("equal")
     ax3.grid(True, alpha=0.3)
-    
+
     # Front View (YZ)
     ax4 = fig.add_subplot(2, 2, 4)
     ax4.scatter(points[:, 1], points[:, 2], c=colors, cmap=cmap, s=1, vmin=vmin, vmax=vmax)
-    ax4.set_title('Front View (YZ)')
-    ax4.set_xlabel('Y (m)')
-    ax4.set_ylabel('Z (m)')
-    ax4.set_aspect('equal')
+    ax4.set_title("Front View (YZ)")
+    ax4.set_xlabel("Y (m)")
+    ax4.set_ylabel("Z (m)")
+    ax4.set_aspect("equal")
     ax4.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    plt.savefig(save_path, dpi=100, bbox_inches='tight')
+    plt.savefig(save_path, dpi=100, bbox_inches="tight")
     plt.close()
     print(f"Saved multi-view visualization to {save_path}")
 
@@ -200,7 +186,7 @@ def visualize_mask_multi_view(points, mask, save_path="mask_visualization_multi.
 def visualize_mask_per_class(points, mask, save_path="mask_per_class.png", max_classes=20):
     """
     Visualize each class/mask value separately.
-    
+
     Args:
         points: (N, 3) numpy array or torch tensor
         mask: (N,) numpy array or torch tensor with class labels
@@ -208,39 +194,39 @@ def visualize_mask_per_class(points, mask, save_path="mask_per_class.png", max_c
         max_classes: maximum number of classes to visualize
     """
     # Convert to numpy if needed
-    if hasattr(points, 'numpy'):
+    if hasattr(points, "numpy"):
         points = points.numpy()
-    if hasattr(mask, 'numpy'):
+    if hasattr(mask, "numpy"):
         mask = mask.numpy()
-    
+
     unique_classes = np.unique(mask)
     n_classes = min(len(unique_classes), max_classes)
     unique_classes = unique_classes[:n_classes]
-    
+
     # Determine grid size
     cols = min(4, n_classes)
     rows = (n_classes + cols - 1) // cols
-    
-    fig = plt.figure(figsize=(5*cols, 5*rows))
-    
+
+    fig = plt.figure(figsize=(5 * cols, 5 * rows))
+
     for idx, cls in enumerate(unique_classes):
-        ax = fig.add_subplot(rows, cols, idx+1, projection='3d')
-        
+        ax = fig.add_subplot(rows, cols, idx + 1, projection="3d")
+
         # Filter points for this class
         class_mask = mask == cls
         class_points = points[class_mask]
-        
+
         ax.scatter(class_points[:, 0], class_points[:, 1], class_points[:, 2], s=1, alpha=0.8)
-        ax.set_title(f'Class {cls} ({class_mask.sum()} points)')
+        ax.set_title(f"Class {cls} ({class_mask.sum()} points)")
         ax.set_xlim(-48, 48)
         ax.set_ylim(-48, 48)
         ax.set_zlim(-48, 48)
-        ax.set_xlabel('X (m)')
-        ax.set_ylabel('Y (m)')
-        ax.set_zlabel('Z (m)')
-    
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_zlabel("Z (m)")
+
     plt.tight_layout()
-    plt.savefig(save_path, dpi=100, bbox_inches='tight')
+    plt.savefig(save_path, dpi=100, bbox_inches="tight")
     plt.close()
     print(f"Saved per-class visualization to {save_path}")
 
@@ -248,27 +234,28 @@ def visualize_mask_per_class(points, mask, save_path="mask_per_class.png", max_c
 def predict_mask(mask_predictor, point_cloud, device):
     """
     Predict segmentation mask using the mask predictor model.
-    
+
     Args:
         mask_predictor: Trained mask prediction model
         point_cloud: (N, 3) point cloud tensor
         device: torch device
-        
+
     Returns:
         predicted_mask: (N,) predicted instance labels
         mask_probs: (N, K) predicted probabilities for K clusters
     """
     import torch
+
     mask_predictor.eval()
-    
+
     with torch.no_grad():
         point_cloud = point_cloud.to(device).float()
-        
+
         # Forward pass through mask predictor
         # mask_predictor typically outputs (K, N) where K is number of masks
         mask_predictor.to(device)
-        mask_logits = mask_predictor(point_cloud.unsqueeze(0),point_cloud.unsqueeze(0))
-        
+        mask_logits = mask_predictor(point_cloud.unsqueeze(0))
+
         # Convert to probabilities
         if mask_logits.dim() == 2:
             # Shape: (K, N) -> transpose to (N, K)
@@ -276,35 +263,37 @@ def predict_mask(mask_predictor, point_cloud, device):
         else:
             # Shape: (N, K)
             mask_probs = torch.softmax(mask_logits, dim=-1)
-        
+
         # Get predicted class for each point
         predicted_mask = torch.argmax(mask_probs, dim=-1)  # (N,)
-        
+
     return predicted_mask, mask_probs
 
 
 def predict_flow(flow_predictor, point_cloud_first, point_cloud_next, device):
     """
     Predict scene flow using the flow predictor model.
-    
+
     Args:
         flow_predictor: Trained flow prediction model
         point_cloud_first: (N, 3) first frame point cloud
         point_cloud_next: (N, 3) second frame point cloud
         device: torch device
-        
+
     Returns:
         predicted_flow: (N, 3) predicted flow vectors
     """
     import torch
+
     flow_predictor.eval()
-    
+
     with torch.no_grad():
         point_cloud_first = point_cloud_first.to(device).float()
         point_cloud_next = point_cloud_next.to(device).float()
-        
+
         # Check if it's a FlowStep3D model that needs both frames
         from OGCModel.flownet_kitti import FlowStep3D
+
         if isinstance(flow_predictor, FlowStep3D):
             pc1 = point_cloud_first.unsqueeze(0)  # (1, N, 3)
             pc2 = point_cloud_next.unsqueeze(0)  # (1, N, 3)
@@ -313,14 +302,14 @@ def predict_flow(flow_predictor, point_cloud_first, point_cloud_next, device):
         else:
             # Simple forward pass for other models
             predicted_flow = flow_predictor(point_cloud_first)
-        
+
     return predicted_flow
 
 
 def visualize_comparison(points, gt_mask, pred_mask, save_path="comparison.png", title="GT vs Predicted"):
     """
     Visualize ground truth and predicted masks side by side.
-    
+
     Args:
         points: (N, 3) numpy array
         gt_mask: (N,) ground truth mask
@@ -329,95 +318,101 @@ def visualize_comparison(points, gt_mask, pred_mask, save_path="comparison.png",
         title: plot title
     """
     # Convert to numpy if needed
-    if hasattr(points, 'numpy'):
+    if hasattr(points, "numpy"):
         points = points.numpy()
-    if hasattr(gt_mask, 'numpy'):
+    if hasattr(gt_mask, "numpy"):
         gt_mask = gt_mask.numpy()
-    if hasattr(pred_mask, 'numpy'):
+    if hasattr(pred_mask, "numpy"):
         pred_mask = pred_mask.cpu().numpy()
-    
+
     fig = plt.figure(figsize=(24, 10))
-    
+
     # Ground truth
-    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
-    scatter1 = ax1.scatter(points[:, 0], points[:, 1], points[:, 2], 
-                          c=gt_mask, cmap=plt.cm.tab20, s=1, alpha=0.8)
-    ax1.set_title('Ground Truth', fontsize=16)
+    ax1 = fig.add_subplot(1, 2, 1, projection="3d")
+    scatter1 = ax1.scatter(points[:, 0], points[:, 1], points[:, 2], c=gt_mask, cmap=plt.cm.tab20, s=1, alpha=0.8)
+    ax1.set_title("Ground Truth", fontsize=16)
     ax1.set_xlim(-48, 48)
     ax1.set_ylim(-48, 48)
     ax1.set_zlim(-48, 48)
-    ax1.set_xlabel('X (m)')
-    ax1.set_ylabel('Y (m)')
-    ax1.set_zlabel('Z (m)')
+    ax1.set_xlabel("X (m)")
+    ax1.set_ylabel("Y (m)")
+    ax1.set_zlabel("Z (m)")
     plt.colorbar(scatter1, ax=ax1)
-    
+
     # Predicted
-    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
-    scatter2 = ax2.scatter(points[:, 0], points[:, 1], points[:, 2], 
-                          c=pred_mask, cmap=plt.cm.tab20, s=1, alpha=0.8)
-    ax2.set_title('Predicted', fontsize=16)
+    ax2 = fig.add_subplot(1, 2, 2, projection="3d")
+    scatter2 = ax2.scatter(points[:, 0], points[:, 1], points[:, 2], c=pred_mask, cmap=plt.cm.tab20, s=1, alpha=0.8)
+    ax2.set_title("Predicted", fontsize=16)
     ax2.set_xlim(-48, 48)
     ax2.set_ylim(-48, 48)
     ax2.set_zlim(-48, 48)
-    ax2.set_xlabel('X (m)')
-    ax2.set_ylabel('Y (m)')
-    ax2.set_zlabel('Z (m)')
+    ax2.set_xlabel("X (m)")
+    ax2.set_ylabel("Y (m)")
+    ax2.set_zlabel("Z (m)")
     plt.colorbar(scatter2, ax=ax2)
-    
+
     plt.suptitle(title, fontsize=18)
     plt.tight_layout()
-    plt.savefig(save_path, dpi=100, bbox_inches='tight')
+    plt.savefig(save_path, dpi=100, bbox_inches="tight")
     plt.close()
     print(f"Saved comparison visualization to {save_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Visualize Argoverse2 segmentation masks')
-    parser.add_argument('--root_dir', type=str, default='/workspace/av2data/train',
-                        help='Root directory of AV2 dataset')
-    parser.add_argument('--flow_data_path', type=str, default='/workspace/av2flow/train',
-                        help='Path to flow data')
-    parser.add_argument('--index', type=int, default=1200,
-                        help='Index of sample to visualize')
-    parser.add_argument('--point_size', type=int, default=8192,
-                        help='Number of points to sample')
-    parser.add_argument('--output_dir', type=str, default='.',
-                        help='Output directory for visualizations')
-    parser.add_argument('--load_boxes', action='store_true',
-                        help='Load bounding boxes (instance masks)')
-    parser.add_argument('--load_flow', action='store_false',
-                        help='Load flow data')
-    parser.add_argument('--visualize_all', action='store_true',
-                        help='Create all visualization types')
-    parser.add_argument('--checkpoint_path', type=str, 
-                        default='/workspace/gan_seg/outputs/exp/20251106_173046question/checkpoints/step_10800.pt',
-                        help='Path to model checkpoint')
-    parser.add_argument('--predict', action='store_true',
-                        help='Use model to predict masks and visualize predictions')
-    parser.add_argument('--visualize_flow', action='store_false',
-                        help='Visualize predicted flow (as flow magnitude)')
-    
+    parser = argparse.ArgumentParser(description="Visualize Argoverse2 segmentation masks")
+    parser.add_argument(
+        "--root_dir", type=str, default="/workspace/av2data/train", help="Root directory of AV2 dataset"
+    )
+    parser.add_argument("--flow_data_path", type=str, default="/workspace/av2flow/train", help="Path to flow data")
+    parser.add_argument("--index", type=int, default=1200, help="Index of sample to visualize")
+    parser.add_argument("--point_size", type=int, default=8192, help="Number of points to sample")
+    parser.add_argument("--output_dir", type=str, default=".", help="Output directory for visualizations")
+    parser.add_argument("--load_boxes", action="store_true", help="Load bounding boxes (instance masks)")
+    parser.add_argument("--load_flow", action="store_false", help="Load flow data")
+    parser.add_argument("--visualize_all", action="store_true", help="Create all visualization types")
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default="/workspace/gan_seg/outputs/exp/20251113_160914/checkpoints/step_12600.pt",
+        help="Path to model checkpoint",
+    )
+    parser.add_argument("--predict", action="store_true", help="Use model to predict masks and visualize predictions")
+    parser.add_argument("--visualize_flow", action="store_false", help="Visualize predicted flow (as flow magnitude)")
+
     args = parser.parse_args()
-    
+
     import torch
+
+    args.predict = True
+    args.visualize_flow = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     args.visualize_all = True
     # Load models if prediction is requested
     flow_predictor = None
     mask_predictor = None
-    from OGCModel.segnet_av2 import MaskFormer3D
-    mask_predictor = MaskFormer3D(n_slot=16, n_point=8192, n_transformer_layer=2, transformer_embed_dim=128)
-    args.predict = False
+    from utils.model_utils import initialize_models_and_optimizers
+    from utils.config_utils import load_config_with_inheritance
+
+    config = load_config_with_inheritance("config/general_av2_ptv3.yaml")
+    (
+        mask_predictor,
+        flow_predictor,
+        optimizer_flow,
+        optimizer_mask,
+        alter_scheduler,
+        scene_flow_smoothness_scheduler,
+        mask_scheduler,
+    ) = initialize_models_and_optimizers(config, None, device)
     if args.predict:
         print(f"Loading checkpoint from {args.checkpoint_path}...")
         ckpt = torch.load(args.checkpoint_path, map_location=device)
         mask_predictor.load_state_dict(ckpt["mask_predictor"])
-    
+
     # Create output directory
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Initialize dataset
     print(f"Loading AV2SceneFlowZoo dataset from {args.root_dir}...")
     dataset = AV2SceneFlowZoo(
@@ -430,134 +425,223 @@ def main():
         point_size=args.point_size,
         load_flow=False,
         load_boxes=True,
+        with_ground=False,
     )
-    
+    test_count = 100
+    mask_counts = []
+    for i in range(test_count):
+        item = dataset[i*30]
+        point_cloud_first = item["point_cloud_first"]
+        point_cloud_next = item["point_cloud_next"]
+        mask = item.get("mask", None)
+        flow = item.get("flow", None)
+        class_ids = item["class_ids"]
+        mask_unique = np.unique(mask.numpy() if hasattr(mask, 'numpy') else mask)
+        print(f"Mask unique values: {mask_unique}")
+        #print the number of points in each mask
+        satisfied_mask_count = 0
+        for mask_value in mask_unique:
+            mask_value_points = mask == mask_value
+            print(f"Number of points in mask {mask_value}: {mask_value_points.sum()}")
+            if mask_value_points.sum() > 50:
+                satisfied_mask_count += 1
+        if satisfied_mask_count > 1:
+            mask_counts.append(satisfied_mask_count)
+    print(f"Mean mask count: {np.mean(mask_counts)}")
+    print(f"Max mask count: {np.max(mask_counts)}")
+    print(f"Min mask count: {np.min(mask_counts)}")
+    print(f"Median mask count: {np.median(mask_counts)}")
+    print(f"75th percentile mask count: {np.percentile(mask_counts, 75)}")
+    print(f"95th percentile mask count: {np.percentile(mask_counts, 95)}")
+    print(f"99th percentile mask count: {np.percentile(mask_counts, 99)}")
+    print(f"100th percentile mask count: {np.percentile(mask_counts, 100)}")
+    exit()
+
     # Load sample
     print(f"Loading sample {args.index}...")
     item = dataset[args.index]
-    
+
     # Extract data
     point_cloud_first = item["point_cloud_first"]
     point_cloud_next = item["point_cloud_next"]
     mask = item.get("mask", None)
     flow = item.get("flow", None)
     class_ids = item["class_ids"]
-    
+
     # Print statistics
     print(f"\n=== Data Statistics ===")
     print(f"Point cloud shape: {point_cloud_first.shape}")
     print(f"Class IDs shape: {class_ids.shape}")
     print(f"Unique class IDs: {np.unique(class_ids.numpy() if hasattr(class_ids, 'numpy') else class_ids)}")
-    
+
     if mask is not None:
         print(f"Mask shape: {mask.shape}")
         print(f"Mask dtype: {mask.dtype}")
-        print(f"Unique mask values: {np.unique(mask.numpy() if hasattr(mask, 'numpy') else mask)[:10]}...")  # Show first 10
-    
+        print(
+            f"Unique mask values: {np.unique(mask.numpy() if hasattr(mask, 'numpy') else mask)[:10]}..."
+        )  # Show first 10
+
     # === PREDICTION ===
     pred_mask = None
     pred_flow = None
-    
+
     if args.predict and mask_predictor is not None:
         print(f"\n=== Model Prediction ===")
         print("Predicting segmentation mask...")
-        pred_mask, mask_probs = predict_mask(mask_predictor, point_cloud_first, device)
+        from utils.forward_utils import forward_mask_prediction_general, augment_transform
+
+        point_cloud_first = point_cloud_first.to(device)
+        point_cloud_next = point_cloud_next.to(device)
+        flow = flow.to(device)
+        point_cloud_first, point_cloud_next, flow, _ = augment_transform(
+            point_cloud_first, point_cloud_next, flow, None, config.training.augment_params
+        )
+        with torch.no_grad():
+            pred_mask = forward_mask_prediction_general([point_cloud_first], mask_predictor)[0].cpu()
+            # pred_mask = pred_mask.permute(1, 0)
+        point_cloud_first = point_cloud_first.cpu()
         print(f"Predicted mask shape: {pred_mask.shape}")
         print(f"Unique predicted mask values: {np.unique(pred_mask.cpu().numpy())}")
         print(f"Number of predicted clusters: {len(np.unique(pred_mask.cpu().numpy()))}")
-        
+
         if args.visualize_flow and flow_predictor is not None:
             print("Predicting scene flow...")
             pred_flow = predict_flow(flow_predictor, point_cloud_first, point_cloud_next, device)
             print(f"Predicted flow shape: {pred_flow.shape}")
             flow_magnitude = torch.norm(pred_flow, dim=-1)
-            print(f"Flow magnitude - min: {flow_magnitude.min():.4f}, max: {flow_magnitude.max():.4f}, mean: {flow_magnitude.mean():.4f}")
-    
+            print(
+                f"Flow magnitude - min: {flow_magnitude.min():.4f}, max: {flow_magnitude.max():.4f}, mean: {flow_magnitude.mean():.4f}"
+            )
+
     # === VISUALIZATION ===
     print(f"\n=== Visualization ===")
-    
+
     # 1. Visualize class IDs (semantic categories)
     print("Visualizing class IDs...")
-    visualize_mask_3d(point_cloud_first, class_ids, 
-                      output_dir / f"class_ids_3d_sample_{args.index}.png", 
-                      "Class IDs - 3D View")
-    
+    visualize_mask_3d(
+        point_cloud_first, class_ids, output_dir / f"class_ids_3d_sample_{args.index}.png", "Class IDs - 3D View"
+    )
+
     if args.visualize_all:
-        visualize_mask_bev(point_cloud_first, class_ids, 
-                          output_dir / f"class_ids_bev_sample_{args.index}.png", 
-                          "Class IDs - Bird's Eye View")
-        visualize_mask_multi_view(point_cloud_first, class_ids, 
-                                 output_dir / f"class_ids_multi_sample_{args.index}.png")
-        
+        visualize_mask_bev(
+            point_cloud_first,
+            class_ids,
+            output_dir / f"class_ids_bev_sample_{args.index}.png",
+            "Class IDs - Bird's Eye View",
+        )
+        visualize_mask_multi_view(point_cloud_first, class_ids, output_dir / f"class_ids_multi_sample_{args.index}.png")
+
         # Per-class visualization
-        unique_classes = np.unique(class_ids.numpy() if hasattr(class_ids, 'numpy') else class_ids)
+        unique_classes = np.unique(class_ids.numpy() if hasattr(class_ids, "numpy") else class_ids)
         if len(unique_classes) > 1 and len(unique_classes) <= 20:
-            visualize_mask_per_class(point_cloud_first, class_ids, 
-                                    output_dir / f"class_ids_per_class_sample_{args.index}.png")
-    
+            visualize_mask_per_class(
+                point_cloud_first, class_ids, output_dir / f"class_ids_per_class_sample_{args.index}.png"
+            )
+
     # 2. Visualize ground truth instance masks if available
     if mask is not None:
         print("Visualizing ground truth instance masks...")
-        visualize_mask_3d(point_cloud_first, mask, 
-                         output_dir / f"gt_mask_3d_sample_{args.index}.png", 
-                         "Ground Truth Instance Mask - 3D View")
-        
+        visualize_mask_3d(
+            point_cloud_first,
+            mask,
+            output_dir / f"gt_mask_3d_sample_{args.index}.png",
+            "Ground Truth Instance Mask - 3D View",
+        )
+
         if args.visualize_all:
-            visualize_mask_bev(point_cloud_first, mask, 
-                              output_dir / f"gt_mask_bev_sample_{args.index}.png", 
-                              "Ground Truth Instance Mask - Bird's Eye View")
-            visualize_mask_multi_view(point_cloud_first, mask, 
-                                     output_dir / f"gt_mask_multi_sample_{args.index}.png")
-            
+            visualize_mask_bev(
+                point_cloud_first,
+                mask,
+                output_dir / f"gt_mask_bev_sample_{args.index}.png",
+                "Ground Truth Instance Mask - Bird's Eye View",
+            )
+            visualize_mask_multi_view(point_cloud_first, mask, output_dir / f"gt_mask_multi_sample_{args.index}.png")
+
             # Per-instance visualization
-            unique_instances = np.unique(mask.numpy() if hasattr(mask, 'numpy') else mask)
+            unique_instances = np.unique(mask.numpy() if hasattr(mask, "numpy") else mask)
             if len(unique_instances) > 1 and len(unique_instances) <= 20:
-                visualize_mask_per_class(point_cloud_first, mask, 
-                                        output_dir / f"gt_mask_per_instance_sample_{args.index}.png")
-    
+                visualize_mask_per_class(
+                    point_cloud_first, mask, output_dir / f"gt_mask_per_instance_sample_{args.index}.png"
+                )
+
     # 3. Visualize predicted masks
     if pred_mask is not None:
         print("Visualizing predicted instance masks...")
-        visualize_mask_3d(point_cloud_first, pred_mask.cpu(), 
-                         output_dir / f"pred_mask_3d_sample_{args.index}.png", 
-                         "Predicted Instance Mask - 3D View")
-        
+        # Handle different mask shapes: (slot_num, N) or (N, slot_num)
+        if pred_mask.dim() == 2:
+            if pred_mask.shape[0] < pred_mask.shape[1]:
+                # Shape is (slot_num, N), transpose to (N, slot_num)
+                pred_mask = pred_mask.permute(1, 0)
+            # Now shape is (N, slot_num), take argmax along slot dimension
+            pred_mask = torch.argmax(pred_mask, dim=-1)
+        elif pred_mask.dim() == 1:
+            # Already flattened, just convert to numpy
+            pass
+        else:
+            raise ValueError(f"Unexpected pred_mask shape: {pred_mask.shape}")
+        pred_mask = pred_mask.cpu().numpy()
+        visualize_mask_3d(
+            point_cloud_first,
+            pred_mask,
+            output_dir / f"pred_mask_3d_sample_{args.index}.png",
+            "Predicted Instance Mask - 3D View",
+        )
+
         if args.visualize_all:
-            visualize_mask_bev(point_cloud_first, pred_mask, 
-                              output_dir / f"pred_mask_bev_sample_{args.index}.png", 
-                              "Predicted Instance Mask - Bird's Eye View")
-            visualize_mask_multi_view(point_cloud_first, pred_mask, 
-                                     output_dir / f"pred_mask_multi_sample_{args.index}.png")
-        
+            visualize_mask_bev(
+                point_cloud_first,
+                pred_mask,
+                output_dir / f"pred_mask_bev_sample_{args.index}.png",
+                "Predicted Instance Mask - Bird's Eye View",
+            )
+            visualize_mask_multi_view(
+                point_cloud_first, pred_mask, output_dir / f"pred_mask_multi_sample_{args.index}.png"
+            )
+
         # 4. Visualize comparison between GT and predicted
         if mask is not None:
             print("Visualizing GT vs Predicted comparison...")
-            visualize_comparison(point_cloud_first, mask, pred_mask,
-                               output_dir / f"comparison_sample_{args.index}.png",
-                               f"Sample {args.index}: Ground Truth vs Predicted")
-    
+            visualize_comparison(
+                point_cloud_first,
+                mask,
+                pred_mask,
+                output_dir / f"comparison_sample_{args.index}.png",
+                f"Sample {args.index}: Ground Truth vs Predicted",
+            )
+
     # 5. Visualize predicted flow
     if pred_flow is not None:
         print("Visualizing predicted scene flow...")
         import torch
+
         flow_magnitude = torch.norm(pred_flow, dim=-1)
-        visualize_mask_3d(point_cloud_first, flow_magnitude, 
-                         output_dir / f"pred_flow_magnitude_sample_{args.index}.png", 
-                         "Predicted Flow Magnitude - 3D View")
-        
+        visualize_mask_3d(
+            point_cloud_first,
+            flow_magnitude,
+            output_dir / f"pred_flow_magnitude_sample_{args.index}.png",
+            "Predicted Flow Magnitude - 3D View",
+        )
+
         if args.visualize_all:
-            visualize_mask_bev(point_cloud_first, flow_magnitude, 
-                              output_dir / f"pred_flow_magnitude_bev_sample_{args.index}.png", 
-                              "Predicted Flow Magnitude - Bird's Eye View")
-        
+            visualize_mask_bev(
+                point_cloud_first,
+                flow_magnitude,
+                output_dir / f"pred_flow_magnitude_bev_sample_{args.index}.png",
+                "Predicted Flow Magnitude - Bird's Eye View",
+            )
+
         # Visualize ground truth flow if available
         if flow is not None:
             import torch
+
             gt_flow_magnitude = torch.norm(flow, dim=-1)
-            visualize_mask_3d(point_cloud_first, gt_flow_magnitude, 
-                             output_dir / f"gt_flow_magnitude_sample_{args.index}.png", 
-                             "Ground Truth Flow Magnitude - 3D View")
-    
+            visualize_mask_3d(
+                point_cloud_first,
+                gt_flow_magnitude,
+                output_dir / f"gt_flow_magnitude_sample_{args.index}.png",
+                "Ground Truth Flow Magnitude - 3D View",
+            )
+
     print(f"\n✓ All visualizations saved to {output_dir}")
     print(f"\n=== Summary ===")
     print(f"- Class IDs visualization: ✓")

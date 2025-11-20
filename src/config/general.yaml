@@ -114,6 +114,7 @@ training:
 dataloader:
   batchsize: 4
   num_workers: 0
+  val_batchsize: 1
 loss:
   scene_flow_smoothness:
     square_mask: true

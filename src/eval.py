@@ -317,6 +317,8 @@ def eval_model_general(
     """
     flow_predictor.eval()
     mask_predictor.eval()
+    val_flow_dataloader.sampler.generator.manual_seed(config.seed)
+    val_mask_dataloader.sampler.generator.manual_seed(config.seed)
     skip_val_mask = getattr(config.eval, "skip_val_mask", False)
     skip_val_flow = getattr(config.eval, "skip_val_flow", False)
     pred_flows = []
@@ -350,6 +352,8 @@ def eval_model_general(
 
                     point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in batch]
                     point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in batch]
+                    valid_mask_firsts = [s["valid_mask_first"].to(device).bool() for s in batch]
+                    valid_mask_nexts = [s["valid_mask_next"].to(device).bool() for s in batch]
                     if (
                         hasattr(config.training, "use_icp_inference_flow")
                         and not config.training.use_icp_inference_flow
@@ -357,6 +361,8 @@ def eval_model_general(
                         flow_pred = forward_scene_flow_general_old(
                             point_cloud_firsts,
                             point_cloud_nexts,
+                            valid_mask_firsts,
+                            valid_mask_nexts,
                             flow_predictor,
                             config.dataset.name,
                         )
@@ -381,7 +387,11 @@ def eval_model_general(
                     point_cloud_first_ones = torch.ones(
                         point_cloud_first.shape[0], device=point_cloud_first.device
                     ).bool()
+                    valid_mask_first = sample["valid_mask_first"].to(device).bool()
+                    valid_mask_next = sample["valid_mask_next"].to(device).bool()
                     point_cloud_next_ones = torch.ones(point_cloud_next.shape[0], device=point_cloud_next.device).bool()
+                    point_cloud_next_ones = point_cloud_next_ones & valid_mask_next
+                    point_cloud_first_ones = point_cloud_first_ones & valid_mask_first
                     transform = torch.eye(4, device=point_cloud_first.device)
                     flow_pred = flow_predictor._model_forward(
                         [[point_cloud_first, point_cloud_first_ones]],
@@ -404,24 +414,35 @@ def eval_model_general(
         with tqdm(total=mask_eval_size, desc="Evaluating mask model") as pbar:
             for i, batch in enumerate(val_mask_dataloader):
                 pbar.update(1)
-                if i >= mask_eval_size:
-                    break
+
                 point_cloud_firsts = [
                     s["point_cloud_first"][:: config.training.mask_downsample_factor, :].to(device).float()
                     for s in batch
                 ]
                 from utils.forward_utils import forward_mask_prediction_general
 
-                # decentralize point cloud
-                for i in range(len(point_cloud_firsts)):
+                # decentralize point cloud (only center, no random augmentation during inference)
+                for j in range(len(point_cloud_firsts)):
                     from utils.forward_utils import augment_transform
+                    from omegaconf import OmegaConf
+                    
+                    # Create a no-augmentation config for inference (only center point regression)
+                    no_aug_params = OmegaConf.create({
+                        'regression_center_point': config.training.augment_params.regression_center_point,
+                        'angle_range': [0.0, 0.0],  # No rotation
+                        'rotate_axis': config.training.augment_params.get('rotate_axis', 'z'),
+                        'translation_range': [0.0, 0.0, 0.0],  # No translation
+                        'scale_range': [1.0, 1.0],  # No scaling
+                        'mirror_x': False,  # No mirroring
+                        'mirror_z': False,  # No mirroring
+                    })
 
-                    point_cloud_firsts[i], _, _, _ = augment_transform(
-                        point_cloud_firsts[i],
-                        point_cloud_firsts[i],
-                        torch.zeros(point_cloud_firsts[i].shape[0], 3).to(point_cloud_firsts[i].device),
+                    point_cloud_firsts[j], _, _, _ = augment_transform(
+                        point_cloud_firsts[j],
+                        point_cloud_firsts[j],
+                        torch.zeros(point_cloud_firsts[j].shape[0], 3).to(point_cloud_firsts[j].device),
                         None,
-                        config.training.augment_params,
+                        no_aug_params,
                     )
                 gt_mask = [s["mask"].to(device).long()[:: config.training.mask_downsample_factor] for s in batch]
 
@@ -430,6 +451,8 @@ def eval_model_general(
                 pred_masks.extend(masks_pred)
                 gt_masks.extend(gt_mask)
                 sequence_ids_mask.extend([s["sequence_id"] for s in batch])
+                if i >= mask_eval_size:
+                    break
     class_labels = None
     print("Evaluating predictions")
     if save_sample:

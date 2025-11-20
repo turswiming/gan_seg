@@ -7,6 +7,7 @@ prediction and scene flow prediction models.
 """
 
 import torch
+from omegaconf import OmegaConf
 
 from model.scene_flow_predict_model import OptimizedFLowPredictor, Neural_Prior
 from model.mask_predict_model import OptimizedMaskPredictor, Neural_Mask_Prior
@@ -196,23 +197,24 @@ def get_mask_predictor(mask_model_config, N):
     elif mask_model_config.name == "PTV3":
         from model.ptv3_mask_predictor import PTV3MaskPredictor
         
-        ptv3_config = mask_model_config.get('PTV3', {})
+        # Use getattr for OmegaConf objects
+        ptv3_config = getattr(mask_model_config, 'PTV3', OmegaConf.create({}))
         model = PTV3MaskPredictor(
             slot_num=mask_model_config.slot_num,
-            in_channels=ptv3_config.get('in_channels', 3),
-            feat_dim=ptv3_config.get('feat_dim', 256),
-            grid_size=ptv3_config.get('grid_size', 0.01),
-            enable_flash=ptv3_config.get('enable_flash', True),
-            enable_rpe=ptv3_config.get('enable_rpe', False),
-            enc_depths=tuple(ptv3_config.get('enc_depths', [2, 2, 2, 6, 2])),
-            enc_channels=tuple(ptv3_config.get('enc_channels', [32, 64, 128, 256, 512])),
-            dec_depths=tuple(ptv3_config.get('dec_depths', [2, 2, 2, 2])),
-            dec_channels=tuple(ptv3_config.get('dec_channels', [64, 64, 128, 256])),
+            in_channels=getattr(ptv3_config, 'in_channels', 3),
+            feat_dim=getattr(ptv3_config, 'feat_dim', 256),
+            grid_size=getattr(ptv3_config, 'grid_size', 0.01),
+            enable_flash=getattr(ptv3_config, 'enable_flash', True),
+            enable_rpe=getattr(ptv3_config, 'enable_rpe', False),
+            enc_depths=tuple(getattr(ptv3_config, 'enc_depths', [2, 2, 2, 6, 2])),
+            enc_channels=tuple(getattr(ptv3_config, 'enc_channels', [32, 64, 128, 256, 512])),
+            dec_depths=tuple(getattr(ptv3_config, 'dec_depths', [2, 2, 2, 2])),
+            dec_channels=tuple(getattr(ptv3_config, 'dec_channels', [64, 64, 128, 256])),
         ).to(device)
         
         # Load pretrained weights if specified
-        pretrained_path = ptv3_config.get('pretrained_path', None)
-        pretrained_name = ptv3_config.get('pretrained_name', None)
+        pretrained_path = getattr(ptv3_config, 'pretrained_path', None)
+        pretrained_name = getattr(ptv3_config, 'pretrained_name', None)
         if pretrained_path or pretrained_name:
             try:
                 from utils.ptv3_utils import load_ptv3_pretrained
@@ -225,20 +227,21 @@ def get_mask_predictor(mask_model_config, N):
     elif mask_model_config.name == "PTV3Panoptic":
         from model.ptv3_mask_predictor import PTV3PanopticPredictor
         
-        ptv3_config = mask_model_config.get('PTV3', {})
+        # Use getattr for OmegaConf objects
+        ptv3_config = getattr(mask_model_config, 'PTV3', OmegaConf.create({}))
         model = PTV3PanopticPredictor(
             slot_num=mask_model_config.slot_num,
-            num_classes=ptv3_config.get('num_classes', 20),
-            in_channels=ptv3_config.get('in_channels', 3),
-            feat_dim=ptv3_config.get('feat_dim', 256),
-            grid_size=ptv3_config.get('grid_size', 0.01),
-            enable_flash=ptv3_config.get('enable_flash', True),
-            enable_rpe=ptv3_config.get('enable_rpe', False),
+            num_classes=getattr(ptv3_config, 'num_classes', 20),
+            in_channels=getattr(ptv3_config, 'in_channels', 3),
+            feat_dim=getattr(ptv3_config, 'feat_dim', 256),
+            grid_size=getattr(ptv3_config, 'grid_size', 0.01),
+            enable_flash=getattr(ptv3_config, 'enable_flash', True),
+            enable_rpe=getattr(ptv3_config, 'enable_rpe', False),
         ).to(device)
         
         # Load pretrained weights if specified
-        pretrained_path = ptv3_config.get('pretrained_path', None)
-        pretrained_name = ptv3_config.get('pretrained_name', None)
+        pretrained_path = getattr(ptv3_config, 'pretrained_path', None)
+        pretrained_name = getattr(ptv3_config, 'pretrained_name', None)
         if pretrained_path or pretrained_name:
             try:
                 from utils.ptv3_utils import load_ptv3_pretrained
@@ -248,5 +251,22 @@ def get_mask_predictor(mask_model_config, N):
                 print(f"Warning: Could not load pretrained weights: {e}")
         
         return model
+    elif mask_model_config.name == "PointGroup":
+        from model.ptv3_pointgroup import PointGroup
+        return PointGroup(
+            num_classes=getattr(mask_model_config, 'num_classes', 10),
+            in_channels=3,
+            feat_dim=256,
+            min_points_per_instance=50,
+            grid_size=0.05,
+        ).to(device)
+    elif mask_model_config.name == "PTV3Mask3D":
+        from model.ptv3_mask3d import PTV3Mask3D
+        return PTV3Mask3D(
+            num_queries=mask_model_config.slot_num,
+            num_classes=getattr(mask_model_config, 'num_classes', 10),
+            in_channels=3,
+            feat_dim=256,
+        ).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")

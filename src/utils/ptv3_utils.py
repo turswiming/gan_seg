@@ -9,6 +9,13 @@ from pathlib import Path
 from tqdm import tqdm
 import hashlib
 
+try:
+    from huggingface_hub import hf_hub_download
+    HF_HUB_AVAILABLE = True
+except ImportError:
+    HF_HUB_AVAILABLE = False
+    print("Warning: huggingface_hub not available. Install with: pip install huggingface_hub")
+
 
 def download_file(url, filepath, chunk_size=8192):
     """Download a file with progress bar."""
@@ -38,6 +45,7 @@ def load_ptv3_pretrained(model, pretrained_path=None, pretrained_name=None, stri
         pretrained_name: Name of pretrained model
             Options: 
             - 'sonata' - Sonata self-supervised pretrained model (recommended)
+            - 'sonata_small' - Sonata small self-supervised pretrained model
             - 'scannet-semseg-pt-v3m1-0-base' - ScanNet supervised model
             - 'scannet-semseg-pt-v3m1-1-ppt-extreme' - ScanNet + PPT model
             - 'nuscenes-semseg-pt-v3m1-0-base' - nuScenes supervised model
@@ -50,10 +58,23 @@ def load_ptv3_pretrained(model, pretrained_path=None, pretrained_name=None, stri
     if pretrained_path:
         if not os.path.exists(pretrained_path):
             raise FileNotFoundError(f"Pretrained weights not found at {pretrained_path}")
-        checkpoint = torch.load(pretrained_path, map_location='cpu')
+        # Check file size (should be at least a few MB for a valid checkpoint)
+        file_size = os.path.getsize(pretrained_path)
+        if file_size < 1024 * 1024:  # Less than 1MB is suspicious
+            raise ValueError(f"Checkpoint file {pretrained_path} is too small ({file_size} bytes). File may be corrupted.")
+        try:
+            checkpoint = torch.load(pretrained_path, map_location='cpu', weights_only=False)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load checkpoint from {pretrained_path}. "
+                f"The file may be corrupted or in an unsupported format. Error: {e}"
+            ) from e
     elif pretrained_name:
-        if pretrained_name.lower() == 'sonata':
-            checkpoint = download_sonata_weights()
+        # Handle Sonata models (sonata, sonata_small, etc.)
+        if pretrained_name.lower().startswith('sonata'):
+            # Extract model name (e.g., "sonata_small" -> "sonata_small", "sonata" -> "sonata")
+            sonata_name = pretrained_name.lower()
+            checkpoint = download_sonata_weights(name=sonata_name)
         else:
             checkpoint = download_huggingface_weights(pretrained_name)
     else:
@@ -110,10 +131,29 @@ def load_ptv3_pretrained(model, pretrained_path=None, pretrained_name=None, stri
             backbone_state_dict, strict=False
         )
         print(f"Loaded {len(backbone_state_dict)} backbone weights")
-        if missing_keys:
-            print(f"Missing backbone keys: {len(missing_keys)}")
+        
+        # Filter out BatchNorm running stats (running_mean, running_var) as they are runtime statistics
+        # These are normal to be missing and will be recomputed during training
+        important_missing_keys = [
+            k for k in missing_keys 
+            if not (k.endswith('.running_mean') or k.endswith('.running_var') or 
+                   k.endswith('.num_batches_tracked'))
+        ]
+        
+        if important_missing_keys:
+            print(f"Missing important backbone keys: {len(important_missing_keys)}")
+            if len(important_missing_keys) <= 20:
+                print("Missing keys:", important_missing_keys)
+            else:
+                print("First 20 missing keys:", important_missing_keys[:20])
+                print(f"... and {len(important_missing_keys) - 20} more")
+        else:
+            print(f"All important weights loaded. ({len(missing_keys)} BatchNorm runtime stats will be recomputed)")
+        
         if unexpected_keys:
             print(f"Unexpected backbone keys: {len(unexpected_keys)}")
+            if len(unexpected_keys) <= 10:
+                print("Unexpected keys:", unexpected_keys)
     else:
         # Try loading entire state dict
         try:
@@ -124,40 +164,134 @@ def load_ptv3_pretrained(model, pretrained_path=None, pretrained_name=None, stri
             if unexpected_keys:
                 print(f"Unexpected keys: {len(unexpected_keys)}")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Warning: Could not load weights directly: {e}")
             print("Model will use random initialization")
     
     return model
 
 
-def download_sonata_weights(cache_dir=None):
+def download_sonata_weights(cache_dir=None, name="sonata", repo_id="facebook/sonata"):
     """
-    Download Sonata self-supervised pretrained weights.
+    Download Sonata self-supervised pretrained weights from HuggingFace Hub.
     Sonata is available at: https://github.com/facebookresearch/sonata
     
     Args:
-        cache_dir: Directory to cache downloaded weights
+        cache_dir: Directory to cache downloaded weights (default: ~/.cache/sonata/ckpt)
+        name: Model name (default: "sonata")
+        repo_id: HuggingFace repository ID (default: "facebook/sonata")
     
     Returns:
         checkpoint: Loaded checkpoint dict
     """
     if cache_dir is None:
-        cache_dir = os.path.expanduser("~/.cache/ptv3_weights")
+        cache_dir = os.path.expanduser("~/.cache/sonata/ckpt")
     
     os.makedirs(cache_dir, exist_ok=True)
     
-    # Sonata repository URLs (check official repo for latest links)
+    # Use HuggingFace Hub if available
+    if HF_HUB_AVAILABLE:
+        try:
+            print(f"Loading Sonata checkpoint from HuggingFace: {name} ...")
+            # hf_hub_download returns the local path to the downloaded file
+            checkpoint_path = hf_hub_download(
+                repo_id=repo_id,
+                filename=f"{name}.pth",
+                revision="main",
+                cache_dir=cache_dir,
+            )
+        except Exception as e:
+            print(f"Failed to download from HuggingFace Hub: {e}")
+            print("Falling back to direct download...")
+            # Fallback to direct download
+            checkpoint_path = _download_sonata_fallback(cache_dir, name)
+    else:
+        print("Warning: huggingface_hub not available. Using fallback download method.")
+        print("Install with: pip install huggingface_hub")
+        checkpoint_path = _download_sonata_fallback(cache_dir, name)
+    
+    # Check file size and integrity
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Sonata checkpoint not found at {checkpoint_path}")
+    
+    file_size = os.path.getsize(checkpoint_path)
+    if file_size < 1024 * 1024:  # Less than 1MB is suspicious
+        print(f"Warning: Checkpoint file is suspiciously small ({file_size} bytes). Attempting to re-download...")
+        try:
+            os.remove(checkpoint_path)
+            if HF_HUB_AVAILABLE:
+                checkpoint_path = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=f"{name}.pth",
+                    revision="main",
+                    cache_dir=cache_dir,
+                    force_download=True,
+                )
+            else:
+                checkpoint_path = _download_sonata_fallback(cache_dir, name)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to re-download Sonata weights: {e}. "
+                "Please download manually from https://huggingface.co/facebook/sonata"
+            ) from e
+    
+    print(f"Loading Sonata checkpoint from {checkpoint_path}")
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    except Exception as e:
+        # If loading fails, try removing the corrupted file and re-downloading
+        if "MARK" in str(e) or "corrupted" in str(e).lower():
+            print(f"Checkpoint file appears corrupted (error: {e}). Attempting to re-download...")
+            try:
+                os.remove(checkpoint_path)
+                if HF_HUB_AVAILABLE:
+                    checkpoint_path = hf_hub_download(
+                        repo_id=repo_id,
+                        filename=f"{name}.pth",
+                        revision="main",
+                        cache_dir=cache_dir,
+                        force_download=True,
+                    )
+                else:
+                    checkpoint_path = _download_sonata_fallback(cache_dir, name)
+                checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            except Exception as re_download_error:
+                raise RuntimeError(
+                    f"Failed to load checkpoint and re-download failed: {re_download_error}. "
+                    "Please manually download from https://huggingface.co/facebook/sonata"
+                ) from re_download_error
+        else:
+            raise RuntimeError(
+                f"Failed to load checkpoint from {checkpoint_path}: {e}"
+            ) from e
+    return checkpoint
+
+
+def _download_sonata_fallback(cache_dir, name="sonata"):
+    """
+    Fallback method to download Sonata weights using direct URLs.
+    Used when HuggingFace Hub is not available.
+    
+    Args:
+        cache_dir: Directory to cache downloaded weights
+        name: Model name (default: "sonata")
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # Sonata repository URLs (fallback)
+    # Note: Fallback URLs may only support "sonata", not "sonata_small"
     sonata_urls = [
-        "https://github.com/facebookresearch/sonata/releases/download/v1.0/ptv3_sonata.pth",
-        "https://dl.fbaipublicfiles.com/sonata/ptv3_sonata.pth",
+        f"https://github.com/facebookresearch/sonata/releases/download/v1.0/{name}.pth",
+        f"https://dl.fbaipublicfiles.com/sonata/{name}.pth",
     ]
     
-    checkpoint_path = os.path.join(cache_dir, "sonata_ptv3.pth")
+    checkpoint_path = os.path.join(cache_dir, f"{name}.pth")
     
     if not os.path.exists(checkpoint_path):
         print("Downloading Sonata self-supervised pretrained model...")
         print("Note: If download fails, please download manually from:")
-        print("  https://github.com/facebookresearch/sonata")
+        print("  https://huggingface.co/facebook/sonata")
         
         downloaded = False
         for url in sonata_urls:
@@ -173,13 +307,11 @@ def download_sonata_weights(cache_dir=None):
         if not downloaded:
             raise FileNotFoundError(
                 "Could not download Sonata weights automatically. "
-                "Please download manually from https://github.com/facebookresearch/sonata "
+                "Please download manually from https://huggingface.co/facebook/sonata "
                 "and place the checkpoint file at the expected location."
             )
     
-    print(f"Loading Sonata checkpoint from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    return checkpoint
+    return checkpoint_path
 
 
 def download_huggingface_weights(model_name, cache_dir=None):
@@ -234,8 +366,25 @@ def download_huggingface_weights(model_name, cache_dir=None):
             f"Please download manually from https://huggingface.co/Pointcept/PointTransformerV3"
         )
     
+    if checkpoint_path is None:
+        raise FileNotFoundError(
+            f"Could not download pretrained weights for {model_name}. "
+            f"Please download manually from https://huggingface.co/Pointcept/PointTransformerV3"
+        )
+    
+    # Check file integrity
+    file_size = os.path.getsize(checkpoint_path)
+    if file_size < 1024 * 1024:  # Less than 1MB is suspicious
+        raise ValueError(f"Checkpoint file {checkpoint_path} is too small ({file_size} bytes). File may be corrupted.")
+    
     print(f"Loading checkpoint from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to load checkpoint from {checkpoint_path}. "
+            f"The file may be corrupted or in an unsupported format. Error: {e}"
+        ) from e
     return checkpoint
 
 

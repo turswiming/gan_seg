@@ -86,13 +86,16 @@ def compute_scene_flow_smoothness_loss(
 ):
     """Compute scene flow smoothness loss."""
     if config.lr_multi.scene_flow_smoothness > 0 and step > config.training.begin_train_smooth:
-        scene_flow_smooth_loss = loss_functions["flow_smooth"](point_cloud_firsts, pred_mask, pred_flow)
+        scene_flow_smooth_loss, robust_loss = loss_functions["flow_smooth"](point_cloud_firsts, pred_mask, pred_flow,return_robust_loss=True)
         scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
         scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_smoothness_scheduler(step)
+        robust_loss = robust_loss * config.lr_multi.scene_flow_smoothness
+        robust_loss = robust_loss * scene_flow_smoothness_scheduler(step)
     else:
         scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        robust_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
-    return scene_flow_smooth_loss
+    return scene_flow_smooth_loss, robust_loss
 
 
 def compute_point_smoothness_loss(config, loss_functions, point_cloud_firsts, pred_mask, step, device):
@@ -220,13 +223,13 @@ def compute_knn_loss(
     if config.lr_multi.KNN_loss > 0 and train_flow:
         knn_dist_loss = 0
         for i in range(len(point_cloud_firsts)):
-            ground_mask_first = None
+            valid_mask_first = None
             if config.dataset.name == "KITTISF_new":
-                ground_mask_first = point_cloud_firsts[i][:, 1] < -1.4
-                ground_mask_next = point_cloud_nexts[i][:, 1] < -1.4
-                point_cloud_firsts_filtered = point_cloud_firsts[i][~ground_mask_first]
-                point_cloud_nexts_filtered = point_cloud_nexts[i][~ground_mask_next]
-                pred_flow_filtered = pred_flow[i][~ground_mask_first]
+                valid_mask_first = point_cloud_firsts[i][:, 1] > -1.4
+                valid_mask_next = point_cloud_nexts[i][:, 1] > -1.4
+                point_cloud_firsts_filtered = point_cloud_firsts[i][valid_mask_first]
+                point_cloud_nexts_filtered = point_cloud_nexts[i][valid_mask_next]
+                pred_flow_filtered = pred_flow[i][valid_mask_first]
             else:
                 point_cloud_firsts_filtered = point_cloud_firsts[i]
                 point_cloud_nexts_filtered = point_cloud_nexts[i]
@@ -235,11 +238,17 @@ def compute_knn_loss(
             l = loss_functions["knn"](
                 pred_second_point_filtered, point_cloud_nexts_filtered[:, :3].to(device), forward_only=True
             )
+            if hasattr(config.loss.knn, "background_threshold"):
+                flowmagnitude = torch.norm(pred_flow_filtered, dim=1)
+                background_mask = flowmagnitude < config.loss.knn.background_threshold
+                l[:,background_mask] = l[:,background_mask]*0.1
+            if config.loss.knn.reduction == "none":
+                l = l.mean()
             knn_dist_loss += l
             if cascade_flow_outs is not None:
                 for cascade_flow in cascade_flow_outs:
                     if config.dataset.name == "KITTISF_new":
-                        cascade_flow_filtered = cascade_flow[i][~ground_mask_first]
+                        cascade_flow_filtered = cascade_flow[i][valid_mask_first]
                         pred_second_point_cascade = (
                             point_cloud_firsts_filtered[:, :3].to(device) + cascade_flow_filtered
                         )
@@ -248,13 +257,25 @@ def compute_knn_loss(
                         pred_second_point_cascade = point_cloud_firsts[i][:, :3].to(device) + cascade_flow[i]
                         target_points = point_cloud_nexts[i][:, :3].to(device)
                     l = loss_functions["knn"](pred_second_point_cascade, target_points , forward_only=True)
+                    if hasattr(config.loss.knn, "background_threshold"):
+                        flowmagnitude = torch.norm(cascade_flow_filtered, dim=1)
+                        background_mask = flowmagnitude < config.loss.knn.background_threshold
+                        l[:,background_mask] = l[:,background_mask]*0.1
+                    if config.loss.knn.reduction == "none":
+                        l = l.mean()
                     knn_dist_loss += l
         if longterm_pred_flow is not None and len(longterm_pred_flow) > 0:
             for idx in longterm_pred_flow:
                 pred_points = longterm_pred_flow[idx][:, :3]
                 real_points = sample["self"][0].get_item(idx)["point_cloud_first"][:, :3].to(device)
-                knn_dist_loss += loss_functions["knn"](real_points, pred_points, forward_only=True)
-
+                l = loss_functions["knn"](real_points, pred_points, forward_only=True)
+                if hasattr(config.loss.knn, "background_threshold"):
+                    flowmagnitude = torch.norm(pred_points, dim=1)
+                    background_mask = flowmagnitude < config.loss.knn.background_threshold
+                    l[:,background_mask] = l[:,background_mask]*0.1
+                if config.loss.knn.reduction == "none":
+                    l = l.mean()
+                knn_dist_loss += l
         knn_dist_loss = knn_dist_loss * config.lr_multi.KNN_loss
     else:
         knn_dist_loss = torch.tensor(0.0, device=device)
@@ -328,7 +349,7 @@ def compute_all_losses(
     )
 
     # Scene flow smoothness loss
-    scene_flow_smooth_loss = compute_scene_flow_smoothness_loss(
+    scene_flow_smooth_loss, robust_loss = compute_scene_flow_smoothness_loss(
         config, loss_functions, point_cloud_firsts, pred_mask, pred_flow, step, scene_flow_smoothness_scheduler, device
     )
 
@@ -480,7 +501,7 @@ def compute_all_losses_general(
     )
 
     # Scene flow smoothness loss
-    scene_flow_smooth_loss = compute_scene_flow_smoothness_loss(
+    scene_flow_smooth_loss, robust_loss = compute_scene_flow_smoothness_loss(
         config, loss_functions, point_cloud_firsts, pred_mask.copy(), scaled_pred_flow, step, scene_flow_smoothness_scheduler, device
     )
 
@@ -517,4 +538,4 @@ def compute_all_losses_general(
     # Total loss
     total_loss = sum(loss_dict.values())
 
-    return loss_dict, total_loss, reconstructed_points
+    return loss_dict, total_loss, reconstructed_points, robust_loss

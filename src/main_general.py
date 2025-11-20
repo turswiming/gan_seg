@@ -129,7 +129,9 @@ def main(config, writer):
         tqdm.write("Starting training...")
         for sample in inf_dataloader:
             step += 1
-
+            # Clear memory cache
+            if step % config.hardware.clear_cache_interval == 0:
+                cleanup_memory()
             handle_evaluation_general(
                 config=config,
                 step=step,
@@ -151,27 +153,42 @@ def main(config, writer):
             flow_predictor.to(device)
             mask_predictor.to(device)
 
-            try:
-                (pred_flow, pred_mask, point_cloud_firsts, point_cloud_nexts, cascade_flow_outs) = (
-                    inference_models_general(
-                        flow_predictor,
-                        mask_predictor,
-                        sample,
-                        config=config,
-                        train_flow=train_flow,
-                        downsample=config.training.mask_downsample_factor,
-                        augment_params=config.training.augment_params,
-                    )
+            (pred_flow, pred_mask, point_cloud_firsts, point_cloud_nexts, cascade_flow_outs) = (
+                inference_models_general(
+                    flow_predictor,
+                    mask_predictor,
+                    sample,
+                    config=config,
+                    train_flow=train_flow,
+                    downsample=config.training.mask_downsample_factor,
+                    augment_params=config.training.augment_params,
                 )
-            except Exception as e:
-                print(e)
-                import traceback
+            )
+  
+            loss_downsample_num = getattr(config.training, "loss_downsample_num", None)
+            if loss_downsample_num is not None:
+                for i in range(len(point_cloud_firsts)):
+                    device_first = point_cloud_firsts[i].device
+                    random_indices = torch.randint(
+                        0, point_cloud_firsts[i].shape[0], (loss_downsample_num,), 
+                        device=device_first,
+                        generator=torch.Generator(device=device_first).manual_seed(config.seed + i)
+                    )
+                    point_cloud_firsts[i] = point_cloud_firsts[i][random_indices]
+                    pred_flow[i] = pred_flow[i][random_indices]
+                    pred_mask[i] = pred_mask[i][:,random_indices]
+                    if cascade_flow_outs is not None:
+                        for j in range(len(cascade_flow_outs)):
+                            cascade_flow_outs[j][i] = cascade_flow_outs[j][i][random_indices]
+                    
+                    random_indices_next = torch.randint(
+                        0, point_cloud_nexts[i].shape[0], (loss_downsample_num,),
+                        device=device,
+                        generator=torch.Generator(device=device).manual_seed(config.seed + i)
+                    )
 
-                print(traceback.format_exc())
-                continue
-
-            # Compute all losses
-            loss_dict, total_loss, reconstructed_points = compute_all_losses_general(
+                    point_cloud_nexts[i] = point_cloud_nexts[i][random_indices_next]
+            loss_dict, total_loss, reconstructed_points, robust_loss = compute_all_losses_general(
                 config=config,
                 loss_functions=loss_functions,
                 flow_predictor=flow_predictor,
@@ -197,6 +214,10 @@ def main(config, writer):
                 }
                 loss_mean_dict["total_loss"] = np.sum([loss_mean_dict[key] for key in loss_mean_dict.keys()])
                 writer.add_scalars("losses", loss_mean_dict, step)
+                if isinstance(robust_loss, torch.Tensor):
+                    writer.add_scalars("robust_losses", {"robust_loss": robust_loss.cpu().item()}, step)
+                else:
+                    writer.add_scalars("robust_losses", {"robust_loss": robust_loss}, step)
                 loss_dict_move_average = []
 
             # Log gradient debugging information
@@ -229,9 +250,7 @@ def main(config, writer):
 
             # Handle evaluation
 
-            # Clear memory cache
-            if step % config.hardware.clear_cache_interval == 0:
-                cleanup_memory()
+
 
             # Log prediction histograms
             log_prediction_histograms(config, writer, pred_flow, pred_mask, step)

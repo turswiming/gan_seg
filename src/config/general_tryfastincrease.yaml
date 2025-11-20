@@ -31,14 +31,14 @@ dataset:
   name: "KITTISF_new"
 
   KITTISF_new:
-    data_root: "/workspace/kittisf_downsampled/data"
+    data_root: "/workspace/kittisf_downsampled/kittisf_downsampled/data"
     num_points: 8192
     seed: 42
   val_name: "KITTISF_new"
 lr_multi:
   rec_loss: 10
   flow_loss: 0.0
-  scene_flow_smoothness: 30
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
   point_smooth_loss: 1
   eular_flow_loss: 0.0
@@ -80,9 +80,9 @@ loss:
       relative_gradient: 1
       criterion: "L2"
     sum_mask_item:
-      relative_gradient: 1
+      relative_gradient: 0
       criterion: "L2"
-
+  reconstruction_loss:
   knn:
     k: 1
     reduction: "mean"

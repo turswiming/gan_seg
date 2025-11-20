@@ -49,15 +49,46 @@ def initialize_models_and_optimizers(config, N, device):
 
     # Initialize optimizers
     optimizer_flow = torch.optim.Adam(flow_predictor.parameters(), lr=config.model.flow.lr)
-    optimizer_mask = torch.optim.Adam(
-        mask_predictor.parameters(), lr=config.model.mask.lr, weight_decay=config.model.mask.weight_decay
-    )
+    
+    # For PTV3 models, use block lr scaler to set different learning rates for backbone and head
+    if config.model.mask.name in ["PTV3", "PTV3Panoptic"]:
+        # Get block lr scale factor (default 0.1 as per official PTv3 config)
+        block_lr_scale = getattr(config.model.mask, 'block_lr_scale', 0.1)
+        
+        # Separate backbone and head parameters
+        backbone_params = []
+        head_params = []
+        
+        for name, param in mask_predictor.named_parameters():
+            if 'backbone' in name:
+                backbone_params.append(param)
+            else:  # mask_head, semantic_head, etc.
+                head_params.append(param)
+        
+        # Create optimizer with different learning rates
+        optimizer_mask = torch.optim.AdamW(
+            [
+                {'params': backbone_params, 'lr': config.model.mask.lr * block_lr_scale},
+                {'params': head_params, 'lr': config.model.mask.lr}
+            ],
+            weight_decay=config.model.mask.weight_decay
+        )
+        
+        print(f"PTV3 optimizer initialized with block_lr_scale={block_lr_scale}:")
+        print(f"  Backbone lr: {config.model.mask.lr * block_lr_scale:.2e} ({len(backbone_params)} parameters)")
+        print(f"  Head lr: {config.model.mask.lr:.2e} ({len(head_params)} parameters)")
+    else:
+        # For other models, use uniform learning rate
+        optimizer_mask = torch.optim.AdamW(
+            mask_predictor.parameters(), lr=config.model.mask.lr, weight_decay=config.model.mask.weight_decay
+        )
 
     # Initialize schedulers
     alter_scheduler = AlterScheduler(config.alternate)
     scene_flow_smoothness_scheduler = SceneFlowSmoothnessScheduler(config.lr_multi.scene_flow_smoothness_scheduler)
 
     # Initialize mask scheduler if configured
+    # LambdaLR works with multiple param_groups - it applies the lambda function to each group
     mask_scheduler = None
     mask_scheduler = LambdaLR(optimizer_mask, lr_lambda=lambda it, config=config: lr_curve_mask(it, config))
 
@@ -227,12 +258,30 @@ def load_checkpoint(
         checkpoint_dir = config.log.dir
         candidate_path = resume_path if resume_path else os.path.join(checkpoint_dir, "latest.pt")
         if os.path.exists(candidate_path):
-            ckpt = torch.load(candidate_path, map_location=device)
+            ckpt = torch.load(candidate_path, map_location=device, weights_only=False)
             if "scene_flow_predictor" in ckpt:
-                flow_predictor.load_state_dict(ckpt["scene_flow_predictor"])
+                flow_missing, flow_unexpected = flow_predictor.load_state_dict(ckpt["scene_flow_predictor"], strict=False)
             else:
-                flow_predictor.load_state_dict(ckpt["flow_predictor"])
-            mask_predictor.load_state_dict(ckpt["mask_predictor"])
+                flow_missing, flow_unexpected = flow_predictor.load_state_dict(ckpt["flow_predictor"], strict=False)
+            mask_missing, mask_unexpected = mask_predictor.load_state_dict(ckpt["mask_predictor"], strict=False)
+            
+            # Print loading status for debugging
+            if flow_missing:
+                tqdm.write(f"Flow predictor missing keys: {len(flow_missing)} keys")
+                if len(flow_missing) <= 10:
+                    tqdm.write(f"  Missing: {flow_missing}")
+            if flow_unexpected:
+                tqdm.write(f"Flow predictor unexpected keys: {len(flow_unexpected)} keys")
+                if len(flow_unexpected) <= 10:
+                    tqdm.write(f"  Unexpected: {flow_unexpected}")
+            if mask_missing:
+                tqdm.write(f"Mask predictor missing keys: {len(mask_missing)} keys")
+                if len(mask_missing) <= 10:
+                    tqdm.write(f"  Missing: {mask_missing}")
+            if mask_unexpected:
+                tqdm.write(f"Mask predictor unexpected keys: {len(mask_unexpected)} keys")
+                if len(mask_unexpected) <= 10:
+                    tqdm.write(f"  Unexpected: {mask_unexpected}")
             optimizer_flow.load_state_dict(ckpt.get("optimizer_flow", optimizer_flow.state_dict()))
             optimizer_mask.load_state_dict(ckpt.get("optimizer_mask", optimizer_mask.state_dict()))
             if "alter_scheduler" in ckpt:
@@ -259,8 +308,16 @@ def load_checkpoint(
         )  # reload the optimizer to make it work
     # set learning rate to the value in the config
     optimizer_flow.param_groups[0]["lr"] = config.model.flow.lr
-    optimizer_mask.param_groups[0]["lr"] = config.model.mask.lr
-    mask_scheduler.step()
+    # For PTV3 models with multiple param_groups, update both backbone and head lr
+    if config.model.mask.name in ["PTV3", "PTV3Panoptic"]:
+        block_lr_scale = getattr(config.model.mask, 'block_lr_scale', 0.1)
+        optimizer_mask.param_groups[0]["lr"] = config.model.mask.lr * block_lr_scale  # backbone
+        if len(optimizer_mask.param_groups) > 1:
+            optimizer_mask.param_groups[1]["lr"] = config.model.mask.lr  # head
+    else:
+        optimizer_mask.param_groups[0]["lr"] = config.model.mask.lr
+    if mask_scheduler is not None:
+        mask_scheduler.step()
     return step
 
 

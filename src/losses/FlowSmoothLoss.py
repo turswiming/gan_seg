@@ -20,6 +20,18 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+class BinaryMask(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input):
+        probs = F.softmax(input, dim=0)
+        argmax_index = torch.argmax(input, dim=0)
+        binary = F.one_hot(argmax_index, num_classes=input.shape[0]).float().permute(1, 0)
+        binary = F.softmax(binary*input.shape[0], dim=0)
+        ctx.save_for_backward(binary,probs)
+        return binary
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output
 
 class ScaleGradient(torch.autograd.Function):
     """
@@ -129,21 +141,25 @@ class FlowSmoothLoss:
         self.sum_mask_item_loss = flow_smooth_loss_config.sum_mask_item.criterion
         self.scale_flow_grad = flow_smooth_loss_config.scale_flow_grad
         self.square_mask = flow_smooth_loss_config.square_mask
+        # 是否标准化flow使其对尺度不敏感（loss不监督flow的幅度）
+        # 如果为True，会在计算loss前将flow标准化到单位标准差
+        self.normalize_flow = getattr(flow_smooth_loss_config, "normalize_flow", True)
         if self.each_mask_item_loss in ["L1", "l1"]:
-            self.each_mask_criterion = nn.L1Loss(reduction="sum").to(self.device)
+            self.each_mask_criterion = nn.L1Loss(reduction="none").to(self.device)
         elif self.each_mask_item_loss in ["L2", "l2"]:
-            self.each_mask_criterion = nn.MSELoss(reduction="sum").to(self.device)
+            self.each_mask_criterion = nn.MSELoss(reduction="none").to(self.device)
         else:
             raise ValueError(f"Invalid loss criterion: {self.each_mask_item_loss}")
         if self.sum_mask_item_loss in ["L1", "l1"]:
-            self.sum_mask_criterion = nn.L1Loss(reduction="sum").to(self.device)
+            self.sum_mask_criterion = nn.L1Loss(reduction="none").to(self.device)
         elif self.sum_mask_item_loss in ["L2", "l2"]:
-            self.sum_mask_criterion = nn.MSELoss(reduction="sum").to(self.device)
+            self.sum_mask_criterion = nn.MSELoss(reduction="none").to(self.device)
         else:
             raise ValueError(f"Invalid loss criterion: {self.sum_mask_item_loss}")
+        self.sparce_filter_ratio = 0.0
         pass
 
-    def __call__(self, point_position, mask, flow):
+    def __call__(self, point_position, mask, flow, return_robust_loss=False):
         """
         Compute the flow smoothness loss.
 
@@ -155,7 +171,7 @@ class FlowSmoothLoss:
         Returns:
             torch.Tensor: Computed smoothness loss averaged across the batch
         """
-        return self.loss(point_position, mask, flow)
+        return self.loss(point_position, mask, flow, return_robust_loss)
 
     def get_optimal_batch_size(self, K):
         """根据K选择最优的batch size (5, 4, 3的倍数)"""
@@ -167,7 +183,7 @@ class FlowSmoothLoss:
 
         return 1  # 对于很小的K值，直接全部处理
 
-    def loss(self, point_position, mask, flow):
+    def loss(self, point_position, mask, flow, return_robust_loss=False):
         """
         Core loss computation function.
 
@@ -183,11 +199,12 @@ class FlowSmoothLoss:
         Returns:
             torch.Tensor: Average reconstruction loss across all batches
         """
-        batch_size = len(mask)
+        batch_size = len(point_position)
         point_position = [item.to(self.device) for item in point_position]
         scene_flows = flow
 
         total_loss = 0.0
+        robust_loss = 0.0
         for b in range(batch_size):
             one_batch_loss = 0.0
             N = point_position[b].shape[0]
@@ -204,7 +221,12 @@ class FlowSmoothLoss:
             # to follow the original paper, we need to normalize the original logits, that make the softmaxed value to "looks like" origin paper
             # We need to select a number between 2 and 4, I don't know how to select it, so I use the math.exp(1)
             # We find it works well,We hope we can explain it in the future
+            # mask_binary_b = BinaryMask.apply(mask_b)
             mask_binary_b = mask_b
+            if self.normalize_flow:
+                flow_std = scene_flow_b.std(dim=0).detach().max()
+                scene_flow_b = scene_flow_b / (flow_std + 1e-1)*10
+
             scene_flow_b = ScaleGradient.apply(scene_flow_b.clone(), self.scale_flow_grad)
             # Construct embedding
             coords = self.construct_embedding(point_position_b)  # (N, 4)
@@ -218,65 +240,79 @@ class FlowSmoothLoss:
             # Batch processing with K subdivision for acceleration
             # 根据K的大小选择最佳的batch_size进行分批计算
 
-            batch_size_k = self.get_optimal_batch_size(K)
+            batch_size_k = 1  # always 1 for now
             num_batches = (K + batch_size_k - 1) // batch_size_k  # 向上取整
-
+            flow_magnitude = torch.norm(scene_flow_b, dim=-1)
             # 分批处理K个slots
-            for batch_idx in range(num_batches):
-                start_k = batch_idx * batch_size_k
-                end_k = min(start_k + batch_size_k, K)
-                current_batch_size = end_k - start_k
-
+            ignored_slots = 0
+            for k in range(K):
                 # 获取当前批次的mask
-                mask_batch = mask_binary_b[start_k:end_k]  # (current_batch_size, N)
-                mask_expanded = mask_batch.unsqueeze(-1)  # (current_batch_size, N, 1)
+                mask_bk = mask_binary_b[k]  # (N,)
+                # Ensure mask_bk is 1D with shape (N,)
+                if mask_bk.dim() > 1:
+                    mask_bk = mask_bk.squeeze()
                 if self.square_mask:
-                    mask_expanded = torch.sqrt(mask_expanded)
-                # 扩展coords和scene_flow到当前批次大小
-                coords_expanded = coords.unsqueeze(0).expand(current_batch_size, -1, -1)  # (current_batch_size, N, 4)
-                scene_flow_expanded = scene_flow_b.unsqueeze(0).expand(
-                    current_batch_size, -1, -1
-                )  # (current_batch_size, N, 3)
+                    mask_bk = torch.sqrt(mask_bk)
 
                 # 批量应用masks到embeddings和flows
-                Ek_batch = coords_expanded * mask_expanded  # (current_batch_size, N, 4)
-                Fk_batch = scene_flow_expanded * mask_expanded  # (current_batch_size, N, 3)
-                # add a small noise to the Fk_batch
-                Fk_batch = Fk_batch + torch.randn_like(Fk_batch) * 1e-6
-                # 批量线性最小二乘求解
-                # with torch.no_grad():
-                theta_batch = torch.linalg.lstsq(
-                    Ek_batch, Fk_batch, driver="gels"
-                ).solution  # (current_batch_size, 4, 3)
-
-                valid_mask = ~torch.isnan(theta_batch).any(dim=[1, 2])  # (current_batch_size,)
-
-                if not valid_mask.any():
-                    print(f"all slots are invalid")
+                # coords: (N, 4), mask_bk: (N,), need to unsqueeze for broadcasting
+                Ek = coords * mask_bk.unsqueeze(-1)  # (N, 4)
+                Fk = scene_flow_b * mask_bk.unsqueeze(-1)  # (N, 3)
+                Fk_magnitude = torch.norm(Fk, dim=-1, p=2)
+                if Fk_magnitude.max() <= 1:
+                    flow_reconstruction += Fk
+                    ignored_slots += 1
                     continue
-                    # 批量重建flows
+                # add a small noise to the Fk
+                Fk = Fk + torch.randn_like(Fk) * 1e-6
+                # 线性最小二乘求解
+                theta = torch.linalg.lstsq(Ek, Fk, driver="gels").solution  # (4, 3)
                 # print the invalid slots
-                invalid_slots = ~valid_mask
-                if invalid_slots.sum() > 0:
-                    print(f"invalid slots: {invalid_slots.sum()}, invalid slots indices: {invalid_slots.nonzero()}")
-                Fk_hat_batch = torch.bmm(Ek_batch, theta_batch)  # (current_batch_size, N, 3)
+                if torch.isnan(theta).any():
+                    print(f"theta is nan")
+                    flow_reconstruction += Fk
+                    continue
+                Fk_hat = Ek @ theta  # (N, 3)
 
                 # 只对有效的slots进行累加
-                valid_Fk_hat = Fk_hat_batch[valid_mask]  # (valid_count, N, 3)
-                flow_reconstruction += valid_Fk_hat.sum(dim=0)  # (N, 3)
-
-                # 计算有效slots的重建损失
-                valid_Fk = Fk_batch[valid_mask]  # (valid_count, N, 3)
+                flow_reconstruction += Fk_hat
 
                 # 向量化损失计算
-                if self.each_mask_item_loss in ["L1", "l1"]:
-                    batch_reconstruction_loss = torch.sum(torch.abs(valid_Fk_hat - valid_Fk))
-                elif self.each_mask_item_loss in ["L2", "l2"]:
-                    batch_reconstruction_loss = torch.sum((valid_Fk_hat - valid_Fk) ** 2)
+                if self.each_mask_item_gradient > 0:
+                    batch_reconstruction_loss = self.each_mask_criterion(
+                        Fk_hat ,Fk).mean(dim=-1)
+                    if self.sparce_filter_ratio > 0:
+                        loss_detached = batch_reconstruction_loss.detach()
+                        robust_loss += loss_detached.sum() / N * self.each_mask_item_gradient
+                        # 使用 topk(largest=False) 获取最小的 k 个值，相当于 bottomk
+                        useless_loss_mask = torch.topk(
+                            loss_detached, k=int(loss_detached.shape[1] * self.sparce_filter_ratio), dim=1, largest=False
+                        ).indices
+                        batch_reconstruction_loss[:, useless_loss_mask] = 0
+                    else:
+                        robust_loss += batch_reconstruction_loss.sum() / N * self.each_mask_item_gradient
+                    batch_reconstruction_loss = batch_reconstruction_loss.sum()
 
-                one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
-            reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)
-            one_batch_loss += reconstruction_loss*self.sum_mask_item_gradient /N
+                    one_batch_loss += batch_reconstruction_loss * self.each_mask_item_gradient / N
+                pass
+            if self.sum_mask_item_gradient > 0:
+                reconstruction_loss = self.sum_mask_criterion(scene_flow_b, flow_reconstruction)  # (N, 3)
+                # 对每个点的loss进行聚合（对3个维度求和），得到每个点的总loss
+                point_loss = reconstruction_loss.sum(dim=-1)  # (N,)
+                if self.sparce_filter_ratio > 0:
+                    loss_detached = point_loss.detach()
+                    robust_loss += loss_detached.sum() / N * self.sum_mask_item_gradient
+                    # 使用 topk(largest=False) 获取最小的 k 个值，相当于 bottomk
+                    # 确保 k 不超过点的数量
+                    useless_loss_mask = torch.topk(
+                        loss_detached, k=int(loss_detached.shape[0] * self.sparce_filter_ratio), dim=0, largest=False
+                    ).indices
+                    # 将选中的点的loss设为0
+                    reconstruction_loss[useless_loss_mask, :] = 0
+                else:
+                    robust_loss += point_loss.sum() / N * self.sum_mask_item_gradient
+                reconstruction_loss = reconstruction_loss.sum()
+                one_batch_loss += reconstruction_loss * self.sum_mask_item_gradient / N
             total_loss += one_batch_loss
             # Compute reconstruction loss
             # with torch.no_grad():
@@ -284,7 +320,7 @@ class FlowSmoothLoss:
             # reconstruction_loss = torch.pow(torch.log((scene_flow_b+1e8)/(flow_reconstruction+1e8)), 2).mean()
 
         # Return average loss
-        return total_loss / batch_size
+        return total_loss / batch_size, robust_loss / batch_size
 
     @torch.no_grad()
     def construct_embedding(self, point_position):

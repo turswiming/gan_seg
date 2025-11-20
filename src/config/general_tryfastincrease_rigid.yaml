@@ -1,0 +1,9 @@
+__base__: "general_tryfastincrease.yaml"
+
+loss:
+  scene_flow_smoothness:
+    each_mask_item:
+      relative_gradient: 1
+    sum_mask_item:
+      relative_gradient: 0
+

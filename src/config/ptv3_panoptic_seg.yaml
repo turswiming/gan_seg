@@ -25,7 +25,8 @@ model:
   mask:
     name: "PTV3Panoptic"
     lr: 1e-3
-    weight_decay: 0.0
+    weight_decay: 0.005
+    block_lr_scale: 0.1  # Backbone learning rate = lr * block_lr_scale (official PTv3 setting)
     slot_num: 20
     lr_decay: 0.7
     lr_decay_step: 80000

@@ -232,6 +232,11 @@ class PTV3MaskPredictor(nn.Module):
         masks = F.softmax(mask_logits, dim=1)
         
         return masks
+    def load_pretrained_from_hub(self, pretrained_name=None):
+        if pretrained_name is None:
+            raise ValueError("Pretrained name is required")
+        self.backbone.from_pretrained(f"facebook/sonota/{pretrained_name}")
+        return self
 
 
 class PTV3PanopticPredictor(nn.Module):

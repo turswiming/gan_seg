@@ -317,8 +317,8 @@ def create_dataloaders_general(config):
     else:
         val_mask_indices = np.random.permutation(len(val_mask_dataset)).tolist()
     print(f"val_flow_dataset indices: {val_flow_indices[:5]}..., val_mask_dataset indices: {val_mask_indices[:5]}...")
-    sampler_val_flow = SubsetRandomSampler(val_flow_indices)
-    sampler_val_mask = SubsetRandomSampler(val_mask_indices)
+    sampler_val_flow = SubsetRandomSampler(val_flow_indices,generator=torch.Generator().manual_seed(config.seed))
+    sampler_val_mask = SubsetRandomSampler(val_mask_indices,generator=torch.Generator().manual_seed(config.seed))
     val_flow_dataloader = torch.utils.data.DataLoader(
         val_flow_dataset, batch_size=config.dataloader.val_batchsize, sampler=sampler_val_flow, num_workers=config.dataloader.num_workers, collate_fn=collect_fn
     )

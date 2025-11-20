@@ -128,11 +128,15 @@ def inference_models_general(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     point_cloud_firsts = [s["point_cloud_first"].to(device).float() for s in sample]
     point_cloud_nexts = [s["point_cloud_next"].to(device).float() for s in sample]
+    valid_mask_firsts = [s["valid_mask_first"].to(device).bool() for s in sample]
+    valid_mask_nexts = [s["valid_mask_next"].to(device).bool() for s in sample]
     gt_flows = [s["flow"].to(device).float() for s in sample]
     if hasattr(config.training, "use_icp_inference_flow") and not config.training.use_icp_inference_flow:
         return_value = forward_scene_flow_general_old(
             point_cloud_firsts,
             point_cloud_nexts,
+            valid_mask_firsts,
+            valid_mask_nexts,
             flow_predictor,
             config.dataset.name,
             train_flow=train_flow,
@@ -179,6 +183,8 @@ def inference_models_general(
 def forward_scene_flow_general_old(
     point_cloud_firsts,
     point_cloud_nexts,
+    valid_mask_firsts,
+    valid_mask_nexts,
     flow_predictor,
     dataset_name,
     train_flow=False,
@@ -221,6 +227,10 @@ def forward_scene_flow_general_old(
     elif isinstance(flow_predictor, FastFlow3D):
         first_masks = [torch.ones(pc.shape[0], device=pc.device).bool() for pc in point_cloud_firsts]
         next_masks = [torch.ones(pc.shape[0], device=pc.device).bool() for pc in point_cloud_nexts]
+        if valid_mask_firsts is not None:
+            first_masks = [mask & ground_mask for mask, ground_mask in zip(first_masks, valid_mask_firsts)]
+        if valid_mask_nexts is not None:
+            next_masks = [mask & ground_mask for mask, ground_mask in zip(next_masks, valid_mask_nexts)]
         first_inputs = [[pc, mask] for pc, mask in zip(point_cloud_firsts, first_masks)]
         next_inputs = [[pc, mask] for pc, mask in zip(point_cloud_nexts, next_masks)]
         transform_inputs = [
@@ -352,10 +362,17 @@ def forward_scene_flow_general(
 
 def forward_mask_prediction_general(pc_tensors, mask_predictor):
     pred_masks = []
-    if len(set([pc.shape[1] for pc in pc_tensors])) == 1:
+    if len(set([pc.shape[0] for pc in pc_tensors])) == 1:
         pc_tensors = torch.cat([pc.unsqueeze(0) for pc in pc_tensors], dim=0)
         from model.ptv3_mask_predictor import PTV3MaskPredictor
-        if isinstance(mask_predictor, PTV3MaskPredictor):
+        from model.ptv3_pointgroup import PointGroup
+        from model.ptv3_mask3d import PTV3Mask3D
+
+        if (
+            isinstance(mask_predictor, PTV3MaskPredictor)
+            or isinstance(mask_predictor, PTV3Mask3D)
+            or isinstance(mask_predictor, PointGroup)
+        ):
             pred_mask = mask_predictor.forward(pc_tensors)
             pred_mask = pred_mask.permute(0, 2, 1)
         else:
@@ -364,11 +381,19 @@ def forward_mask_prediction_general(pc_tensors, mask_predictor):
             pred_masks.append(pred_mask[i].permute(1, 0))
         return pred_masks
     for pc_tensor in pc_tensors:
-        pc_tensor = pc_tensor.unsqueeze(0).contiguous()
-        pred_mask = mask_predictor.forward(pc_tensor, pc_tensor)
-        pred_mask = pred_mask.squeeze(0)
-        pred_mask = pred_mask.permute(1, 0)
-        pred_masks.append(pred_mask)
+        from model.ptv3_mask_predictor import PTV3MaskPredictor
+
+        if isinstance(mask_predictor, PTV3MaskPredictor):
+            pred_mask = mask_predictor.forward(pc_tensor)
+            # pred_mask = pred_mask.permute(0, 2, 1)
+            pred_masks.append(pred_mask.squeeze(0))
+        else:
+            pred_mask = mask_predictor.forward(pc_tensor, pc_tensor)
+            pc_tensor = pc_tensor.unsqueeze(0).contiguous()
+            pred_mask = mask_predictor.forward(pc_tensor, pc_tensor)
+            pred_mask = pred_mask.squeeze(0)
+            pred_mask = pred_mask.permute(1, 0)
+            pred_masks.append(pred_mask)
     return pred_masks
 
 
