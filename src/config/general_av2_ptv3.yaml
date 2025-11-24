@@ -7,7 +7,7 @@ log:
 
 checkpoint:
   resume: false        # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251119_152649/checkpoints/step_2000.pt"
+  resume_path: "/workspace/gan_seg/outputs/exp/20251123_113524/checkpoints/step_15000.pt"
   overwrite_flow_predictor: true
   overwrite_flow_path: "/workspace/zeroflow_weights/argo/chamfer/checkpoint_epoch=049_step=0000078750_epoch_end.ckpt"
   save_every_iters: 500
@@ -23,24 +23,33 @@ model:
       SEQUENCE_LENGTH: 2
   mask:
     name: "MaskFormer3D"
-    lr: 2e-3
+    lr: 2e-4
     weight_decay: 0.005
     block_lr_scale: 0.1  # Backbone learning rate = lr * block_lr_scale (official PTv3 setting)
-    slot_num: 15
-    num_classes: 5
+    slot_num: 30
+    num_classes: 6
     lr_decay: 0.7
     lr_decay_step: 80000
     lr_clip: 1e-7
+    MaskFormer3D:
+      n_slot: 64
+      n_point: 32768
+      use_xyz: true
+      bn: true
+      n_transformer_layer: 4
+      transformer_embed_dim: 256
+      transformer_input_pos_enc: false
+      scale: 2
     PTV3:
       in_channels: 3  # xyz coordinates
       feat_dim: 256
-      grid_size: 0.05  # Grid size for voxelization (10cm)
+      grid_size: 0.1  # Grid size for voxelization (10cm)
       enable_flash: true  # Enable flash attention (requires CUDA >= 11.6)
       enable_rpe: false  # Relative position encoding (disabled when flash attention is enabled)
       enc_depths: [2, 2, 2, 6, 2]  # Encoder depths for each stage
       enc_channels: [32, 64, 128, 256, 512]  # Encoder channels for each stage
       dec_depths: [2, 2, 2, 2]  # Decoder depths
-      dec_channels: [64, 64, 128, 256]  # Decoder channels
+      dec_channels: [256, 256, 256, 256]  # Decoder channels
       # Self-supervised pretrained model (Sonata)
       # pretrained_name: "Sonata-Small"  # Use Sonata self-supervised pretrained model
       # Alternative options:
@@ -50,6 +59,7 @@ model:
 dataset:
   name: "AV2_SceneFlowZoo"
   AV2_SceneFlowZoo:
+    point_size: 32768
     root_dir: "/workspace/av2data/train"
     subsequence_length: 2
     sliding_window_step_size: 1
@@ -64,6 +74,7 @@ dataset:
 
   val_name: "AV2_SceneFlowZoo_val"
   AV2_SceneFlowZoo_val_flow:
+    point_size: 32768
     root_dir: "/workspace/av2data/val"
     with_ground: false
     with_rgb: false
@@ -74,6 +85,7 @@ dataset:
     flow_data_path: "/workspace/av2flow/val/"
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
   AV2_SceneFlowZoo_val_mask:
+    point_size: 32768
     root_dir: "/workspace/av2data/val"
     with_ground: false
     with_rgb: false
@@ -85,14 +97,14 @@ dataset:
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
     min_instance_size: 50
 lr_multi:
-  rec_loss: 0
+  rec_loss: 3
   flow_loss: 0.0
-  scene_flow_smoothness: 1
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
-  point_smooth_loss: 1
+  point_smooth_loss: 0.1
   eular_flow_loss: 0.0
   KDTree_loss: 0
-  KNN_loss: 1
+  KNN_loss: 4
   l1_regularization: 0.0
   eular_mask_loss: 0
   invariance_loss: 0.1
@@ -108,14 +120,15 @@ lr_multi:
 training:
   use_icp_inference_flow: false
   max_iter: 300000
-  eval_loop: 100
+  eval_loop: 500
   begin_train_smooth: 0
-  begin_train_point_smooth: 100
-  begin_train_flow: 6000
+  begin_train_point_smooth: 3000
+  begin_train_flow: 20000
   begin_train_mask: 0
-  begin_train_invariance: 1500
+  begin_train_invariance: 7500
+  begin_train_singular_value: 6000
   mask_downsample_factor: 1
-  # loss_downsample_num: 8192
+  # loss_downsample_num: 32768
   grad_accumulation_steps: 4
   augment_params:
     regression_center_point: [true, true, true]
@@ -126,21 +139,22 @@ training:
     mirror_x: true
     mirror_z: false
 dataloader:
-  batchsize: 4
-  val_batchsize: 64
-  num_workers: 4
+  batchsize: 2
+  val_batchsize: 32
+  num_workers: 8
 loss:
   scale_flow_magnitude: 1
   clamp_flow_magnitude: 100
   scene_flow_smoothness:
     square_mask: false 
-    scale_flow_grad: 0.0001
+    scale_flow_grad: 0.00001
     each_mask_item:
-      relative_gradient: 0
+      relative_gradient: 1
       criterion: "L2"
     sum_mask_item:
       relative_gradient: 1
       criterion: "L2"
+    singular_value_loss_gradient: 0.001
   point_smooth_loss:
     knn_loss_params:
       k: 32
@@ -164,9 +178,9 @@ vis:
   debug_grad: false
 
 eval:
-  eval_size: 10
-  eval_flow_size: 10
-  eval_mask_size: 10
+  eval_size: 20
+  eval_flow_size: 20
+  eval_mask_size: 20
   min_points: 50
   ignore_class_ids: [-1,0]
 

@@ -192,6 +192,7 @@ def get_mask_predictor(mask_model_config, N):
             n_transformer_layer=mask_model_config.MaskFormer3D.n_transformer_layer,
             transformer_embed_dim=mask_model_config.MaskFormer3D.transformer_embed_dim,
             transformer_input_pos_enc=mask_model_config.MaskFormer3D.transformer_input_pos_enc,
+            scale=getattr(mask_model_config.MaskFormer3D, 'scale', 1),
         ).cuda()
         return mask_former
     elif mask_model_config.name == "PTV3":
@@ -260,12 +261,34 @@ def get_mask_predictor(mask_model_config, N):
             min_points_per_instance=50,
             grid_size=0.05,
         ).to(device)
+    elif mask_model_config.name == "PTV3MaskFormer3D":
+        from model.ptv3_maskformer3d import PTV3MaskFormer3D
+
+        ptv3_config = getattr(mask_model_config, 'PTV3', OmegaConf.create({}))
+        print(tuple(getattr(ptv3_config, 'dec_channels', [64, 64, 128, 256])))
+        return PTV3MaskFormer3D(
+            n_slot=mask_model_config.slot_num,
+            feat_dim=getattr(ptv3_config, 'feat_dim', 256),
+            transformer_embed_dim=getattr(ptv3_config, 'transformer_embed_dim', 256),
+            n_transformer_layer=getattr(ptv3_config, 'n_transformer_layer', 2),
+            transformer_n_head=getattr(ptv3_config, 'transformer_n_head', 8),
+            transformer_input_pos_enc=getattr(ptv3_config, 'transformer_input_pos_enc', False),
+            in_channels=getattr(ptv3_config, 'in_channels', 3),
+            grid_size=getattr(ptv3_config, 'grid_size', 0.01),
+            enable_flash=getattr(ptv3_config, 'enable_flash', True),
+            enable_rpe=getattr(ptv3_config, 'enable_rpe', False),
+            enc_depths=tuple(getattr(ptv3_config, 'enc_depths', [2, 2, 2, 6, 2])),
+            enc_channels=tuple(getattr(ptv3_config, 'enc_channels', [32, 64, 128, 256, 512])),
+            dec_depths=tuple(getattr(ptv3_config, 'dec_depths', [2, 2, 2, 2])),
+            dec_channels=tuple(getattr(ptv3_config, 'dec_channels', [64, 64, 128, 256])),
+        ).to(device)
     elif mask_model_config.name == "PTV3Mask3D":
         from model.ptv3_mask3d import PTV3Mask3D
         return PTV3Mask3D(
             num_queries=mask_model_config.slot_num,
             num_classes=getattr(mask_model_config, 'num_classes', 10),
             in_channels=3,
+            grid_size=0.05,
             feat_dim=256,
         ).to(device)
     else:

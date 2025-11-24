@@ -367,11 +367,12 @@ def forward_mask_prediction_general(pc_tensors, mask_predictor):
         from model.ptv3_mask_predictor import PTV3MaskPredictor
         from model.ptv3_pointgroup import PointGroup
         from model.ptv3_mask3d import PTV3Mask3D
-
+        from model.ptv3_maskformer3d import PTV3MaskFormer3D
         if (
             isinstance(mask_predictor, PTV3MaskPredictor)
             or isinstance(mask_predictor, PTV3Mask3D)
             or isinstance(mask_predictor, PointGroup)
+            or isinstance(mask_predictor, PTV3MaskFormer3D)
         ):
             pred_mask = mask_predictor.forward(pc_tensors)
             pred_mask = pred_mask.permute(0, 2, 1)

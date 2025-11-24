@@ -1,10 +1,10 @@
 # baseconfig.yaml
 # This is a base configuration file that sets default values for various parameters.
-seed: 42
+__base__: "baseconfig.yaml"
 # ==================== Logging Configuration ====================
 log:
   name: "defaultname"
-  dir: "" # default save to /output/exp
+  dir: "../output/ablation/coord/Projection" # default save to /output/exp
   tensorboard_log_interval: 7  # Log losses every N steps
 
 # ==================== Model Configuration ====================
@@ -14,158 +14,61 @@ model:
   euler_mask_models: ["EulerMaskMLP", "EulerMaskMLPResidual", "EulerMaskMLPRoutine"]
   
   flow:
-    name: "NSFP" # NSFP or OptimizedFlow or EularFlow
+    name: "FastFlow3D" # NSFP or OptimizedFlow or EularFlow
     lr: 0.0001
-    # Common flow model configurations
-    NSFP:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
-    EulerFlowMLP:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
-    EulerFlowMLPResidual:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
+    FastFlow3D:
+      VOXEL_SIZE: [0.2, 0.2, 6]
+      PSEUDO_IMAGE_DIMS: [512, 512]
+      POINT_CLOUD_RANGE: [-51.2, -51.2, -3, 51.2, 51.2, 3]
+      FEATURE_CHANNELS: 32
+      SEQUENCE_LENGTH: 2
       
   mask:
     lr: 0.0001
-    name: "NMP" # OptimizedMask or NMP or EulerMaskMLP
-    slot_num: 30
-    weight_decay: 0.0
-    lr_decay: 0.7
-    lr_decay_step: 10000
-    lr_clip: 1e-5
-    # Common mask model configurations
-    NMP:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
-    EulerMaskMLP:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
-    EulerMaskMLPResidual:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
-    EulerMaskMLPRoutine:
-      num_layers: 8
-      num_hidden: 128
-      activation: "leakyrelu"
+    name: "MaskFormer3D" # OptimizedMask or NMP or EulerMaskMLP
+    slot_num: 10
+    MaskFormer3D:
+      n_point: 2048
+      n_transformer_layer: 2
+      transformer_embed_dim: 128
+      transformer_input_pos_enc: false
 
 # ==================== Checkpoint Configuration ====================
 checkpoint:
   resume: false
   resume_path: "/home/lzq/workspace/gan_seg/outputs/ablation/mask_model/AV2Sequence/ours_4additional/run_0/checkpoints/step_4000.pt"
-  save_every_iters: 1000
+  save_every_iters: 200
   checkpoint_dir_name: "checkpoints"
   latest_checkpoint_name: "latest.pt"
-  overwrite_flow_predictor: false
-  overwrite_flow_path: "/workspace/zeroflow_weights/argo/chamfer/checkpoint_epoch=049_step=0000078750_epoch_end.ckpt"
+
 # ==================== Dataset Configuration ====================
 dataset:
-  name: "AV2" # MOVI_F or AV2 or KITTISF or AV2Sequence
-  val_name: "AV2"
-  
-  # Dataset-specific configurations
-  KITTISF:
-    data_root: "../kittisf"
-    downsampled: false
-    fixed_scene_id: "000001"
-    num_points: 8192
-    val_name: "KITTISF"
-    # Subdirectory structure
-    processed_subdir: "processed"  # For non-downsampled data
-    data_subdir: "data"           # For downsampled data
-    
-  AV2:
-    fixed_scene_idx: 100
-    data_root: "../argoverse2"
-    # Scene file paths
-    train_scene_path: "/workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5"
-    test_scene_path: "/workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5"
-    # Motion parameters
-    fix_ego_motion: true
-    apply_ego_motion: true
-    motion_threshold: 0.05  # m/s threshold for dynamic points
-    
-  MOVI_F:
-    data_root: "../movi_f"
-    num_points: 8192
-    dataset_path: "../movi_f/dataset"
-    motion_threshold: 0.01
-    # File patterns
-    depth_file_pattern: "depth_*.tiff"
-    segmentation_file_pattern: "segmentation_*.png"
-    metadata_file: "metadata.json"
-    # Subdirectory structure for different components
-    metadata_subdir: "metadata/480p"
-    depth_subdir: "Depth/480p"
-    annotations_subdir: "Annotations/480p"
-    jpeg_subdir: "JPEGImages/480p"
-    
-  AV2Sequence:
-    data_root: "../argoverse2_sequence"
-    sequence_length: 10
-    max_k: 3
-    # Same motion parameters as AV2
-    fix_ego_motion: true
-    apply_ego_motion: true
-    motion_threshold: 0.05
-    
+  name: "MOVI_FSequence" # MOVI_F or AV2 or KITTISF or AV2Sequence
+  val_name: "MOVI_FSequence"
   MOVI_FSequence:
-    data_root: "../movi_f_sequence"
-    dataset_path: "../movi_f_sequence/dataset"
+    dataset_path: "/workspace/movi/0"
+    motion_threshold: 0.01
     max_k: 3
-    motion_threshold: 0.05
-    fixed_scene_idx: 5
-    # File patterns (same as MOVI_F)
-    depth_file_pattern: "depth_*.tiff"
-    segmentation_file_pattern: "segmentation_*.png"
-    metadata_file: "metadata.json"
-    
-  KITTISequence:
-    data_root: "../kitti_sequence"
-    max_k: 3
-    num_points: 8192
-    downsampled: false
-    motion_threshold: 0.05
-    # Subdirectory structure (same as KITTISF)
-    processed_subdir: "processed"
-    data_subdir: "data"
 
 # ==================== Training Configuration ====================
 training:
-  max_iter: 30000
+  max_iter: 500
   eval_loop: 100
   begin_train_smooth: 0
   begin_train_mask: 0
-  begin_train_point_smooth: 0
+  begin_train_point_smooth: 50
   begin_train_flow: 0
-  begin_train_singular_value: 0
-  mask_downsample_factor: 2
+  begin_train_invariance: 500
+  mask_downsample_factor: 1
   flow_model_grad_clip: 1
   mask_model_grad_clip: 1
   # Training loop settings
   continue_on_optimization_error: true
   max_optimization_retries: 3
-  grad_accumulation_steps: 1
-  augment_params:
-    regression_center_point: [false, false, false]
-    angle_range: [0, 0]
-    rotate_axis: "z"
-    translation_range: [0, 0,0]
-    scale_range: [1, 1]
-    mirror_x: false
-    mirror_z: false
 
 # ==================== DataLoader Configuration ====================
 dataloader:
   batchsize: 1
-  val_batchsize: 1
   num_workers: 0
   pin_memory: true
   drop_last: false
@@ -177,17 +80,17 @@ alternate:
 
 # ==================== Loss Multipliers Configuration ====================
 lr_multi:
-  rec_loss: 1.0
+  rec_loss: 0
   flow_loss: 0.0
-  scene_flow_smoothness: 1.0
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
-  point_smooth_loss: 0.01
+  point_smooth_loss: 0.1
   eular_flow_loss: 0.0
-  KDTree_loss: 0.0
+  KDTree_loss: 0
   KNN_loss: 1.0
   l1_regularization: 0.0
   eular_mask_loss: 0
-  invariance_loss: 0.0
+  invariance_loss: 0.1
   
   # Scheduler configuration
   scene_flow_smoothness_scheduler:
@@ -198,22 +101,17 @@ lr_multi:
 
 # ==================== Loss Function Configuration ====================
 loss:
-  scale_flow_magnitude: 1
-  clamp_flow_magnitude: 100
-  reconstruction_loss:
-    
   # Scene flow smoothness loss
   scene_flow_smoothness:
-    square_mask: false
     scale_flow_grad: 0.001
     each_mask_item:
-      relative_gradient: 0
+      relative_gradient: 1
       criterion: "L1"
     sum_mask_item:
       relative_gradient: 1
       criterion: "L2"
-    singular_value_loss_gradient: 0.0
-
+    square_mask: false
+  
   # KDTree loss configuration
   kdtree:
     max_distance: 1.0
@@ -237,15 +135,6 @@ loss:
   chamfer:
     bidirectional: true
     normalize: false
-  point_smooth_loss:
-    knn_loss_params:
-      k: 32
-      radius: 1.
-      loss_norm: 1
-    ball_q_loss_params:
-      k: 64
-      radius: 2.
-      loss_norm: 1
 
 # ==================== Visualization Configuration ====================
 vis:
@@ -305,8 +194,5 @@ debug:
   # Error handling
   stop_on_nan: true
   stop_on_inf: true
-
 eval:
-  eval_size: 100
-  min_points: 0
-  ignore_class_ids: []
+  eval_size: 10

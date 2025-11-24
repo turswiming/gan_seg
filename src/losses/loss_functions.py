@@ -86,10 +86,15 @@ def compute_scene_flow_smoothness_loss(
 ):
     """Compute scene flow smoothness loss."""
     if config.lr_multi.scene_flow_smoothness > 0 and step > config.training.begin_train_smooth:
-        scene_flow_smooth_loss, robust_loss = loss_functions["flow_smooth"](point_cloud_firsts, pred_mask, pred_flow,return_robust_loss=True)
+        scene_flow_smooth_loss = loss_functions["flow_smooth"](
+            point_cloud_firsts,
+            pred_mask,
+            pred_flow,
+            singular_value_loss=step > config.training.begin_train_singular_value,
+        )
         scene_flow_smooth_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
         scene_flow_smooth_loss = scene_flow_smooth_loss * scene_flow_smoothness_scheduler(step)
-        robust_loss = robust_loss * config.lr_multi.scene_flow_smoothness
+        robust_loss = scene_flow_smooth_loss * config.lr_multi.scene_flow_smoothness
         robust_loss = robust_loss * scene_flow_smoothness_scheduler(step)
     else:
         scene_flow_smooth_loss = torch.tensor(0.0, device=device, requires_grad=True)
@@ -241,7 +246,7 @@ def compute_knn_loss(
             if hasattr(config.loss.knn, "background_threshold"):
                 flowmagnitude = torch.norm(pred_flow_filtered, dim=1)
                 background_mask = flowmagnitude < config.loss.knn.background_threshold
-                l[:,background_mask] = l[:,background_mask]*0.1
+                l[:, background_mask] = l[:, background_mask] * 0.5
             if config.loss.knn.reduction == "none":
                 l = l.mean()
             knn_dist_loss += l
@@ -256,11 +261,11 @@ def compute_knn_loss(
                     else:
                         pred_second_point_cascade = point_cloud_firsts[i][:, :3].to(device) + cascade_flow[i]
                         target_points = point_cloud_nexts[i][:, :3].to(device)
-                    l = loss_functions["knn"](pred_second_point_cascade, target_points , forward_only=True)
+                    l = loss_functions["knn"](pred_second_point_cascade, target_points, forward_only=True)
                     if hasattr(config.loss.knn, "background_threshold"):
                         flowmagnitude = torch.norm(cascade_flow_filtered, dim=1)
                         background_mask = flowmagnitude < config.loss.knn.background_threshold
-                        l[:,background_mask] = l[:,background_mask]*0.1
+                        l[:, background_mask] = l[:, background_mask] * 0.5
                     if config.loss.knn.reduction == "none":
                         l = l.mean()
                     knn_dist_loss += l
@@ -272,7 +277,7 @@ def compute_knn_loss(
                 if hasattr(config.loss.knn, "background_threshold"):
                     flowmagnitude = torch.norm(pred_points, dim=1)
                     background_mask = flowmagnitude < config.loss.knn.background_threshold
-                    l[:,background_mask] = l[:,background_mask]*0.1
+                    l[:, background_mask] = l[:, background_mask] * 0.5
                 if config.loss.knn.reduction == "none":
                     l = l.mean()
                 knn_dist_loss += l
@@ -398,8 +403,9 @@ def compute_all_losses(
         pred_flow,
         longterm_pred_flow,
         sample,
-        train_flow,
-        device,
+        cascade_flow_outs=None,
+        train_flow=train_flow,
+        device=device,
     )
 
     # Regularization loss
@@ -431,16 +437,17 @@ def compute_invariance_loss(config, loss_functions, point_cloud_firsts, pred_mas
     """Compute invariance loss."""
     if config.lr_multi.invariance_loss > 0 and step > config.training.begin_train_invariance:
         from utils.forward_utils import augment_transform, forward_mask_prediction_general
+
         pc_aug_list = []
         for i in range(len(point_cloud_firsts)):
             pc_aug, _, _, _ = augment_transform(
                 point_cloud_firsts[i],
-                point_cloud_firsts[i],#should be point_cloud_nexts, i just input some meaningless data
-                point_cloud_firsts[i],#should be flow, i just input some meaningless data, which will be ignored
+                point_cloud_firsts[i],  # should be point_cloud_nexts, i just input some meaningless data
+                point_cloud_firsts[i],  # should be flow, i just input some meaningless data, which will be ignored
                 None,
                 config.training.augment_params,
             )
-            
+
             pc_aug_list.append(pc_aug)
         pred_mask_aug = forward_mask_prediction_general(pc_aug_list, mask_predictor)
         pred_mask_aug = torch.stack([mask.permute(1, 0) for mask in pred_mask_aug])
@@ -494,15 +501,32 @@ def compute_all_losses_general(
     """
     scaled_pred_flow = [flow * config.loss.scale_flow_magnitude for flow in pred_flow]
     if getattr(config.loss, "clamp_flow_magnitude", None) is not None:
-        scaled_pred_flow = [torch.clamp(flow, -config.loss.clamp_flow_magnitude, config.loss.clamp_flow_magnitude) for flow in scaled_pred_flow]
+        scaled_pred_flow = [
+            torch.clamp(flow, -config.loss.clamp_flow_magnitude, config.loss.clamp_flow_magnitude)
+            for flow in scaled_pred_flow
+        ]
     # Reconstruction losses
     rec_loss, rec_flow_loss, reconstructed_points = compute_reconstruction_loss(
-        config, loss_functions, point_cloud_firsts, point_cloud_nexts, pred_mask.copy(), scaled_pred_flow, train_mask, device
+        config,
+        loss_functions,
+        point_cloud_firsts,
+        point_cloud_nexts,
+        pred_mask.copy(),
+        scaled_pred_flow,
+        train_mask,
+        device,
     )
 
     # Scene flow smoothness loss
     scene_flow_smooth_loss, robust_loss = compute_scene_flow_smoothness_loss(
-        config, loss_functions, point_cloud_firsts, pred_mask.copy(), scaled_pred_flow, step, scene_flow_smoothness_scheduler, device
+        config,
+        loss_functions,
+        point_cloud_firsts,
+        pred_mask.copy(),
+        scaled_pred_flow,
+        step,
+        scene_flow_smoothness_scheduler,
+        device,
     )
 
     # Point smoothness loss

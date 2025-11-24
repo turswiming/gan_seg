@@ -1,0 +1,96 @@
+# General configuration for PTv3 + MaskFormer3D
+# This combines PTv3 backbone with the proven MaskFormer3D head (paper implementation)
+
+log:
+  name: "ptv3_maskformer3d"
+  dir: ""
+
+model:
+  flow:
+    name: "NSFP"
+    lr: 0.0001
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: "leakyrelu"
+  mask:
+    name: "PTV3MaskFormer3D"  # Use the new PTv3 + MaskFormer3D model
+    lr: 0.0003  # Same as paper's AdamW 3e-4
+    slot_num: 20  # Number of instance queries
+
+    # Parameters for PTV3MaskFormer3D model
+    PTV3MaskFormer3D:
+      # MaskFormer head parameters (from paper)
+      feat_dim: 256
+      transformer_embed_dim: 256
+      n_transformer_layer: 2
+      transformer_n_head: 8
+      transformer_input_pos_enc: false
+
+      # PTv3 backbone parameters
+      in_channels: 3
+      grid_size: 0.01
+      enable_flash: true
+      enable_rpe: false
+      enc_depths: [2, 2, 2, 6, 2]
+      enc_channels: [32, 64, 128, 256, 512]
+      dec_depths: [2, 2, 2, 2]
+      dec_channels: [64, 64, 128, 256]
+
+      # Optional: pretrained backbone
+      # pretrained_path: null
+      # pretrained_name: "ptv3_s3dis_mini"
+
+dataset:
+  name: "AV2"  # AV2 or KITTISF
+  AV2:
+    data_root: "../av2"
+    downsampled: false
+    fixed_scene_id: null  # Set to scene ID for testing, null for random
+    num_points: 8192
+
+  KITTISF:
+    data_root: "../kittisf"
+    downsampled: false
+    fixed_scene_id: null
+    num_points: 8192
+
+training:
+  max_iter: 60000  # Train for ~6 epochs as in paper
+
+dataloader:
+  batchsize: 12
+
+# Loss weights (recommendations from paper)
+loss:
+  # Scaled rigid reconstruction loss (main supervision)
+  rigid:
+    weight: 15.0
+  coverage:
+    weight: 15.0
+
+  # Auxilliary mask losses
+  point_smooth:
+    weight: 0.1
+    k: 16  # Number of neighbors
+  invariance:
+    weight: 0.1
+
+  # Flow losses
+  chamfer:
+    weight: 1.0
+    threshold: 0.05  # From paper's scaled chamfer
+
+  # Optional: OGC-style dynamic loss
+  dynamic:
+    weight: 10.0
+
+# Alternation frequency (0 = joint training)
+alternate:
+  flow: [[0, true]]  # 0 = always train
+  mask: [[0, true]]  # 0 = always train
+
+# ---------------------------------------------
+# Example usage:
+# python main.py model.mask.slot_num=20 dataset.name=AV2
+# ---------------------------------------------

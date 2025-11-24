@@ -133,7 +133,7 @@ def process_one_sample(metadata_path,dep_img_path,segmentation_path, visualize=F
         internal_matrix = K * res
         fx, fy = internal_matrix[0, 0], internal_matrix[1, 1]
         cx, cy = internal_matrix[0, 2], internal_matrix[1, 2]
-        camera_space_points = image_reverse_projection(distance, fx, fy, cx, cy)
+        camera_space_points = image_reverse_projection(distance, fx, fy, cx, cy,res)
         camera_space_points = camera_space_points.reshape(-1, 3)
         world_space_points = camera_space_to_world_space(camera_space_points, camera_position, camera_quaternion)
         world_space_points_list.append(world_space_points)

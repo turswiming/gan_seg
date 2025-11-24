@@ -37,13 +37,24 @@ def point_reverse_projection(
     z = distance * z
     return PROJECTION_FACTOR[0]*x, PROJECTION_FACTOR[1]*y, PROJECTION_FACTOR[2]*z
     
+def construct_projection_points(
+    distance_map:np.ndarray,
+    fx:float,
+    fy:float,
+    cx:float,
+    cy:float
+    ) -> np.ndarray:
+    """
+    Construct projection points from the distance map.
+    """
 
 def image_reverse_projection(
     distance_map:np.ndarray,
     fx:float,
     fy:float,
     cx:float,
-    cy:float
+    cy:float,
+    res:float
     ) -> np.ndarray:
     """
     Parameters:
@@ -60,9 +71,40 @@ def image_reverse_projection(
     u_mesh_origin = u_mesh_origin.astype(np.float32)
     v_mesh_origin = v_mesh_origin.astype(np.float32)
 
-    u_mesh = (u_mesh_origin + cx) / fx
-    v_mesh = (v_mesh_origin + cy) / fy
+    u_mesh = (u_mesh_origin + cx*res) / (fx * res)
+    v_mesh = (v_mesh_origin + cy*res) / (fy * res)
     z = distance_map / np.sqrt(1 + u_mesh**2 + v_mesh**2)
+    x = z * u_mesh
+    y = z * v_mesh
+    camera_space_points = np.stack((PROJECTION_FACTOR[0]*x, PROJECTION_FACTOR[1]*y, PROJECTION_FACTOR[2]*z), axis=-1)
+    return camera_space_points
+
+def image_reverse_projection_get_projection_coordinates(
+    distance_map:np.ndarray,
+    fx:float,
+    fy:float,
+    cx:float,
+    cy:float,
+    res:float
+    ) -> np.ndarray:
+    """
+    Parameters:
+        distance_map (np.ndarray): Distance map (originated from movi_f, not a depth map).
+        fx (float): Focal length in the x direction. Remember to multiply by the resolution.
+        fy (float): Focal length in the y direction. Remember to multiply by the resolution.
+        cx (float): Principal point x-coordinate (negative value, same as in movi_f). Remember to multiply by the resolution.
+        cy (float): Principal point y-coordinate (negative value, same as in movi_f). Remember to multiply by the resolution.
+    Returns:
+        np.ndarray: 3D point cloud in camera space.
+    """
+    height, width = distance_map.shape
+    u_mesh_origin, v_mesh_origin = np.meshgrid(np.arange(width), np.arange(height))
+    u_mesh_origin = u_mesh_origin.astype(np.float32)
+    v_mesh_origin = v_mesh_origin.astype(np.float32)
+
+    u_mesh = (u_mesh_origin + cx*res) / (fx * res)
+    v_mesh = (v_mesh_origin + cy*res) / (fy * res)
+    z = distance_map #/ np.sqrt(1 + u_mesh**2 + v_mesh**2)
     x = z * u_mesh
     y = z * v_mesh
     camera_space_points = np.stack((PROJECTION_FACTOR[0]*x, PROJECTION_FACTOR[1]*y, PROJECTION_FACTOR[2]*z), axis=-1)

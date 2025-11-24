@@ -76,7 +76,9 @@ def create_dataloaders(config):
         )
     elif config.dataset.name == "MOVI_F":
         dataset = MOVIFPerSceneDataset(
-            dataset_path=config.dataset.MOVI_F.dataset_path, motion_threshold=config.dataset.MOVI_F.motion_threshold
+            dataset_path=config.dataset.MOVI_F.dataset_path, 
+            motion_threshold=config.dataset.MOVI_F.motion_threshold,
+            fixed_scene_idx=config.dataset.MOVI_F.fixed_scene_idx,
         )
     elif config.dataset.name == "MOVI_FSequence":
         dataset = MOVIFSequenceDataset(
@@ -154,6 +156,18 @@ def create_dataloaders(config):
             num_points=config.dataset.KITTISF.num_points,
             processed_subdir=config.dataset.KITTISF.processed_subdir,
             data_subdir=config.dataset.KITTISF.data_subdir,
+        )
+    elif config.dataset.val_name == "MOVI_F":
+        val_dataset = MOVIFPerSceneDataset(
+            dataset_path=config.dataset.MOVI_F.dataset_path, 
+            motion_threshold=config.dataset.MOVI_F.motion_threshold,
+            fixed_scene_idx=config.dataset.MOVI_F.fixed_scene_idx,
+        )
+    elif config.dataset.val_name == "MOVI_FSequence":
+        val_dataset = MOVIFSequenceDataset(
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=1,
+            motion_threshold=config.dataset.MOVI_FSequence.motion_threshold,
         )
     else:
         raise ValueError(f"Dataset {config.dataset.val_name} not supported")
@@ -247,7 +261,21 @@ def create_dataloaders_general(config):
             seed=config.dataset.KITTISF_new.seed,
             augmentation=False,
         )
-
+    elif config.dataset.name == "MOVI_FSequence":
+        from dataset.movi_f_sequence_dataset import MOVIFSequenceDataset
+        dataset = MOVIFSequenceDataset(
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=config.dataset.MOVI_FSequence.max_k,
+            motion_threshold=config.dataset.MOVI_FSequence.motion_threshold,
+        )
+    elif config.dataset.name == "AV2Sequence":
+        from dataset.av2_dataset import AV2SequenceDataset
+        dataset = AV2SequenceDataset(
+            max_k=config.dataset.AV2Sequence.max_k,
+            fix_ego_motion=config.dataset.AV2Sequence.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2Sequence.apply_ego_motion,
+            motion_threshold=config.dataset.AV2Sequence.motion_threshold,
+        )
     if config.dataset.val_name == "AV2_SceneFlowZoo_val":
         from dataset.av2_sceneflow_zoo import AV2SceneFlowZoo
 
@@ -299,6 +327,32 @@ def create_dataloaders_general(config):
             num_points=config.dataset.KITTISF_new.num_points,
             seed=config.dataset.KITTISF_new.seed,
             augmentation=False,
+        )
+    elif config.dataset.val_name == "MOVI_FSequence":
+        from dataset.movi_f_sequence_dataset import MOVIFSequenceDataset
+        val_flow_dataset = MOVIFSequenceDataset(
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=1,
+            motion_threshold=config.dataset.MOVI_FSequence.motion_threshold,
+        )
+        val_mask_dataset = MOVIFSequenceDataset(
+            dataset_path=config.dataset.MOVI_FSequence.dataset_path,
+            max_k=1,
+            motion_threshold=config.dataset.MOVI_FSequence.motion_threshold,
+        )
+    elif config.dataset.val_name == "AV2Sequence":
+        from dataset.av2_dataset import AV2SequenceDataset
+        val_flow_dataset = AV2SequenceDataset(
+            max_k=1,
+            fix_ego_motion=config.dataset.AV2Sequence.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2Sequence.apply_ego_motion,
+            motion_threshold=config.dataset.AV2Sequence.motion_threshold,
+        )
+        val_mask_dataset = AV2SequenceDataset(
+            max_k=1,
+            fix_ego_motion=config.dataset.AV2Sequence.fix_ego_motion,
+            apply_ego_motion=config.dataset.AV2Sequence.apply_ego_motion,
+            motion_threshold=config.dataset.AV2Sequence.motion_threshold,
         )
     collect_fn = lambda x: x
     sampler_train = RandomSampler(dataset,generator=torch.Generator().manual_seed(config.seed))

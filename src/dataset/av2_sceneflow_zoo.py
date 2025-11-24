@@ -89,37 +89,37 @@ class AV2SceneFlowZoo(Argoverse2CausalSceneFlow):
         return global_flow
 
     def __len__(self):
-        return super().__len__() * 4
+        return super().__len__()
 
     def __getitem__(self, index, _recursion_depth=0):
         # Get sample from parent class
-        sample = super().__getitem__(index // 4)
+        sample = super().__getitem__(index)
 
         point_cloud_first = sample[0].pc.full_global_pc.points
         point_cloud_next = sample[1].pc.full_global_pc.points
 
         valid_mask_first = sample[0].pc.mask
         valid_mask_next = sample[1].pc.mask
-        point_cloud_first_unfull = sample[0].pc.global_pc.points
-        point_cloud_next_unfull = sample[1].pc.global_pc.points
-        center1 = point_cloud_first_unfull.mean(axis=0)
-        center2 = point_cloud_next_unfull.mean(axis=0)
-        center = (center1 + center2) / 2
-        if index % 2 == 0:
-            longitudinal_mask_first = point_cloud_first[:, 0] - center[0] > 0
-            longitudinal_mask_next = point_cloud_next[:, 0] - center[0] > -0.5
+        # point_cloud_first_unfull = sample[0].pc.global_pc.points
+        # point_cloud_next_unfull = sample[1].pc.global_pc.points
+        # center1 = point_cloud_first_unfull.mean(axis=0)
+        # center2 = point_cloud_next_unfull.mean(axis=0)
+        # center = (center1 + center2) / 2
+        # if index % 2 == 0:
+        #     longitudinal_mask_first = point_cloud_first[:, 0] - center[0] > 0
+        #     longitudinal_mask_next = point_cloud_next[:, 0] - center[0] > -0.5
 
-        else:
-            longitudinal_mask_first = center[0] - point_cloud_first[:, 0] > 0
-            longitudinal_mask_next = center[0] - point_cloud_next[:, 0] > -0.5
-        if index / 2 % 2 == 0:
-            lateral_mask_first = point_cloud_first[:, 1] - center[1] > 0
-            lateral_mask_next = point_cloud_next[:, 1] - center[1] > -0.5
-        else:
-            lateral_mask_first = center[1] - point_cloud_first[:, 1] > 0
-            lateral_mask_next = center[1] - point_cloud_next[:, 1] > -0.5
-        valid_mask_first = valid_mask_first & longitudinal_mask_first & lateral_mask_first
-        valid_mask_next = valid_mask_next & longitudinal_mask_next & lateral_mask_next
+        # else:
+        #     longitudinal_mask_first = center[0] - point_cloud_first[:, 0] > 0
+        #     longitudinal_mask_next = center[0] - point_cloud_next[:, 0] > -0.5
+        # if index / 2 % 2 == 0:
+        #     lateral_mask_first = point_cloud_first[:, 1] - center[1] > 0
+        #     lateral_mask_next = point_cloud_next[:, 1] - center[1] > -0.5
+        # else:
+        #     lateral_mask_first = center[1] - point_cloud_first[:, 1] > 0
+        #     lateral_mask_next = center[1] - point_cloud_next[:, 1] > -0.5
+        # valid_mask_first = valid_mask_first & longitudinal_mask_first & lateral_mask_first
+        # valid_mask_next = valid_mask_next & longitudinal_mask_next & lateral_mask_next
         valid_mask_first = torch.from_numpy(valid_mask_first).bool()
         valid_mask_next = torch.from_numpy(valid_mask_next).bool()
         point_cloud_first = point_cloud_first[valid_mask_first, :]

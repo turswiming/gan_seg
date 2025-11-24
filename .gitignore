@@ -1,6 +1,7 @@
 __pycache__
 dataset/*
 outputs/*
+output/*
 demo_data/*
 kittisf/*
 *.zip

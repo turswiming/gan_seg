@@ -70,8 +70,8 @@ class AV2SequenceDataset(nn.Module):
         return self.prepare_item(idx,from_manual=True)
 
     def prepare_item(self, idx,from_manual=False):
-        if idx < self.max_k and not from_manual:
-            return {}
+        # if idx < self.max_k and not from_manual:
+        #     return {}
         if self.fixed_scene_idx is not None and not from_manual:
             idx = self.fixed_scene_idx
         longseq = random.random() < 0.5
@@ -84,13 +84,20 @@ class AV2SequenceDataset(nn.Module):
             cache[idx]["k"] = k
             return cache[idx]
         first_key = keys[idx]
+        second_key = keys[idx + 1]
         first_value = self.av2_dataset[first_key]
+        second_value = self.av2_dataset[second_key]
         valid_mask = first_value["flow_is_valid"]
         cropped_mask = first_value["point_cloud_first_cropped_mask"]
         dynamic_mask = first_value["flow_category"] != 0
         ground_mask = first_value["ground_mask"]
         valid_mask = valid_mask & dynamic_mask & (~ ground_mask) & cropped_mask
+        dynamic_mask_next = second_value["flow_category"] != 0
+        ground_mask_next = second_value["ground_mask"]
+        cropped_mask_next = second_value["point_cloud_first_cropped_mask"]
+        valid_mask_next = second_value["flow_is_valid"] & dynamic_mask_next & (~ ground_mask_next) & cropped_mask_next
         point_cloud_first = first_value["point_cloud_first"][valid_mask]
+        point_cloud_next = second_value["point_cloud_first"][valid_mask_next]
         ego_motion = first_value["ego_motion"]
         
         flow = first_value["flow"]
@@ -120,7 +127,8 @@ class AV2SequenceDataset(nn.Module):
         sample = {
             "point_cloud_first": point_cloud_first,
             "flow": flow,
-            'dynamic_instance_mask': dynamic_instance_mask,
+            "point_cloud_next": point_cloud_next,
+            'mask': dynamic_instance_mask,
             'background_static_mask': background_static_mask,
             'foreground_static_mask': foreground_static_mask,
             'foreground_dynamic_mask': foreground_dynamic_mask,
@@ -129,6 +137,9 @@ class AV2SequenceDataset(nn.Module):
             "self": self,
             "k": k,
             "ego_motion": ego_motion,
+            'sequence_id': first_key,
+            "valid_mask_first": torch.ones(point_cloud_first.shape[0]),
+            "valid_mask_next": torch.ones(point_cloud_next.shape[0]),
 
         }
         cache[idx] = sample

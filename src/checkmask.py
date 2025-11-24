@@ -75,8 +75,9 @@ generator = torch.Generator().manual_seed(42)
 mask_dataloader = DataLoader(av2_sceneflow_zoo_mask, batch_size=10, shuffle=True, generator=generator)
 # 加载配置文件
 config_path = "//workspace/gan_seg/outputs/exp/20251111_132106run3/config.yaml"
+config_path = "/workspace/gan_seg/outputs/exp/20251123_113524/config.yaml"
 config = OmegaConf.load(config_path)
-config.model.mask.slot_num = 20
+# config.model.mask.slot_num = 20
 checkpoint_lists = [
     "/workspace/gan_seg/outputs/exp/20251111_080942run2/checkpoints/step_6000.pt",
     "/workspace/gan_seg/outputs/exp/20251111_080942run2/checkpoints/step_9900.pt",
@@ -86,9 +87,7 @@ checkpoint_lists = [
     "/workspace/gan_seg/outputs/exp/20251112_142843run4/checkpoints/step_50000.pt",
     "/workspace/gan_seg/outputs/exp/20251112_142843run4/checkpoints/step_60000.pt"
 ]
-worked_path = "/workspace/gan_seg/outputs/exp/20251112_142843run4/checkpoints/step_63000.pt"
-ckpt_path = "/workspace/gan_seg/outputs/exp/20251119_201006/checkpoints/step_2000.pt"
-ckpt_path = worked_path
+ckpt_path = "/workspace/gan_seg/outputs/exp/20251123_113524/checkpoints/step_5500.pt"
 from OGCModel.segnet_av2 import MaskFormer3D
 from model.ptv3_mask_predictor import PTV3MaskPredictor
 from Predictor import get_mask_predictor
@@ -134,6 +133,7 @@ iou_dict = {}
 speed_dict = {}
 static_count = 0
 filtered_miou_list = []
+mask_instance_counts = []
 with torch.no_grad():
     for sample_flow, sample_mask in zip(flow_dataloader, mask_dataloader):
         # 获取flow数据（包含class_id）
@@ -182,6 +182,7 @@ with torch.no_grad():
             pred_mask_j = F.one_hot(pred_masks_logits_argmax_j).permute(1, 0).float()
             instance_mask_gt_j = instance_mask_gt[j]
             instance_mask_gt_onehot_j = F.one_hot(instance_mask_gt_j).to(device=pred_masks_logits_j.device)
+            mask_instance_counts.append(instance_mask_gt_onehot_j.shape[1])
             miou_value = calculate_miou(pred_masks_logits_j, instance_mask_gt_onehot_j.permute(1, 0),min_points=min_instance_size)
             miou_list_calculate.append(miou_value)
             valid_mask_num.append(instance_mask_gt_onehot_j.shape[1])
@@ -235,6 +236,11 @@ with torch.no_grad():
             break
 print(f"static count: {static_count}")
 print(f"static count ratio: {static_count / count}")
+print(f"mask instance counts: {np.mean(mask_instance_counts)}")
+print(f"mask instance counts std: {np.std(mask_instance_counts)}")
+print(f"mask instance counts max: {np.max(mask_instance_counts)}")
+print(f"mask instance counts min: {np.min(mask_instance_counts)}")
+print(f"mask instance counts median: {np.median(mask_instance_counts)}")
 print(f"mean miou: {np.mean(miou_list_calculate)}")
 print(f"std miou: {np.std(miou_list_calculate)}")
 print(f"max miou: {np.max(miou_list_calculate)}")

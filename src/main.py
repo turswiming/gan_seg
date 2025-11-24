@@ -79,6 +79,7 @@ def main(config, writer):
         optimizer_mask,
         alter_scheduler,
         scene_flow_smoothness_scheduler,
+        mask_scheduler,
     ) = initialize_models_and_optimizers(config, N, device)
 
     # Initialize loss functions
@@ -93,15 +94,13 @@ def main(config, writer):
 
     # Load checkpoint if resuming
     step = load_checkpoint(
-        resume,
-        resume_path,
-        checkpoint_dir,
-        device,
+        config,
         flow_predictor,
         mask_predictor,
         optimizer_flow,
         optimizer_mask,
         alter_scheduler,
+        mask_scheduler,
     )
 
     # Create checkpoint saver
@@ -203,18 +202,19 @@ def main(config, writer):
             log_prediction_histograms(config, writer, pred_flow, pred_mask, step)
 
             # Handle visualization
-            first_iteration, lineset, lineset_gt = handle_visualization(
-                config,
-                vis,
-                pcd,
-                gt_pcd,
-                point_cloud_firsts,
-                point_cloud_nexts,
-                pred_flow,
-                pred_mask,
-                sample,
-                first_iteration,
-            )
+            if config.vis.show_window:
+                first_iteration, lineset, lineset_gt = handle_visualization(
+                    config,
+                    vis,
+                    pcd,
+                    gt_pcd,
+                    point_cloud_firsts,
+                    point_cloud_nexts,
+                    pred_flow,
+                    pred_mask,
+                    sample,
+                    first_iteration,
+                )
 
             pass  # end loop
 
