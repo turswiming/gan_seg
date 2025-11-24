@@ -152,19 +152,22 @@ def main(config, writer):
             set_model_training_modes(flow_predictor, mask_predictor, train_flow, train_mask)
             flow_predictor.to(device)
             mask_predictor.to(device)
-
-            (pred_flow, pred_mask, point_cloud_firsts, point_cloud_nexts, cascade_flow_outs) = (
-                inference_models_general(
-                    flow_predictor,
-                    mask_predictor,
-                    sample,
-                    config=config,
-                    train_flow=train_flow,
-                    downsample=config.training.mask_downsample_factor,
-                    augment_params=config.training.augment_params,
+            try:
+                (pred_flow, pred_mask, point_cloud_firsts, point_cloud_nexts, cascade_flow_outs) = (
+                    inference_models_general(
+                        flow_predictor,
+                        mask_predictor,
+                        sample,
+                        config=config,
+                        train_flow=train_flow,
+                        downsample=config.training.mask_downsample_factor,
+                        augment_params=config.training.augment_params,
+                    )
                 )
-            )
-  
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                continue
             loss_downsample_num = getattr(config.training, "loss_downsample_num", None)
             if loss_downsample_num is not None:
                 for i in range(len(point_cloud_firsts)):

@@ -1,61 +1,200 @@
 # baseconfig.yaml
 # This is a base configuration file that sets default values for various parameters.
+__base__: "baseconfig.yaml"
+# ==================== Logging Configuration ====================
 log:
   name: "defaultname"
-  dir: "" #default save to /output/exp
+  dir: "../output/ablation/alter/test" # default save to /output/exp
+  tensorboard_log_interval: 7  # Log losses every N steps
+
+# ==================== Model Configuration ====================
 model:
+  # Model type lists for easier configuration
+  euler_flow_models: ["EulerFlowMLP", "EulerFlowMLPResidual"]
+  euler_mask_models: ["EulerMaskMLP", "EulerMaskMLPResidual", "EulerMaskMLPRoutine"]
+  
   flow:
-    name: "NSFP" # NSFP or OptimizedFlow
-    lr : 0.0001
-    lambda_reg: 0.1
-    NSFP:
-      num_layers: 8
-      num_hidden: 128
-      activation: "relu"
+    name: "FastFlow3D" # NSFP or OptimizedFlow or EularFlow
+    lr: 0.0001
+    FastFlow3D:
+      VOXEL_SIZE: [0.2, 0.2, 6]
+      PSEUDO_IMAGE_DIMS: [512, 512]
+      POINT_CLOUD_RANGE: [-51.2, -51.2, -3, 51.2, 51.2, 3]
+      FEATURE_CHANNELS: 32
+      SEQUENCE_LENGTH: 2
+      
   mask:
-    lr: 0.01
-    name: "OptimizedMask" #OptimizedMask or NMP #short for NeuralMaskPrior
-    slot_num: 50
-    NMP:
-      num_layers: 8
-      num_hidden: 128
-      activation: "sigmoid"
+    lr: 0.0001
+    name: "MaskFormer3D" # OptimizedMask or NMP or EulerMaskMLP
+    slot_num: 10
+    MaskFormer3D:
+      n_point: 2048
+      n_transformer_layer: 2
+      transformer_embed_dim: 128
+      transformer_input_pos_enc: false
 
+# ==================== Checkpoint Configuration ====================
+checkpoint:
+  resume: false
+  resume_path: "/home/lzq/workspace/gan_seg/outputs/ablation/mask_model/AV2Sequence/ours_4additional/run_0/checkpoints/step_4000.pt"
+  save_every_iters: 200
+  checkpoint_dir_name: "checkpoints"
+  latest_checkpoint_name: "latest.pt"
 
+# ==================== Dataset Configuration ====================
 dataset:
-  name: "KITTISF" # MOVI_F or AV2 or KITTISF
-  KITTISF:
-    data_root: "../kittisf"
-    downsampled: false
-    fixed_scene_id: "000001"  # Set to scene ID (e.g. "000000") to always use that scene, or null for random scenes
-    num_points: 8192  # Number of points to sample from each point cloud
-training:
-  max_iter: 3000
+  name: "AV2Sequence" # MOVI_F or AV2 or KITTISF or AV2Sequence
+  val_name: "AV2Sequence"
+  MOVI_FSequence:
+    dataset_path: "/workspace/movi/0"
+    motion_threshold: 0.01
+    max_k: 3
 
+# ==================== Training Configuration ====================
+training:
+  max_iter: 500
+  eval_loop: 100
+  begin_train_smooth: 0
+  begin_train_mask: 0
+  begin_train_point_smooth: 50
+  begin_train_flow: 0
+  begin_train_invariance: 300
+  begin_train_singular_value: 300
+  mask_downsample_factor: 1
+  flow_model_grad_clip: 1
+  mask_model_grad_clip: 1
+  # Training loop settings
+  continue_on_optimization_error: true
+  max_optimization_retries: 3
+
+# ==================== DataLoader Configuration ====================
 dataloader:
   batchsize: 1
+  num_workers: 0
+  pin_memory: true
+  drop_last: false
 
+# ==================== Alternating Training Configuration ====================
 alternate:
-  flow: [[1000,true],[1000,false]]
-  mask: [[1000,false],[1000,true]]
+  flow: [[10, true], [10, false]]
+  mask: [[10, false], [10, true]]
 
+# ==================== Loss Multipliers Configuration ====================
 lr_multi:
-  rec_loss: 0.0
-  flow_loss: 1
-  scene_flow_smoothness: 10
+  rec_loss: 10
+  flow_loss: 0.0
+  scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
-  point_smooth_loss: 0.0
+  point_smooth_loss: 0.1
+  eular_flow_loss: 0.0
+  KDTree_loss: 0
+  KNN_loss: 1.0
+  l1_regularization: 0.0
+  eular_mask_loss: 0
+  invariance_loss: 0.1
+  
+  # Scheduler configuration
+  scene_flow_smoothness_scheduler:
+    begin_iter: 0
+    end_iter: 1
+    begin_value: 1.0
+    end_value: 1.0
 
+# ==================== Loss Function Configuration ====================
 loss:
+  # Scene flow smoothness loss
   scene_flow_smoothness:
+    scale_flow_grad: 0.001
     each_mask_item:
       relative_gradient: 1
-      criterion: "L2"
+      criterion: "L1"
     sum_mask_item:
       relative_gradient: 1
       criterion: "L2"
+    square_mask: false
+    singular_value_loss_gradient: 0.001
+  
+  # KDTree loss configuration
+  kdtree:
+    max_distance: 1.0
+    reduction: "mean"
+    
+  # KNN loss configuration  
+  knn:
+    k: 1
+    reduction: "mean"
+    distance_max_threshold: 2
+    distance_min_threshold: 0
+  # L1 regularization configuration
+  l1_regularization:
+    threshold: 0.25
+    
+  # Reconstruction loss configuration
+  reconstruction:
+    use_optimized: true
+    
+  # Chamfer distance loss configuration
+  chamfer:
+    bidirectional: true
+    normalize: false
 
-
+# ==================== Visualization Configuration ====================
 vis:
   show_window: false
   debug_grad: false
+  log_histogram: false
+  debug_flow_magnitude: true
+  
+  # Visualization colors and settings
+  gt_point_color: [0, 1, 0]  # Green for ground truth points
+  pred_point_color: [1, 0, 0]  # Red for predicted points
+  
+  # Histogram logging settings
+  histogram:
+    softmax_scale: 10
+    log_interval: 50
+    
+  # Open3D window settings
+  window:
+    width: 1024
+    height: 768
+    title: "Scene Flow Visualization"
+
+# ==================== Paths Configuration ====================
+paths:
+  # Output directories
+  output_root: "../outputs"
+  experiment_dir: "exp"
+  
+  # Model checkpoints
+  pretrained_models: "../pretrained"
+  
+  # Data directories (can be overridden by dataset-specific configs)
+  data_root: "../data"
+  
+  # Logging and results
+  results_dir: "results"
+  logs_dir: "logs"
+
+# ==================== Hardware Configuration ====================
+hardware:
+  device: "auto"  # auto, cuda, cpu
+  cuda_device_id: 0
+  enable_anomaly_detection: true
+  
+  # Memory management
+  clear_cache_interval: 1  # Clear CUDA cache every N steps
+  garbage_collect_interval: 1  # Run garbage collection every N steps
+
+# ==================== Debugging Configuration ====================
+debug:
+  print_model_summary: false
+  print_loss_breakdown: false
+  save_intermediate_results: false
+  validate_gradients: false
+  
+  # Error handling
+  stop_on_nan: true
+  stop_on_inf: true
+eval:
+  eval_size: 10

@@ -230,6 +230,7 @@ class MOVIFSequenceDataset(nn.Module):
             "k": k,
             "ego_motion": torch.eye(4),  # Identity matrix for ego motion (not applicable for MOVI-F)
         }
+        
         cache[idx] = sample
         return sample
 
