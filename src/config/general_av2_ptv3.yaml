@@ -7,7 +7,7 @@ log:
 
 checkpoint:
   resume: false        # 是否从断点恢复
-  resume_path: "/workspace/gan_seg/outputs/exp/20251123_113524/checkpoints/step_15000.pt"
+  resume_path: "/workspace/gan_seg/outputs/exp/20251124_061700/checkpoints/step_7000.pt"
   overwrite_flow_predictor: true
   overwrite_flow_path: "/workspace/zeroflow_weights/argo/chamfer/checkpoint_epoch=049_step=0000078750_epoch_end.ckpt"
   save_every_iters: 500
@@ -22,12 +22,11 @@ model:
       FEATURE_CHANNELS: 32
       SEQUENCE_LENGTH: 2
   mask:
-    name: "MaskFormer3D"
-    lr: 2e-4
-    weight_decay: 0.005
-    block_lr_scale: 0.1  # Backbone learning rate = lr * block_lr_scale (official PTv3 setting)
-    slot_num: 30
-    num_classes: 6
+    name: "Sonata" #MaskFormer3D or PTV3 or Sonata
+    lr: 1e-6
+    weight_decay: 0.0001
+    block_lr_scale: 0.1
+    slot_num: 10
     lr_decay: 0.7
     lr_decay_step: 80000
     lr_clip: 1e-7
@@ -46,24 +45,39 @@ model:
       grid_size: 0.1  # Grid size for voxelization (10cm)
       enable_flash: true  # Enable flash attention (requires CUDA >= 11.6)
       enable_rpe: false  # Relative position encoding (disabled when flash attention is enabled)
-      enc_depths: [2, 2, 2, 6, 2]  # Encoder depths for each stage
-      enc_channels: [32, 64, 128, 256, 512]  # Encoder channels for each stage
-      dec_depths: [2, 2, 2, 2]  # Decoder depths
-      dec_channels: [256, 256, 256, 256]  # Decoder channels
+      enc_depths: [2,2, 2, 6, 2]  # Encoder depths for each stage
+      enc_channels: [32,64, 128, 256, 512]  # Encoder channels for each stage
+      dec_depths: [1, 1, 1, 1]  # Decoder depths
+      dec_channels: [512, 512, 512, 256]  # Decoder channels
       # Self-supervised pretrained model (Sonata)
       # pretrained_name: "Sonata-Small"  # Use Sonata self-supervised pretrained model
       # Alternative options:
       # pretrained_path: "/workspace/sonata_small.pth"  # Local path to pretrained weights (.pth or .pt file)
       # pretrained_name: "scannet-semseg-pt-v3m1-0-base"  # Supervised pretrained model from HuggingFace
+    Sonata:
+      in_channels: 3  # xyz coordinates
+      feat_dim: 256
+      grid_size: 0.01  # Grid size for voxelization (10cm)
+      enable_flash: true  # Enable flash attention (requires CUDA >= 11.6)
+      enable_rpe: false  # Relative position encoding (disabled when flash attention is enabled)
+      # Sonata model name: "sonata" (default) or "sonata_small"
+      model_name: "sonata"  # Use Sonata self-supervised pretrained model
+      repo_id: "facebook/sonata"  # HuggingFace repository ID
+      # Alternative: use local checkpoint path
+      # pretrained_path: "/workspace/sonata.pth"  # Local path to pretrained weights
+      # Custom config to override model config (optional)
+      # custom_config:
+      #   enc_patch_size: [1024, 1024, 1024, 1024, 1024]
+      #   enable_flash: false
 
 dataset:
-  name: "AV2_SceneFlowZoo"
+  name: "MOVI_FSequence"
   AV2_SceneFlowZoo:
     point_size: 32768
     root_dir: "/workspace/av2data/train"
     subsequence_length: 2
     sliding_window_step_size: 1
-    with_ground: false
+    with_ground: true
     with_rgb: false
     eval_type: "bucketed_epe"
     expected_camera_shape: (194, 256, 3)
@@ -71,12 +85,15 @@ dataset:
     use_gt_flow: false
     flow_data_path: "/workspace/av2flow/train/"
     min_instance_size: 50
-
-  val_name: "AV2_SceneFlowZoo_val"
+  MOVI_FSequence:
+    dataset_path: "/workspace/movi/0"
+    motion_threshold: 0.01
+    max_k: 3
+  val_name: "MOVI_FSequence"
   AV2_SceneFlowZoo_val_flow:
     point_size: 32768
     root_dir: "/workspace/av2data/val"
-    with_ground: false
+    with_ground: true
     with_rgb: false
     eval_type: "bucketed_epe"
     expected_camera_shape: (194, 256, 3)
@@ -97,7 +114,7 @@ dataset:
     eval_args_output_path: "eval_results/bucketed_epe/nsfp_distillation_1x/"
     min_instance_size: 50
 lr_multi:
-  rec_loss: 3
+  rec_loss: 0
   flow_loss: 0.0
   scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0
@@ -120,7 +137,7 @@ lr_multi:
 training:
   use_icp_inference_flow: false
   max_iter: 300000
-  eval_loop: 500
+  eval_loop: 100
   begin_train_smooth: 0
   begin_train_point_smooth: 3000
   begin_train_flow: 20000
@@ -139,20 +156,20 @@ training:
     mirror_x: true
     mirror_z: false
 dataloader:
-  batchsize: 2
-  val_batchsize: 32
+  batchsize: 1
+  val_batchsize: 16
   num_workers: 8
 loss:
   scale_flow_magnitude: 1
   clamp_flow_magnitude: 100
   scene_flow_smoothness:
-    square_mask: false 
+    square_mask: true 
     scale_flow_grad: 0.00001
     each_mask_item:
       relative_gradient: 1
       criterion: "L2"
     sum_mask_item:
-      relative_gradient: 1
+      relative_gradient: 0
       criterion: "L2"
     singular_value_loss_gradient: 0.001
   point_smooth_loss:

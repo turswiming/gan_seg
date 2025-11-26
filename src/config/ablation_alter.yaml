@@ -6,7 +6,7 @@ log:
   name: "defaultname"
   dir: "../output/ablation/alter/test" # default save to /output/exp
   tensorboard_log_interval: 7  # Log losses every N steps
-
+seed: 43
 # ==================== Model Configuration ====================
 model:
   # Model type lists for easier configuration
@@ -52,14 +52,14 @@ dataset:
 
 # ==================== Training Configuration ====================
 training:
-  max_iter: 500
-  eval_loop: 100
+  max_iter: 1000
+  eval_loop: 50
   begin_train_smooth: 0
   begin_train_mask: 0
   begin_train_point_smooth: 50
   begin_train_flow: 0
-  begin_train_invariance: 300
-  begin_train_singular_value: 300
+  begin_train_invariance: 600
+  begin_train_singular_value: 600
   mask_downsample_factor: 1
   flow_model_grad_clip: 1
   mask_model_grad_clip: 1
@@ -81,7 +81,7 @@ alternate:
 
 # ==================== Loss Multipliers Configuration ====================
 lr_multi:
-  rec_loss: 10
+  rec_loss: 3
   flow_loss: 0.0
   scene_flow_smoothness: 0.1
   rec_flow_loss: 0.0

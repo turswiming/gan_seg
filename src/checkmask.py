@@ -48,7 +48,7 @@ av2_sceneflow_zoo_flow = AV2SceneFlowZoo(
     with_rgb=False,
     flow_data_path=Path("/workspace/av2flow/val"),
     range_crop_type="ego",
-    point_size=8192,
+    point_size=30000,
     load_flow=True,
     load_boxes=False,
     min_instance_size=min_instance_size,
@@ -64,7 +64,7 @@ av2_sceneflow_zoo_mask = AV2SceneFlowZoo(
     with_rgb=False,
     flow_data_path=Path("/workspace/av2flow/val"),
     range_crop_type="ego",
-    point_size=8192,
+    point_size=30000,
     load_flow=False,
     load_boxes=True,
     min_instance_size=min_instance_size,
@@ -134,6 +134,7 @@ speed_dict = {}
 static_count = 0
 filtered_miou_list = []
 mask_instance_counts = []
+mask_instance_counts_v2 = []
 with torch.no_grad():
     for sample_flow, sample_mask in zip(flow_dataloader, mask_dataloader):
         # 获取flow数据（包含class_id）
@@ -143,6 +144,17 @@ with torch.no_grad():
         class_ids_gt = sample_flow["class_ids"]  # (N,)
         pc_first_mask = sample_mask["point_cloud_first"]  # (N, 3)
         instance_mask_gt = sample_mask.get("mask")
+        print(instance_mask_gt.shape)
+        #get the ground true mask nums
+        for i in range(len(instance_mask_gt)):
+            
+            torch.unique(instance_mask_gt[i])
+            print(f"ground true mask nums: {len(torch.unique(instance_mask_gt[i]))}")
+            mask_instance_counts_v2.append(len(torch.unique(instance_mask_gt[i])))
+        count += 1
+        if count > max_count:
+            break
+        continue
         for flow in sample_flow["flow"]:
             flow_std = flow.std(dim=0).max()
             if flow_std < 0.01:
@@ -231,9 +243,15 @@ with torch.no_grad():
                 iou_dict[class_mode].append(max_iou)
             if len(filtered_iou_list) > 0:
                 filtered_miou_list.append(np.mean(filtered_iou_list))
-        count += 1
-        if count > max_count:
-            break
+
+
+print(f"mask instance counts mean: {np.mean(mask_instance_counts_v2)}")
+print(f'5% percentile: {np.percentile(mask_instance_counts_v2, 5)}')
+print(f'95% percentile: {np.percentile(mask_instance_counts_v2, 95)}')
+print(f"mask instance counts max: {np.max(mask_instance_counts_v2)}")
+print(f"mask instance counts min: {np.min(mask_instance_counts_v2)}")
+print(f"mask instance counts median: {np.median(mask_instance_counts_v2)}")
+exit()
 print(f"static count: {static_count}")
 print(f"static count ratio: {static_count / count}")
 print(f"mask instance counts: {np.mean(mask_instance_counts)}")

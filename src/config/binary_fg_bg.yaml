@@ -1,0 +1,78 @@
+seed: 42
+__base__: "baseconfig.yaml"
+log:
+  dir: ""
+
+dataset:
+  name: "AV2Binary"
+  train:
+    root_dir: "/workspace/av2data/train"
+    flow_data_path: "/workspace/av2flow/train"
+    expected_camera_shape: [194, 256, 3]
+    subsequence_length: 2
+    sliding_window_step_size: 1
+    with_rgb: false
+    range_crop_type: "ego"
+    point_size: 30000
+    with_ground: false
+    use_gt_flow: true
+    eval_type: "bucketed_epe"
+    load_flow: true
+    load_boxes: false
+    min_instance_size: 50
+    cache_root: "/workspace/av2data/cache"
+    min_flow_threshold: 0.05
+    fg_class_ids: null
+  val:
+    root_dir: "/workspace/av2data/val"
+    flow_data_path: "/workspace/av2flow/val"
+    expected_camera_shape: [194, 256, 3]
+    subsequence_length: 2
+    sliding_window_step_size: 1
+    with_rgb: false
+    range_crop_type: "ego"
+    point_size: 30000
+    with_ground: false
+    use_gt_flow: true
+    eval_type: "bucketed_epe"
+    load_flow: true
+    load_boxes: false
+    min_instance_size: 50
+    cache_root: "/workspace/av2data/cache/val"
+    min_flow_threshold: 0.05
+    fg_class_ids: null
+
+model:
+  name: "ptv3"
+  num_classes: 2
+  MaskFormer3D:
+    n_transformer_layer: 2
+    transformer_embed_dim: 256
+    transformer_input_pos_enc: false
+    scale: 1
+  PTV3:
+    in_channels: 3
+    feat_dim: 256
+    grid_size: 0.05
+    enable_flash: true
+    enable_rpe: false
+    enc_depths: [2, 2, 2, 6, 2]
+    enc_channels: [32, 64, 128, 256, 512]
+    dec_depths: [2, 2, 2, 2]
+    dec_channels: [64, 64, 128, 256]
+
+optim:
+  lr: 1e-4
+  weight_decay: 0.005
+  scheduler:
+    name: "cosine"
+
+training:
+  max_steps: 10000
+  batch_size: 4
+  eval_batch_size: 4
+  num_workers: 8
+  print_interval: 10
+  eval_interval: 10
+  grad_clip: 1.0
+

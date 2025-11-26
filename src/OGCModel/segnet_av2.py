@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from OGCModel.nn_util import Seq
-from OGCModel.pointnet2_util import PointnetFPModule, PointnetSAModuleMSG, PointnetSAModule
+from OGCModel.pointnet2_util import (
+    PointnetFPModule,
+    PointnetSAModuleMSG,
+    PointnetSAModule,
+)
 from OGCModel.transformer_util import MaskFormerHead
 
 BN_CONFIG = {"class": "GroupNorm", "num_groups": 4}
@@ -34,7 +38,10 @@ class MaskFormer3D(nn.Module):
                 npoint=int(n_point / 4),
                 radii=[1, 2],
                 nsamples=[64, 64],
-                mlps=[[3, 32 * scale, 32 * scale, 32 * scale], [3, 32 * scale, 32 * scale, 64 * scale]],
+                mlps=[
+                    [3, 32 * scale, 32 * scale, 32 * scale],
+                    [3, 32 * scale, 32 * scale, 64 * scale],
+                ],
                 use_xyz=use_xyz,
                 bn=bn,
             )
@@ -60,11 +67,22 @@ class MaskFormer3D(nn.Module):
             )
         )
         self.FP_modules = nn.ModuleList()
-        self.FP_modules.append(PointnetFPModule(mlp=[64 * scale + 3, 64 * scale, 64 * scale, 64 * scale], bn=bn))
         self.FP_modules.append(
-            PointnetFPModule(mlp=[32 * scale + 64 * scale + 128 * scale, 64 * scale, 64 * scale], bn=bn)
+            PointnetFPModule(
+                mlp=[64 * scale + 3, 64 * scale, 64 * scale, 64 * scale], bn=bn
+            )
         )
-        self.FP_modules.append(PointnetFPModule(mlp=[128 * scale + 256 * scale, 128 * scale, 128 * scale], bn=bn))
+        self.FP_modules.append(
+            PointnetFPModule(
+                mlp=[32 * scale + 64 * scale + 128 * scale, 64 * scale, 64 * scale],
+                bn=bn,
+            )
+        )
+        self.FP_modules.append(
+            PointnetFPModule(
+                mlp=[128 * scale + 256 * scale, 128 * scale, 128 * scale], bn=bn
+            )
+        )
 
         # MaskFormer head
         self.MF_head = MaskFormerHead(
@@ -76,7 +94,11 @@ class MaskFormer3D(nn.Module):
             transformer_hidden_dim=transformer_embed_dim,
             input_pos_enc=transformer_input_pos_enc,
         )
-        self.object_mlp = Seq(transformer_embed_dim).conv1d(transformer_embed_dim, bn=bn).conv1d(64*scale, activation=None)
+        self.object_mlp = (
+            Seq(transformer_embed_dim)
+            .conv1d(transformer_embed_dim, bn=bn)
+            .conv1d(64 * scale, activation=None)
+        )
 
     def forward(self, pc, point_feats):
         """
@@ -92,14 +114,19 @@ class MaskFormer3D(nn.Module):
             l_pc.append(li_pc)
             l_feats.append(li_feats)
         for i in range(-1, -(len(self.FP_modules) + 1), -1):
-            l_feats[i - 1] = self.FP_modules[i](l_pc[i - 1], l_pc[i], l_feats[i - 1], l_feats[i])
+            l_feats[i - 1] = self.FP_modules[i](
+                l_pc[i - 1], l_pc[i], l_feats[i - 1], l_feats[i]
+            )
 
         # Extract object embeddings with MaskFormer head
         slot = self.MF_head(l_feats[-1].transpose(1, 2), l_pc[-1])  # (B, K, D)
         slot = self.object_mlp(slot.transpose(1, 2))  # (B, D, K)
-
-        # Obtain mask by dot-product
-        mask = torch.einsum("bdn,bdk->bnk", F.normalize(l_feats[0], dim=1), F.normalize(slot, dim=1)) / 0.05
+        mask = (
+            torch.einsum(
+                "bdn,bdk->bnk", F.normalize(l_feats[0], dim=1), F.normalize(slot, dim=1)
+            )
+            / 0.05
+        )
         mask = mask.softmax(dim=-1)
         return mask
 
@@ -107,14 +134,21 @@ class MaskFormer3D(nn.Module):
 # Test the network implementation
 if __name__ == "__main__":
     segnet = MaskFormer3D(
-        n_slot=8, use_xyz=True, n_transformer_layer=2, transformer_embed_dim=128, transformer_input_pos_enc=False
+        n_slot=8,
+        use_xyz=True,
+        n_transformer_layer=2,
+        transformer_embed_dim=128,
+        transformer_input_pos_enc=False,
     ).cuda()
     pc = torch.randn(size=(4, 114514, 3)).cuda()
     point_feats = torch.randn(size=(4, 114514, 3)).cuda()
     mask = segnet(pc, point_feats)
     print(mask.shape)
 
-    print("Number of parameters:", sum(p.numel() for p in segnet.parameters() if p.requires_grad))
+    print(
+        "Number of parameters:",
+        sum(p.numel() for p in segnet.parameters() if p.requires_grad),
+    )
     print(
         "Number of parameters in PointNet++ encoder:",
         sum(p.numel() for p in segnet.SA_modules.parameters() if p.requires_grad),

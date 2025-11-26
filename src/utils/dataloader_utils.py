@@ -237,6 +237,7 @@ def create_dataloaders_general(config):
         from dataset.av2_sceneflow_zoo import AV2SceneFlowZoo
 
         dataset = AV2SceneFlowZoo(
+            point_size=config.dataset.AV2_SceneFlowZoo.point_size,
             root_dir=Path(config.dataset.AV2_SceneFlowZoo.root_dir),
             subsequence_length=config.dataset.AV2_SceneFlowZoo.subsequence_length,
             sliding_window_step_size=config.dataset.AV2_SceneFlowZoo.sliding_window_step_size,
@@ -281,6 +282,7 @@ def create_dataloaders_general(config):
 
         val_flow_config = config.dataset.AV2_SceneFlowZoo_val_flow
         val_flow_dataset = AV2SceneFlowZoo(
+            point_size=config.dataset.AV2_SceneFlowZoo.point_size,
             root_dir=Path(val_flow_config.root_dir),
             with_ground=val_flow_config.with_ground,
             use_gt_flow=val_flow_config.use_gt_flow,
@@ -297,6 +299,7 @@ def create_dataloaders_general(config):
         )
         val_mask_config = config.dataset.AV2_SceneFlowZoo_val_mask
         val_mask_dataset = AV2SceneFlowZoo(
+            point_size=config.dataset.AV2_SceneFlowZoo.point_size,
             root_dir=Path(val_mask_config.root_dir),
             with_ground=val_mask_config.with_ground,
             use_gt_flow=val_mask_config.use_gt_flow,

@@ -36,11 +36,8 @@ alters = {
         [[100,True],[100,False]],
         [[100,False],[100,True]]
         ],
-    "alter_1000":[
-        [[1000,True],[1000,False]],
-        [[1000,False],[1000,True]]
-        ],
 }
+run_times = 3
 # Color mapping for different configurations
 colors = {
     "train_both": "#ff7f0e",    # Orange
@@ -59,25 +56,28 @@ cwd = os.path.join(cwd, "../")
 
 save_path_base = os.path.join(cwd, f"../outputs/ablation/{ab_name}/")
 
-for key in alters.keys():
-    savepath = os.path.join(save_path_base, key)
-    if os.path.exists(savepath):
-        continue
-    os.makedirs(savepath, exist_ok=True)
-    
-    # Build command with appropriate loss weights
-    flow_str = str(alters[key][0])
-    mask_str = str(alters[key][1])
-    print("flow_str", flow_str)
-    command_list = [
-        "python", "main_general.py",
-        f"--config", "config/ablation_alter.yaml",
-        f"log.dir={savepath}",
-        f"alternate.flow=\"{flow_str}\"",
-        f"alternate.mask=\"{mask_str}\"",
-    ]
-    
-    # Execute training command
-    command = " ".join(command_list)
-    print(command)
-    result = subprocess.run(command, cwd=cwd, shell=True)
+for i in range(run_times):
+    for key in alters.keys():
+        savepath = os.path.join(save_path_base, f"run_{i}", key)
+        if os.path.exists(savepath):
+            print(f"savepath {savepath} already exists")
+            continue
+        os.makedirs(savepath, exist_ok=True)
+        
+        # Build command with appropriate loss weights
+        flow_str = str(alters[key][0])
+        mask_str = str(alters[key][1])
+
+        command_list = [
+            "python", "main_general.py",
+            f"--config", "config/ablation_alter.yaml",
+            f"log.dir={savepath}",
+            f"alternate.flow=\"{flow_str}\"",
+            f"alternate.mask=\"{mask_str}\"",
+            f"seed={i}",
+        ]
+        
+        # Execute training command
+        command = " ".join(command_list)
+        print(command)
+        result = subprocess.run(command, cwd=cwd, shell=True)

@@ -51,7 +51,7 @@ def initialize_models_and_optimizers(config, N, device):
     optimizer_flow = torch.optim.Adam(flow_predictor.parameters(), lr=config.model.flow.lr)
     
     # For PTV3 models, use block lr scaler to set different learning rates for backbone and head
-    if config.model.mask.name in ["PTV3", "PTV3Panoptic"]:
+    if config.model.mask.name in ["PTV3", "PTV3Panoptic", "Sonata"]:
         # Get block lr scale factor (default 0.1 as per official PTv3 config)
         block_lr_scale = getattr(config.model.mask, 'block_lr_scale', 0.1)
         

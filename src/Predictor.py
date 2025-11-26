@@ -6,6 +6,7 @@ predictor models based on the provided configuration. It supports both mask
 prediction and scene flow prediction models.
 """
 
+from timm.layers.drop import drop_path
 import torch
 from omegaconf import OmegaConf
 
@@ -149,39 +150,6 @@ def get_mask_predictor(mask_model_config, N):
             act_fn=ActivationFn.RELU,
             layer_size=model_detail.num_layers,
         ).to(device)
-    elif mask_model_config.name == "EulerMaskMLPRoutine":
-        from model.mask_predict_model import ActivationFn, EulerMaskMLPRoutine
-
-        model_detail = mask_model_config.MLP
-        return EulerMaskMLPRoutine(
-            slot_num=mask_model_config.slot_num,
-            filter_size=model_detail.num_hidden,
-            act_fn=ActivationFn.RELU,
-            layer_size=model_detail.num_layers,
-        ).to(device)
-    elif mask_model_config.name == "PointMaskFormer":
-        from model.pmformer import pmformer
-
-        config = dict(
-            lims=[[-48, 48], [-48, 48], [-3, 1.8]],
-            offset=0.5,
-            target_scale=1,
-            grid_meters=[0.2, 0.2, 0.1],
-            scales=[0.5, 1],
-            pooling_scale=[0.5, 1, 2, 4, 6, 8, 12],
-            sizes=[480, 480, 48],
-            n_class=mask_model_config.slot_num,
-            class_weight=1.0,
-            dice_weight=20.0,
-            mask_weight=50.0,
-            match_class_weight=1.0,
-            match_dice_weight=2.0,
-            match_mask_weight=5.0,
-            num_queries=30,
-            dec_layers=6,
-        )
-        return pmformer(config).to(device)
-
     elif mask_model_config.name == "MaskFormer3D":
         from OGCModel.segnet_av2 import MaskFormer3D
 
@@ -204,7 +172,7 @@ def get_mask_predictor(mask_model_config, N):
             slot_num=mask_model_config.slot_num,
             in_channels=getattr(ptv3_config, 'in_channels', 3),
             feat_dim=getattr(ptv3_config, 'feat_dim', 256),
-            grid_size=getattr(ptv3_config, 'grid_size', 0.01),
+            grid_size=getattr(ptv3_config, 'grid_size', 0.1),
             enable_flash=getattr(ptv3_config, 'enable_flash', True),
             enable_rpe=getattr(ptv3_config, 'enable_rpe', False),
             enc_depths=tuple(getattr(ptv3_config, 'enc_depths', [2, 2, 2, 6, 2])),
@@ -225,71 +193,83 @@ def get_mask_predictor(mask_model_config, N):
                 print(f"Warning: Could not load pretrained weights: {e}")
         
         return model
-    elif mask_model_config.name == "PTV3Panoptic":
-        from model.ptv3_mask_predictor import PTV3PanopticPredictor
+    elif mask_model_config.name == "Sonata":
+        from model.sonata_mask_predictor import SonataMaskPredictor
+        import sys
+        import os
+        
+        # Add sonata to path
+        sonata_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "sonata")
+        )
+        if sonata_path not in sys.path:
+            sys.path.insert(0, sonata_path)
+        
+        # Import sonata
+        try:
+            import sonata
+        except ImportError:
+            raise ImportError(
+                f"Sonata not found. Please ensure sonata is cloned in {os.path.dirname(__file__)}"
+            )
         
         # Use getattr for OmegaConf objects
-        ptv3_config = getattr(mask_model_config, 'PTV3', OmegaConf.create({}))
-        model = PTV3PanopticPredictor(
-            slot_num=mask_model_config.slot_num,
-            num_classes=getattr(ptv3_config, 'num_classes', 20),
-            in_channels=getattr(ptv3_config, 'in_channels', 3),
-            feat_dim=getattr(ptv3_config, 'feat_dim', 256),
-            grid_size=getattr(ptv3_config, 'grid_size', 0.01),
-            enable_flash=getattr(ptv3_config, 'enable_flash', True),
-            enable_rpe=getattr(ptv3_config, 'enable_rpe', False),
-        ).to(device)
+        sonata_config = getattr(mask_model_config, 'Sonata', OmegaConf.create({}))
         
-        # Load pretrained weights if specified
-        pretrained_path = getattr(ptv3_config, 'pretrained_path', None)
-        pretrained_name = getattr(ptv3_config, 'pretrained_name', None)
-        if pretrained_path or pretrained_name:
-            try:
-                from utils.ptv3_utils import load_ptv3_pretrained
-                model = load_ptv3_pretrained(model, pretrained_path, pretrained_name)
-                model = model.to(device)
-            except Exception as e:
-                print(f"Warning: Could not load pretrained weights: {e}")
+        # Load Sonata pretrained model
+        model_name = getattr(sonata_config, 'model_name', 'sonata')
+        repo_id = getattr(sonata_config, 'repo_id', 'facebook/sonata')
+        pretrained_path = getattr(sonata_config, 'pretrained_path', None)
+        custom_config = getattr(sonata_config, 'custom_config', None)
+        
+        # Load Sonata model
+        # Note: We don't modify in_channels in custom_config because it would change
+        # the model structure and prevent loading pretrained weights.
+        # Instead, we'll pad the input features in forward() to match model's expected channels.
+        try:
+            if pretrained_path:
+                # Load from local path
+                sonata_model = sonata.model.load(
+                    name=pretrained_path,
+                    custom_config=custom_config
+                )
+            else:
+                # Load from HuggingFace
+                sonata_model = sonata.model.load(
+                    name=model_name,
+                    repo_id=repo_id,
+                    custom_config=custom_config
+                )
+            print(f"Successfully loaded Sonata model: {model_name}")
+            print(f"Model in_channels: {sonata_model.embedding.in_channels}")
+            print("Note: Input features will be padded to match model's expected channels")
+        except Exception as e:
+            print(f"Warning: Could not load Sonata model: {e}")
+            print("Falling back to creating model without pretrained weights...")
+            # Fallback: create model with default config
+            from sonata.model import PointTransformerV3
+            input_in_channels = getattr(sonata_config, 'in_channels', 3)
+            sonata_model = PointTransformerV3(
+                in_channels=input_in_channels,
+                enable_flash=getattr(sonata_config, 'enable_flash', True),
+                enable_rpe=getattr(sonata_config, 'enable_rpe', False),
+                enc_mode=False,
+                drop_path=0.0,
+            )
+        
+        # Get config
+        grid_size = getattr(sonata_config, 'grid_size', 0.1)
+        feat_dim = getattr(sonata_config, 'feat_dim', 256)
+        
+        # Create SonataMaskPredictor with loaded Sonata model
+        model = SonataMaskPredictor(
+            slot_num=mask_model_config.slot_num,
+            in_channels=getattr(sonata_config, 'in_channels', 3),
+            feat_dim=feat_dim,
+            grid_size=grid_size,
+            sonata_model=sonata_model,
+        ).to(device)
         
         return model
-    elif mask_model_config.name == "PointGroup":
-        from model.ptv3_pointgroup import PointGroup
-        return PointGroup(
-            num_classes=getattr(mask_model_config, 'num_classes', 10),
-            in_channels=3,
-            feat_dim=256,
-            min_points_per_instance=50,
-            grid_size=0.05,
-        ).to(device)
-    elif mask_model_config.name == "PTV3MaskFormer3D":
-        from model.ptv3_maskformer3d import PTV3MaskFormer3D
-
-        ptv3_config = getattr(mask_model_config, 'PTV3', OmegaConf.create({}))
-        print(tuple(getattr(ptv3_config, 'dec_channels', [64, 64, 128, 256])))
-        return PTV3MaskFormer3D(
-            n_slot=mask_model_config.slot_num,
-            feat_dim=getattr(ptv3_config, 'feat_dim', 256),
-            transformer_embed_dim=getattr(ptv3_config, 'transformer_embed_dim', 256),
-            n_transformer_layer=getattr(ptv3_config, 'n_transformer_layer', 2),
-            transformer_n_head=getattr(ptv3_config, 'transformer_n_head', 8),
-            transformer_input_pos_enc=getattr(ptv3_config, 'transformer_input_pos_enc', False),
-            in_channels=getattr(ptv3_config, 'in_channels', 3),
-            grid_size=getattr(ptv3_config, 'grid_size', 0.01),
-            enable_flash=getattr(ptv3_config, 'enable_flash', True),
-            enable_rpe=getattr(ptv3_config, 'enable_rpe', False),
-            enc_depths=tuple(getattr(ptv3_config, 'enc_depths', [2, 2, 2, 6, 2])),
-            enc_channels=tuple(getattr(ptv3_config, 'enc_channels', [32, 64, 128, 256, 512])),
-            dec_depths=tuple(getattr(ptv3_config, 'dec_depths', [2, 2, 2, 2])),
-            dec_channels=tuple(getattr(ptv3_config, 'dec_channels', [64, 64, 128, 256])),
-        ).to(device)
-    elif mask_model_config.name == "PTV3Mask3D":
-        from model.ptv3_mask3d import PTV3Mask3D
-        return PTV3Mask3D(
-            num_queries=mask_model_config.slot_num,
-            num_classes=getattr(mask_model_config, 'num_classes', 10),
-            in_channels=3,
-            grid_size=0.05,
-            feat_dim=256,
-        ).to(device)
     else:
         raise NotImplementedError("Mask predictor type not implemented")

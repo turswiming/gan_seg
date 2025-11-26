@@ -1,0 +1,332 @@
+log:
+  name: defaultname
+  dir: ../outputs/exp/20251112_142843
+  tensorboard_log_interval: 7
+model:
+  euler_flow_models:
+  - EulerFlowMLP
+  - EulerFlowMLPResidual
+  euler_mask_models:
+  - EulerMaskMLP
+  - EulerMaskMLPResidual
+  - EulerMaskMLPRoutine
+  flow:
+    name: FastFlow3D
+    lr: 2.0e-06
+    NSFP:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    EulerFlowMLP:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    EulerFlowMLPResidual:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    FastFlow3D:
+      VOXEL_SIZE:
+      - 0.2
+      - 0.2
+      - 6
+      PSEUDO_IMAGE_DIMS:
+      - 512
+      - 512
+      POINT_CLOUD_RANGE:
+      - -51.2
+      - -51.2
+      - -3
+      - 51.2
+      - 51.2
+      - 3
+      FEATURE_CHANNELS: 32
+      SEQUENCE_LENGTH: 2
+  mask:
+    lr: 0.001
+    name: MaskFormer3D
+    slot_num: 20
+    NMP:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    EulerMaskMLP:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    EulerMaskMLPResidual:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    EulerMaskMLPRoutine:
+      num_layers: 8
+      num_hidden: 128
+      activation: leakyrelu
+    weight_decay: 0.0
+    lr_decay: 0.7
+    lr_decay_step: 80000
+    lr_clip: 1.0e-05
+    MaskFormer3D:
+      n_point: 8192
+      n_transformer_layer: 2
+      transformer_embed_dim: 256
+      transformer_input_pos_enc: false
+checkpoint:
+  resume: true
+  resume_path: /workspace/gan_seg/outputs/exp/20251112_142843run4/checkpoints/step_63000.pt
+  save_every_iters: 300
+  checkpoint_dir_name: checkpoints
+  latest_checkpoint_name: latest.pt
+  overwrite_flow_predictor: false
+  overwrite_flow_path: /workspace/zeroflow_weights/argo/chamfer/checkpoint_epoch=049_step=0000078750_epoch_end.ckpt
+dataset:
+  name: AV2_SceneFlowZoo
+  val_name: AV2_SceneFlowZoo_val
+  KITTISF:
+    data_root: ../kittisf
+    downsampled: false
+    fixed_scene_id: '000001'
+    num_points: 8192
+    val_name: KITTISF
+    processed_subdir: processed
+    data_subdir: data
+  AV2:
+    fixed_scene_idx: 100
+    data_root: ../argoverse2
+    train_scene_path: /workspace/gan_seg/demo_data/demo/train/8de6abb6-6589-3da7-8e21-6ecc80004a36.h5
+    test_scene_path: /workspace/gan_seg/demo_data/demo/val/25e5c600-36fe-3245-9cc0-40ef91620c22.h5
+    fix_ego_motion: true
+    apply_ego_motion: true
+    motion_threshold: 0.05
+  MOVI_F:
+    data_root: ../movi_f
+    num_points: 8192
+    dataset_path: ../movi_f/dataset
+    motion_threshold: 0.01
+    depth_file_pattern: depth_*.tiff
+    segmentation_file_pattern: segmentation_*.png
+    metadata_file: metadata.json
+    metadata_subdir: metadata/480p
+    depth_subdir: Depth/480p
+    annotations_subdir: Annotations/480p
+    jpeg_subdir: JPEGImages/480p
+  AV2Sequence:
+    data_root: ../argoverse2_sequence
+    sequence_length: 10
+    max_k: 3
+    fix_ego_motion: true
+    apply_ego_motion: true
+    motion_threshold: 0.05
+  MOVI_FSequence:
+    data_root: ../movi_f_sequence
+    dataset_path: ../movi_f_sequence/dataset
+    max_k: 3
+    motion_threshold: 0.05
+    fixed_scene_idx: 5
+    depth_file_pattern: depth_*.tiff
+    segmentation_file_pattern: segmentation_*.png
+    metadata_file: metadata.json
+  KITTISequence:
+    data_root: ../kitti_sequence
+    max_k: 3
+    num_points: 8192
+    downsampled: false
+    motion_threshold: 0.05
+    processed_subdir: processed
+    data_subdir: data
+  AV2_SceneFlowZoo:
+    point_size: 8192
+    root_dir: /workspace/av2data/train
+    subsequence_length: 2
+    sliding_window_step_size: 1
+    with_ground: false
+    with_rgb: false
+    eval_type: bucketed_epe
+    expected_camera_shape: (194, 256, 3)
+    cache_root: /workspace/av2data/cache
+    use_gt_flow: false
+    flow_data_path: /workspace/av2flow/train/
+    min_instance_size: 50
+  KITTISF_new:
+    data_root: /workspace/kittisf_downwampled/kittisf_downsampled/data
+    num_points: 8192
+    seed: 42
+  AV2_SceneFlowZoo_val_flow:
+    point_size: 8192
+    root_dir: /workspace/av2data/val
+    with_ground: false
+    with_rgb: false
+    eval_type: bucketed_epe
+    expected_camera_shape: (194, 256, 3)
+    use_gt_flow: true
+    cache_root: /workspace/av2data/cache
+    flow_data_path: /workspace/av2flow/val/
+    eval_args_output_path: eval_results/bucketed_epe/nsfp_distillation_1x/
+  AV2_SceneFlowZoo_val_mask:
+    root_dir: /workspace/av2data/val
+    with_ground: false
+    with_rgb: false
+    eval_type: bucketed_epe
+    expected_camera_shape: (194, 256, 3)
+    use_gt_flow: false
+    cache_root: /workspace/av2data/cache
+    flow_data_path: /workspace/av2flow/val/
+    eval_args_output_path: eval_results/bucketed_epe/nsfp_distillation_1x/
+    min_instance_size: 50
+training:
+  max_iter: 300000
+  eval_loop: 150
+  begin_train_smooth: 0
+  begin_train_mask: 0
+  begin_train_point_smooth: 3000
+  begin_train_flow: 15000
+  mask_downsample_factor: 1
+  flow_model_grad_clip: 1
+  mask_model_grad_clip: 1
+  continue_on_optimization_error: true
+  max_optimization_retries: 3
+  begin_train_invariance: 39000
+  grad_accumulation_steps: 2
+  augment_params:
+    angle_range:
+    - -1.4
+    - 1.4
+    translation_range:
+    - 1
+    - 1
+    - 0.2
+    scale_range:
+    - 0.95
+    - 1.05
+    mirror_x: true
+    mirror_z: false
+    regression_center_point:
+    - true
+    - true
+    - true
+    rotate_axis: z
+  use_icp_inference_flow: false
+dataloader:
+  batchsize: 8
+  num_workers: 4
+  pin_memory: true
+  drop_last: false
+  val_batchsize: 64
+alternate:
+  flow:
+  - - 100
+    - true
+  - - 100
+    - true
+  mask:
+  - - 100
+    - true
+  - - 100
+    - true
+lr_multi:
+  rec_loss: 10
+  flow_loss: 0.0
+  scene_flow_smoothness: 30
+  rec_flow_loss: 0.0
+  point_smooth_loss: 0.1
+  eular_flow_loss: 0.0
+  KDTree_loss: 0
+  KNN_loss: 1
+  l1_regularization: 0.0
+  eular_mask_loss: 0
+  scene_flow_smoothness_scheduler:
+    begin_iter: 0
+    end_iter: 8000
+    begin_value: 1.0
+    end_value: 1.0
+  invariance_loss: 0.1
+loss:
+  scene_flow_smoothness:
+    scale_flow_grad: 1.0e-05
+    each_mask_item:
+      relative_gradient: 1
+      criterion: L2
+    sum_mask_item:
+      relative_gradient: 0
+      criterion: L2
+    square_mask: true
+  kdtree:
+    max_distance: 1.0
+    reduction: mean
+  knn:
+    k: 1
+    reduction: mean
+    distance_max_threshold: 2
+    distance_min_threshold: 0.0
+    ignore_ground: false
+  l1_regularization:
+    threshold: 0.25
+  reconstruction:
+    use_optimized: true
+  chamfer:
+    bidirectional: true
+    normalize: false
+  point_smooth_loss:
+    knn_loss_params:
+      k: 32
+      radius: 1.0
+      loss_norm: 1
+    ball_q_loss_params:
+      k: 64
+      radius: 2.0
+      loss_norm: 1
+  scale_flow_magnitude: 1
+  reconstruction_loss:
+    using_legend_loss: false
+vis:
+  show_window: false
+  debug_grad: false
+  log_histogram: false
+  debug_flow_magnitude: true
+  gt_point_color:
+  - 0
+  - 1
+  - 0
+  pred_point_color:
+  - 1
+  - 0
+  - 0
+  histogram:
+    softmax_scale: 10
+    log_interval: 50
+  window:
+    width: 1024
+    height: 768
+    title: Scene Flow Visualization
+paths:
+  output_root: ../outputs
+  experiment_dir: exp
+  pretrained_models: ../pretrained
+  data_root: ../data
+  results_dir: results
+  logs_dir: logs
+hardware:
+  device: auto
+  cuda_device_id: 0
+  enable_anomaly_detection: true
+  clear_cache_interval: 1
+  garbage_collect_interval: 1
+debug:
+  print_model_summary: false
+  print_loss_breakdown: false
+  save_intermediate_results: false
+  validate_gradients: false
+  stop_on_nan: true
+  stop_on_inf: true
+seed: 42
+eval:
+  eval_size: 50
+  min_points: 50
+  ignore_class_ids:
+  - -1
+  - 0
+  eval_flow_size: 50
+  eval_mask_size: 50
+--config: null
+config/general_av2:
+  yaml: null

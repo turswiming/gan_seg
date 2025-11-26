@@ -147,6 +147,7 @@ class KittisfSceneFlowDataset(Dataset):
         point_cloud_first, point_cloud_next, flow, mask = downsample_points(
             point_cloud_first, point_cloud_next, flow, mask, self.num_points
         )
+        print(f"point_cloud_first shape: {point_cloud_first.shape}")
         # 返回与 AV2SceneFlowZoo 相同的格式
         sample = {
             "point_cloud_first": point_cloud_first,

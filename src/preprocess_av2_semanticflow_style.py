@@ -420,7 +420,6 @@ def create_reading_index(data_dir: Path):
 def main(argo_dir: str,
          output_dir: str,
          split: str = 'train',
-         av2_type: str = 'sensor',
          nproc: int = 1,
          with_flow: bool = True,
          with_ssl: bool = False,
@@ -441,8 +440,8 @@ def main(argo_dir: str,
         only_index: If True, only create index files without processing data
     """
 
-    data_dir = Path(argo_dir) / av2_type / split
-    output_dir = Path(output_dir) / av2_type / split
+    data_dir = Path(argo_dir) / split
+    output_dir = Path(output_dir) / split
 
     if only_index:
         create_reading_index(output_dir)
@@ -455,7 +454,7 @@ def main(argo_dir: str,
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Processing Argoverse2 {av2_type} dataset ({split} split)")
+    print(f"Processing Argoverse2 dataset ({split} split)")
     print(f"Input directory: {data_dir}")
     print(f"Output directory: {output_dir}")
     print(f"Number of processes: {nproc}")

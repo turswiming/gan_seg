@@ -365,14 +365,10 @@ def forward_mask_prediction_general(pc_tensors, mask_predictor):
     if len(set([pc.shape[0] for pc in pc_tensors])) == 1:
         pc_tensors = torch.cat([pc.unsqueeze(0) for pc in pc_tensors], dim=0)
         from model.ptv3_mask_predictor import PTV3MaskPredictor
-        from model.ptv3_pointgroup import PointGroup
-        from model.ptv3_mask3d import PTV3Mask3D
-        from model.ptv3_maskformer3d import PTV3MaskFormer3D
+        from model.sonata_mask_predictor import SonataMaskPredictor
         if (
             isinstance(mask_predictor, PTV3MaskPredictor)
-            or isinstance(mask_predictor, PTV3Mask3D)
-            or isinstance(mask_predictor, PointGroup)
-            or isinstance(mask_predictor, PTV3MaskFormer3D)
+            or isinstance(mask_predictor, SonataMaskPredictor)
         ):
             pred_mask = mask_predictor.forward(pc_tensors)
             pred_mask = pred_mask.permute(0, 2, 1)
@@ -383,8 +379,9 @@ def forward_mask_prediction_general(pc_tensors, mask_predictor):
         return pred_masks
     for pc_tensor in pc_tensors:
         from model.ptv3_mask_predictor import PTV3MaskPredictor
-
-        if isinstance(mask_predictor, PTV3MaskPredictor):
+        from model.sonata_mask_predictor import SonataMaskPredictor
+        if isinstance(mask_predictor, PTV3MaskPredictor) or isinstance(mask_predictor, SonataMaskPredictor):
+            pc_tensor = pc_tensor.unsqueeze(0).contiguous()
             pred_mask = mask_predictor.forward(pc_tensor)
             # pred_mask = pred_mask.permute(0, 2, 1)
             pred_masks.append(pred_mask.squeeze(0))
@@ -439,13 +436,13 @@ def augment_transform(pc1, pc2, flow, cascade_flow_outs, aug_params):
             cascade_flow = cascade_flow @ rot.T
             cascade_flow_outs[i] = cascade_flow
     # random translation
-    translation = torch.rand(3).to(pc1.device) * 2 - 1  # uniform(-1, 1)
-    translation = translation * torch.tensor([translation_range[0], translation_range[1], translation_range[2]]).to(
-        pc1.device
-    )
-    translation = translation.to(pc1.device)
-    pc1 = pc1 + translation
-    pc2 = pc2 + translation
+    # translation = torch.rand(3).to(pc1.device) * 2 - 1  # uniform(-1, 1)
+    # translation = translation * torch.tensor([translation_range[0], translation_range[1], translation_range[2]]).to(
+    #     pc1.device
+    # )
+    # translation = translation.to(pc1.device)
+    # pc1 = pc1 + translation
+    # pc2 = pc2 + translation
 
     # random scaling
     scale = torch.rand(1).item()
@@ -470,17 +467,17 @@ def augment_transform(pc1, pc2, flow, cascade_flow_outs, aug_params):
                     cascade_flow = cascade_flow_outs[i]
                     cascade_flow[:, 0] = -cascade_flow[:, 0]
                     cascade_flow_outs[i] = cascade_flow
-    if mirror_z:
-        mirror_z = torch.rand(1).item()
-        if mirror_z < 0.5:
-            pc1[:, 2] = -pc1[:, 2]
-            pc2[:, 2] = -pc2[:, 2]
-            flow[:, 2] = -flow[:, 2]
-            if cascade_flow_outs is not None:
-                for i in range(len(cascade_flow_outs)):
-                    cascade_flow = cascade_flow_outs[i]
-                    cascade_flow[:, 2] = -cascade_flow[:, 2]
-                    cascade_flow_outs[i] = cascade_flow
+    # if mirror_z:
+    #     mirror_z = torch.rand(1).item()
+    #     if mirror_z < 0.5:
+    #         pc1[:, 2] = -pc1[:, 2]
+    #         pc2[:, 2] = -pc2[:, 2]
+    #         flow[:, 2] = -flow[:, 2]
+    #         if cascade_flow_outs is not None:
+    #             for i in range(len(cascade_flow_outs)):
+    #                 cascade_flow = cascade_flow_outs[i]
+    #                 cascade_flow[:, 2] = -cascade_flow[:, 2]
+    #                 cascade_flow_outs[i] = cascade_flow
     # if mirror_z < 0.5:
     #     pc1[:, 2] = -pc1[:, 2]
     #     pc2[:, 2] = -pc2[:, 2]
